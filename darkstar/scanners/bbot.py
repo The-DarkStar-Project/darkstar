@@ -88,7 +88,7 @@ class BBotScanner:
                         f"Adding to database: {finding_object.title} on {finding_object.host}"
                     )
                     insert_vulnerability_to_database(
-                        vulnerability=finding_object.__dict__, org_name=self.org_name
+                        vulnerability=finding_object, org_name=self.org_name
                     )
                 except Exception as e:
                     logger.error(f"Error processing vulnerability: {e}")

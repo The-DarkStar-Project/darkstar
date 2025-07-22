@@ -1,5 +1,5 @@
 # ========== BUILD STAGE FOR GO/NUCLEI ==========
-FROM golang:1.23.4-bullseye AS go-builder
+FROM golang:1.24.1-bullseye AS go-builder
 
 # Install nuclei
 RUN go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
