@@ -12,7 +12,7 @@ import logging
 import os
 from typing import Dict, List, Optional
 
-from tools.bruteforce.hydrapy import HydraAttack
+from .hydrapy import HydraAttack
 from colorama import Fore, Style
 
 

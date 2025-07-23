@@ -28,10 +28,10 @@ class AttackResult:
 
 
 class HydraConfig:
-    DEFAULT_WORDLISTS_DIR = Path("tools/bruteforce/wordlists")
+    DEFAULT_WORDLISTS_DIR = Path("darkstar/tools/bruteforce/wordlists")
 
     def __init__(self):
-        self.DEFAULT_WORDLISTS_DIR.mkdir(exist_ok=True)
+        self.DEFAULT_WORDLISTS_DIR.mkdir(parents=True, exist_ok=True)
 
     def get_default_wordlist_path(self, protocol: str, type_: str) -> Path:
         return self.DEFAULT_WORDLISTS_DIR / f"{protocol}_{type_}.txt"
@@ -113,7 +113,8 @@ class HydraAttack:
                     # Stop on first success if configured
                     if self.stop_on_success:
                         try:
-                            process.terminate()  # Don't await here
+                            # Terminate the process - works for both real processes and mocks
+                            process.terminate()
                             return True
                         except Exception as e:
                             logger.error(f"Error terminating process: {e}")

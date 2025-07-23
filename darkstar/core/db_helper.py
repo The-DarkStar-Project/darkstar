@@ -14,7 +14,7 @@ from html import escape
 import pandas as pd
 from datetime import datetime
 
-from core.models.vulnerability import Vulnerability
+from .models.vulnerability import Vulnerability
 
 logger = logging.getLogger(__name__)
 
@@ -157,9 +157,9 @@ def prepare_cve_data(vuln):
     )
 
     # Debugging log: Ensure no lists remain
-    print("CVE Data Types and Values:")
+    logger.debug("CVE Data Types and Values:")
     for i, field in enumerate(cve_data):
-        print(f"Field {i}: Type = {type(field)}, Value = {field}")
+        logger.debug(f"Field {i}: Type = {type(field)}, Value = {field}")
 
     return cve_data
 
@@ -200,9 +200,9 @@ def prepare_non_cve_data(vuln):
     )
 
     # Debugging log: Ensure no lists remain
-    print("Non-CVE Data Types and Values:")
+    logger.debug("Non-CVE Data Types and Values:")
     for i, field in enumerate(non_cve_data):
-        print(f"Field {i}: Type = {type(field)}, Value = {field}")
+        logger.debug(f"Field {i}: Type = {type(field)}, Value = {field}")
 
     return non_cve_data
 

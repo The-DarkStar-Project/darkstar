@@ -24,32 +24,11 @@ import xml.etree.ElementTree as ET
 from colorama import Fore, Style
 from typing import List, Dict, Any
 
-from openvas.openvas_connector import OpenVASAPIClient
-from core.db_helper import insert_vulnerability_to_database
-from core.models.vulnerability import Vulnerability
+from .openvas_connector import OpenVASAPIClient
+from ..core.db_helper import insert_vulnerability_to_database
+from ..core.models.vulnerability import Vulnerability
 
 logger = logging.getLogger("openvas_scanner")
-
-
-def insert_vulnerability_to_database(vulnerability, org_name):
-    """
-    Compatibility function for inserting vulnerabilities.
-    This is kept for backwards compatibility with existing code.
-    """
-    from core.db_helper import insert_vulnerability_to_database as db_insert
-
-    return db_insert(vulnerability, org_name)
-
-
-def insert_vulnerability_to_database(vulnerability, org_name):
-    """
-    Placeholder function for database insertion.
-    This should be implemented based on your database requirements.
-    """
-    logger.info(
-        f"Would insert vulnerability: {vulnerability.title} for org: {org_name}"
-    )
-    # TODO: Implement actual database insertion logic
 
 
 class OpenVASScanner:

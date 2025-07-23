@@ -14,7 +14,7 @@ from typing import List, Dict
 
 import dns.asyncresolver
 
-from scanners.portscan.rustscan_utils import verify_all_installations, save_results
+from .rustscan_utils import verify_all_installations, save_results
 
 
 logger = logging.getLogger(__name__)

@@ -1,199 +1,364 @@
-import unittest
+import pytest
 import requests
+import tempfile
+import os
 from unittest.mock import patch, MagicMock
-from modules.recon import RequestsAPI, WordPressDetector, FindBreaches
+from darkstar.scanners.recon import RequestsAPI, WordPressDetector, FindBreaches
 
 
-class TestRequestsAPI(unittest.TestCase):
+class TestRequestsAPI:
     """Test cases for the RequestsAPI class."""
 
-    @patch("modules.recon.HIBP_KEY", "test_api_key")
-    @patch("modules.recon.requests.get")
-    def test_get_HIBPwned_request(self, mock_get):
+    def test_get_hibpwned_request(self):
         """Test that get_HIBPwned_request sends the correct request."""
-        # Setup mock
-        mock_response = MagicMock()
-        mock_get.return_value = mock_response
+        with (
+            patch("darkstar.scanners.recon.HIBP_KEY", "test_api_key"),
+            patch("darkstar.scanners.recon.requests.get") as mock_get,
+        ):
+            # Setup mock
+            mock_response = MagicMock()
+            mock_get.return_value = mock_response
 
-        # Create API instance and call method
-        api = RequestsAPI()
-        result = api.get_HIBPwned_request("test@example.com")
+            # Create API instance and call method
+            api = RequestsAPI()
+            result = api.get_HIBPwned_request("test@example.com")
 
-        # Check that the request was made correctly
-        mock_get.assert_called_once_with(
-            "https://haveibeenpwned.com/api/v3/breachedaccount/test@example.com?truncateResponse=false",
-            headers={"hibp-api-key": "test_api_key"},
-        )
-        self.assertEqual(result, mock_response)
+            # Check that the request was made correctly
+            mock_get.assert_called_once_with(
+                "https://haveibeenpwned.com/api/v3/breachedaccount/test@example.com?truncateResponse=false",
+                headers={"hibp-api-key": "test_api_key"},
+            )
+            assert result == mock_response
 
-    @patch("modules.recon.requests.get")
-    def test_get_proxynova_request(self, mock_get):
+    def test_get_proxynova_request(self):
         """Test that get_proxynova_request sends the correct request."""
-        # Setup mock
-        mock_response = MagicMock()
-        mock_get.return_value = mock_response
+        with patch("darkstar.scanners.recon.requests.get") as mock_get:
+            # Setup mock
+            mock_response = MagicMock()
+            mock_get.return_value = mock_response
 
-        # Create API instance and call method
-        api = RequestsAPI()
-        result = api.get_proxynova_request("test@example.com")
+            # Create API instance and call method
+            api = RequestsAPI()
+            result = api.get_proxynova_request("test@example.com")
 
-        # Check that the request was made correctly
-        mock_get.assert_called_once_with(
-            "https://api.proxynova.com/comb?query=test@example.com"
-        )
-        self.assertEqual(result, mock_response)
+            # Check that the request was made correctly
+            mock_get.assert_called_once_with(
+                "https://api.proxynova.com/comb?query=test@example.com"
+            )
+            assert result == mock_response
 
 
-class TestWordPressDetector(unittest.TestCase):
+class TestWordPressDetector:
     """Test cases for the WordPressDetector class."""
 
-    def test_initialization(self):
+    @pytest.mark.parametrize(
+        "timeout,expected",
+        [
+            (5, 5),
+            (None, 10),  # Test default timeout
+        ],
+    )
+    def test_initialization(self, timeout, expected):
         """Test that WordPressDetector is correctly initialized."""
-        detector = WordPressDetector(timeout=5)
-        self.assertEqual(detector.timeout, 5)
+        if timeout is None:
+            detector = WordPressDetector()
+        else:
+            detector = WordPressDetector(timeout=timeout)
+        assert detector.timeout == expected
 
-        # Test default timeout
-        detector = WordPressDetector()
-        self.assertEqual(detector.timeout, 10)
-
-    @patch("modules.recon.requests.get")
-    def test_check_main_page_positive(self, mock_get):
+    @pytest.mark.parametrize(
+        "html_content,expected",
+        [
+            # Test WordPress generator meta tag
+            (
+                '<html><head><meta name="generator" content="WordPress 5.7"></head><body>Test</body></html>',
+                True,
+            ),
+            # Test wp-content theme link
+            (
+                "<html><head></head><body><link rel='stylesheet' href='wp-content/themes/default/style.css'></body></html>",
+                True,
+            ),
+            # Test wp-includes
+            (
+                "<html><head></head><body><script src='wp-includes/js/jquery.js'></script></body></html>",
+                True,
+            ),
+            # Test non-WordPress site
+            ("<html><head></head><body>Regular site</body></html>", False),
+        ],
+    )
+    def test_check_main_page(self, html_content, expected):
         """Test that check_main_page correctly identifies WordPress sites."""
-        # Setup mock for positive case
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        # Changed to match exactly what the method is looking for
-        mock_response.text = '<html><head><meta name="generator" content="WordPress 5.7"></head><body>Test</body></html>'
-        mock_get.return_value = mock_response
+        with patch("darkstar.scanners.recon.requests.get") as mock_get:
+            # Setup mock
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = html_content
+            mock_get.return_value = mock_response
 
-        detector = WordPressDetector()
-        result = detector.check_main_page("https://example.com")
-        self.assertTrue(result)
+            detector = WordPressDetector()
+            result = detector.check_main_page("https://example.com")
+            assert result == expected
 
-        # Test another indicator
-        mock_response.text = "<html><head></head><body><link rel='stylesheet' href='wp-content/themes/default/style.css'></body></html>"
-        result = detector.check_main_page("https://example.com")
-        self.assertTrue(result)
-
-    @patch("modules.recon.requests.get")
-    def test_check_main_page_negative(self, mock_get):
-        """Test that check_main_page correctly identifies non-WordPress sites."""
-        # Setup mock for negative case
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.text = "<html><head></head><body>Regular site</body></html>"
-        mock_get.return_value = mock_response
-
-        detector = WordPressDetector()
-        result = detector.check_main_page("https://example.com")
-        self.assertFalse(result)
-
-    @patch("modules.recon.requests.get")
-    def test_check_main_page_exception(self, mock_get):
+    def test_check_main_page_request_exception(self):
         """Test that check_main_page handles exceptions gracefully."""
-        # Setup mock to raise the specific RequestException
-        mock_get.side_effect = requests.RequestException("Connection error")
+        with patch("darkstar.scanners.recon.requests.get") as mock_get:
+            # Setup mock to raise the specific RequestException
+            mock_get.side_effect = requests.RequestException("Connection error")
 
-        detector = WordPressDetector()
-        result = detector.check_main_page("https://example.com")
-        self.assertFalse(result)
+            detector = WordPressDetector()
+            result = detector.check_main_page("https://example.com")
+            assert result is False
 
-    @patch("modules.recon.WordPressDetector.check_main_page")
-    def test_is_wordpress(self, mock_check_main_page):
+    def test_check_main_page_non_200_status(self):
+        """Test that check_main_page returns False for non-200 status codes."""
+        with patch("darkstar.scanners.recon.requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 404
+            mock_get.return_value = mock_response
+
+            detector = WordPressDetector()
+            result = detector.check_main_page("https://example.com")
+            assert result is False
+
+    def test_is_wordpress(self):
         """Test that is_wordpress checks for WordPress indicators."""
-        # Setup mock
-        mock_check_main_page.return_value = True
+        with (
+            patch(
+                "darkstar.scanners.recon.WordPressDetector.check_main_page"
+            ) as mock_check_main_page,
+            patch(
+                "darkstar.scanners.recon.WordPressDetector.check_wp_login"
+            ) as mock_wp_login,
+            patch(
+                "darkstar.scanners.recon.WordPressDetector.check_readme"
+            ) as mock_readme,
+            patch(
+                "darkstar.scanners.recon.WordPressDetector.check_xmlrpc"
+            ) as mock_xmlrpc,
+            patch(
+                "darkstar.scanners.recon.WordPressDetector.check_wp_json"
+            ) as mock_wp_json,
+        ):
+            # Setup mocks - only one needs to return True
+            mock_check_main_page.return_value = True
+            mock_wp_login.return_value = False
+            mock_readme.return_value = False
+            mock_xmlrpc.return_value = False
+            mock_wp_json.return_value = False
 
-        detector = WordPressDetector()
-        result = detector.is_wordpress("https://example.com")
+            detector = WordPressDetector()
+            result = detector.is_wordpress("https://example.com")
 
-        mock_check_main_page.assert_called_once_with("https://example.com")
-        self.assertTrue(result)
+            # Verify all checks were called
+            mock_check_main_page.assert_called_once_with("https://example.com")
+            mock_wp_login.assert_called_once_with("https://example.com")
+            mock_readme.assert_called_once_with("https://example.com")
+            mock_xmlrpc.assert_called_once_with("https://example.com")
+            mock_wp_json.assert_called_once_with("https://example.com")
+            assert result is True
 
-    @patch("modules.recon.WordPressDetector.is_wordpress")
-    def test_check_domain(self, mock_is_wordpress):
+    @pytest.mark.parametrize(
+        "https_result,http_result,expected",
+        [
+            (True, False, True),  # HTTPS succeeds
+            (False, True, True),  # HTTP succeeds
+            (False, False, False),  # Both fail
+            (True, True, True),  # Both succeed (should return on first)
+        ],
+    )
+    def test_check_domain(self, https_result, http_result, expected):
         """Test that check_domain tries both HTTP and HTTPS."""
-        # Setup mock
-        mock_is_wordpress.side_effect = [
-            False,
-            True,
-        ]  # First HTTPS fails, then HTTP succeeds
+        with patch(
+            "darkstar.scanners.recon.WordPressDetector.is_wordpress"
+        ) as mock_is_wordpress:
+            # Setup mock to return different values for HTTPS and HTTP
+            mock_is_wordpress.side_effect = (
+                [https_result, http_result] if not https_result else [https_result]
+            )
 
-        detector = WordPressDetector()
-        result = detector.check_domain("example.com")
+            detector = WordPressDetector()
+            result = detector.check_domain("example.com")
 
-        # Check that both protocols were tried
-        mock_is_wordpress.assert_any_call("https://example.com")
-        mock_is_wordpress.assert_any_call("http://example.com")
-        self.assertTrue(result)
+            # Verify HTTPS was always tried first
+            mock_is_wordpress.assert_any_call("https://example.com")
 
-    @patch("modules.recon.WordPressDetector.check_domain")
-    def test_run(self, mock_check_domain):
+            # If HTTPS failed, HTTP should be tried
+            if not https_result:
+                mock_is_wordpress.assert_any_call("http://example.com")
+
+            assert result == expected
+
+    @pytest.mark.parametrize(
+        "domain_results,expected_domains",
+        [
+            ([True, False, True], "example1.com,example3.com"),
+            ([False, False, False], ""),
+            ([True, True, True], "example1.com,example2.com,example3.com"),
+        ],
+    )
+    def test_run(self, domain_results, expected_domains):
         """Test that run processes a file of domains correctly."""
-        # Setup mock
-        mock_check_domain.side_effect = [True, False, True]
-
         # Create a temporary file with test domains
-        import tempfile
-
         with tempfile.NamedTemporaryFile("w", delete=False) as temp_file:
             temp_file.write("example1.com\nexample2.com\nexample3.com")
             file_path = temp_file.name
 
-        # Test the run method
-        detector = WordPressDetector()
-        result = detector.run(file_path)
+        try:
+            # Test the run method with direct patching to avoid coroutine issues
+            with patch.object(WordPressDetector, "check_domain") as mock_check_domain:
+                # Ensure the mock returns simple boolean values, not coroutines
+                mock_check_domain.side_effect = domain_results
 
-        # Check the result
-        self.assertEqual(result, "example1.com,example3.com")
+                detector = WordPressDetector()
+                result = detector.run(file_path)
 
-        # Clean up
-        import os
+                # Check the result
+                assert result == expected_domains
 
-        os.unlink(file_path)
+                # Verify all domains were checked
+                assert mock_check_domain.call_count == len(domain_results)
+        finally:
+            # Clean up
+            os.unlink(file_path)
+
+    def test_run_empty_file(self):
+        """Test that run handles empty files correctly."""
+        # Create an empty temporary file
+        with tempfile.NamedTemporaryFile("w", delete=False) as temp_file:
+            file_path = temp_file.name
+
+        try:
+            with patch.object(WordPressDetector, "check_domain") as mock_check_domain:
+                detector = WordPressDetector()
+                result = detector.run(file_path)
+
+                assert result == ""
+                mock_check_domain.assert_not_called()
+        finally:
+            os.unlink(file_path)
 
 
-class TestFindBreaches(unittest.TestCase):
+class TestFindBreaches:
     """Test cases for the FindBreaches class."""
 
-    def test_find_email_breach(self):
+    @pytest.mark.parametrize(
+        "email,response_data,expected",
+        [
+            # Test single breach
+            (
+                "test@example.com",
+                [
+                    {
+                        "Name": "Breach1",
+                        "BreachDate": "2021-01-01",
+                        "Domain": "site1.com",
+                    }
+                ],
+                [["test@example.com", "Breach1", "2021-01-01", "site1.com"]],
+            ),
+            # Test multiple breaches
+            (
+                "test@example.com",
+                [
+                    {
+                        "Name": "Breach1",
+                        "BreachDate": "2021-01-01",
+                        "Domain": "site1.com",
+                    },
+                    {
+                        "Name": "Breach2",
+                        "BreachDate": "2022-02-02",
+                        "Domain": "site2.com",
+                    },
+                ],
+                [
+                    ["test@example.com", "Breach1", "2021-01-01", "site1.com"],
+                    ["test@example.com", "Breach2", "2022-02-02", "site2.com"],
+                ],
+            ),
+            # Test empty response
+            ("test@example.com", [], []),
+        ],
+    )
+    def test_find_email_breach(self, email, response_data, expected):
         """Test that find_email_breach correctly parses breach data."""
-        # Test data
-        email = "test@example.com"
-        response = [
-            {"Name": "Breach1", "BreachDate": "2021-01-01", "Domain": "site1.com"},
-            {"Name": "Breach2", "BreachDate": "2022-02-02", "Domain": "site2.com"},
-        ]
-
-        # Call the method
         finder = FindBreaches()
-        result = finder.find_email_breach(email, response)
+        result = finder.find_email_breach(email, response_data)
+        assert result == expected
 
-        # Check the result
-        expected = [
-            ["test@example.com", "Breach1", "2021-01-01", "site1.com"],
-            ["test@example.com", "Breach2", "2022-02-02", "site2.com"],
-        ]
-        self.assertEqual(result, expected)
-
-    def test_find_passwords(self):
+    @pytest.mark.parametrize(
+        "email,response_lines,expected",
+        [
+            # Test password extraction
+            (
+                "test@example.com",
+                [
+                    "some other line",
+                    'Line containing test@example.com:password123"',
+                    'Line containing test@example.com:another_password" and more text',
+                ],
+                [["test@example.com", "pas"], ["test@example.com", "ano"]],
+            ),
+            # Test no matches
+            (
+                "test@example.com",
+                [
+                    "some other line",
+                    "no email here",
+                    "different@email.com:password",
+                ],
+                [],
+            ),
+            # Test empty response
+            ("test@example.com", [], []),
+        ],
+    )
+    def test_find_passwords(self, email, response_lines, expected):
         """Test that find_passwords correctly parses password data."""
-        # Test data
-        email = "test@example.com"
-        response = [
-            "some other line",
-            'Line containing test@example.com:password123"',
-            'Line containing test@example.com:another_password" and more text',
-        ]
-
-        # Call the method
         finder = FindBreaches()
-        result = finder.find_passwords(email, response)
-
-        # Check the result
-        expected = [["test@example.com", "pas"], ["test@example.com", "ano"]]
-        self.assertEqual(result, expected)
+        result = finder.find_passwords(email, response_lines)
+        assert result == expected
 
 
-if __name__ == "__main__":
-    unittest.main()
+# Fixtures for common test setup
+@pytest.fixture
+def api_instance():
+    """Fixture to provide a RequestsAPI instance."""
+    return RequestsAPI()
+
+
+@pytest.fixture
+def wordpress_detector():
+    """Fixture to provide a WordPressDetector instance."""
+    return WordPressDetector()
+
+
+@pytest.fixture
+def breach_finder():
+    """Fixture to provide a FindBreaches instance."""
+    return FindBreaches()
+
+
+# Integration tests
+class TestIntegration:
+    """Integration tests for the recon module."""
+
+    def test_api_initialization(self, api_instance):
+        """Test that API instance initializes correctly."""
+        assert hasattr(api_instance, "APIKey")
+
+    def test_wordpress_detector_initialization(self, wordpress_detector):
+        """Test that WordPress detector initializes correctly."""
+        assert wordpress_detector.timeout == 10
+        assert hasattr(wordpress_detector, "check_main_page")
+        assert hasattr(wordpress_detector, "check_wp_login")
+        assert hasattr(wordpress_detector, "check_readme")
+        assert hasattr(wordpress_detector, "check_xmlrpc")
+        assert hasattr(wordpress_detector, "check_wp_json")
+
+    def test_breach_finder_initialization(self, breach_finder):
+        """Test that breach finder initializes correctly."""
+        assert hasattr(breach_finder, "find_email_breach")
+        assert hasattr(breach_finder, "find_passwords")
