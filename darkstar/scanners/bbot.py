@@ -192,7 +192,6 @@ class BBotScanner:
         insert_bbot_to_db(self.prep_data(), org_name=self.org_name)
         logger.info("Passive scan data successfully processed")
 
-
     def passive(self) -> None:
         """
         Run bbot with passive scanning flags.
@@ -214,7 +213,7 @@ class BBotScanner:
             "-n",
             self.foldername,
             "-y",
-            "--strict-scope"
+            "--strict-scope",
         ]
         logger.debug(f"Command: {' '.join(command)}")
 
@@ -234,7 +233,7 @@ class BBotScanner:
         logger.info("Processing scan results and storing in database...")
         insert_bbot_to_db(self.prep_data(), org_name=self.org_name)
         logger.info("Passive scan data successfully processed")
-    
+
     def normal(self) -> None:
         """
         Run bbot with normal scanning flags.
@@ -256,7 +255,7 @@ class BBotScanner:
             "-n",
             self.foldername,
             "-y",
-            "--strict-scope"
+            "--strict-scope",
         ]
         logger.debug(f"Command: {' '.join(command)}")
 
@@ -301,7 +300,7 @@ class BBotScanner:
             "-n",
             self.foldername,
             "-y",
-            "--strict-scope"
+            "--strict-scope",
         ]
 
         logger.debug(f"Command: {' '.join(command)}")

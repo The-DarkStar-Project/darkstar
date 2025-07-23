@@ -32,7 +32,7 @@ logger = logging.getLogger("normal_scanner")
 class NormalScanner(BaseScanner):
     """
     Normal scanner implementation for standard scanning.
-    
+
     This scanner performs a balanced approach with passive reconnaissance
     and selected active scanning modules.
     """
@@ -40,7 +40,7 @@ class NormalScanner(BaseScanner):
     async def run(self) -> Dict[str, Any]:
         """
         Execute normal scanning with bbot and rustscan in parallel.
-        
+
         Returns:
             Dict containing scan results
         """
@@ -49,24 +49,28 @@ class NormalScanner(BaseScanner):
 
         # Define bbot normal task - using only CLI targets
         async def run_bbot_normal():
-            logger.info(f"{Fore.CYAN}Starting bbot normal scan using CLI targets...{Style.RESET_ALL}")
-            
+            logger.info(
+                f"{Fore.CYAN}Starting bbot normal scan using CLI targets...{Style.RESET_ALL}"
+            )
+
             with ThreadPoolExecutor() as executor:
                 bbot_scanner = BBotScanner(self.targets, self.org_name)
                 await asyncio.get_event_loop().run_in_executor(
                     executor, lambda: bbot_scanner.run(mode="normal")
                 )
-            
+
             return {"bbot_scanner": bbot_scanner}
 
         tasks.append(run_bbot_normal())
 
         # Define rustscan task with CLI targets
         async def run_port_scan():
-            logger.info(f"{Fore.CYAN}Starting RustScan on CLI targets...{Style.RESET_ALL}")
-            
+            logger.info(
+                f"{Fore.CYAN}Starting RustScan on CLI targets...{Style.RESET_ALL}"
+            )
+
             rustscan_dir = prepare_output_directory(self.org_name, "rustscanpy")
-            
+
             rust_scanner = RustScanner(
                 batch_size=25000,
                 ulimit=35000,
@@ -75,24 +79,21 @@ class NormalScanner(BaseScanner):
                 tries=1,
                 service_detection=True,
             )
-            
+
             rustscan_results = await run_rustscan(
                 rust_scanner,
                 all_scan_targets,
                 output_dir=rustscan_dir,
                 all_in_one=False,
-                run_bruteforce=False
+                run_bruteforce=False,
             )
-            
+
             scan_processed = process_scan_results(rustscan_results, self.org_name)
             return {"scan_processed": scan_processed}
-        
+
         tasks.append(run_port_scan())
 
         # Run all tasks in parallel
         results = await asyncio.gather(*tasks)
-        
-        return {
-            "bbot_results": results[0],
-            "rustscan_results": results[1]
-        }
+
+        return {"bbot_results": results[0], "rustscan_results": results[1]}

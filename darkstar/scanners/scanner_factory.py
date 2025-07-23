@@ -29,7 +29,7 @@ from openvas.openvas_scanner import OpenVASScanner
 class ScannerFactory:
     """
     Factory class for creating scanner instances based on mode.
-    
+
     This factory encapsulates the logic for determining which scanner
     to use based on the scanning mode selected by the user.
     """
@@ -41,11 +41,11 @@ class ScannerFactory:
         target_df: pd.DataFrame,
         org_name: str,
         bruteforce: bool = False,
-        bruteforce_timeout: int = 300
+        bruteforce_timeout: int = 300,
     ) -> Optional[BaseScanner]:
         """
         Create a scanner instance based on the specified mode.
-        
+
         Args:
             mode: Scanning mode (1-5)
             targets: Raw target string
@@ -53,7 +53,7 @@ class ScannerFactory:
             org_name: Organization name
             bruteforce: Enable bruteforce attacks
             bruteforce_timeout: Bruteforce timeout
-            
+
         Returns:
             Scanner instance or None if mode is invalid
         """
@@ -62,33 +62,35 @@ class ScannerFactory:
             2: NormalScanner,
             3: AggressiveScanner,
             4: AttackSurfaceScanner,
-            5: lambda *args, **kwargs: OpenVASScanner(org_name=org_name)  # OpenVAS has different signature
+            5: lambda *args, **kwargs: OpenVASScanner(
+                org_name=org_name
+            ),  # OpenVAS has different signature
         }
-        
+
         scanner_class = scanner_map.get(mode)
         if not scanner_class:
             return None
-        
+
         # Handle OpenVAS special case
         if mode == 5:
             return scanner_class()
-        
+
         return scanner_class(
             targets=targets,
             target_df=target_df,
             org_name=org_name,
             bruteforce=bruteforce,
-            bruteforce_timeout=bruteforce_timeout
+            bruteforce_timeout=bruteforce_timeout,
         )
 
     @staticmethod
     def get_mode_description(mode: int) -> str:
         """
         Get a human-readable description of the scanning mode.
-        
+
         Args:
             mode: Scanning mode
-            
+
         Returns:
             Mode description string
         """
@@ -97,7 +99,7 @@ class ScannerFactory:
             2: "NORMAL MODE - Standard scanning with passive and selected active modules",
             3: "AGGRESSIVE MODE - Full scanning with all active and aggressive modules",
             4: "ATTACK SURFACE MODE - Attack surface mapping with custom modules",
-            5: "OPENVAS MODE - Testing OpenVAS integration"
+            5: "OPENVAS MODE - Testing OpenVAS integration",
         }
-        
+
         return descriptions.get(mode, "UNKNOWN MODE")

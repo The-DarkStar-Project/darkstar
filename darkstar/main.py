@@ -26,16 +26,20 @@ import asyncio
 import os
 from scanners.portscan import RustScanner, run_rustscan, process_scan_results
 from tools.bruteforce import process_bruteforce_results
-from core.utils import categorize_targets, create_target_dataframe, log_target_summary, get_scan_targets, prepare_output_directory
+from core.utils import (
+    categorize_targets,
+    create_target_dataframe,
+    log_target_summary,
+    get_scan_targets,
+    prepare_output_directory,
+)
 import logging
 from concurrent.futures import ThreadPoolExecutor
-import datetime
 from openvas.openvas_scanner import OpenVASScanner
 
 # Set up basic logging configuration
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("main")
 
@@ -66,16 +70,17 @@ def setup_env_from_args(args=None):
     if os.path.exists(env_file):
         try:
             import dotenv
+
             dotenv.load_dotenv(env_file)
             logger.info(f"Loaded environment from {env_file}")
         except ImportError:
             logger.warning("python-dotenv not available, loading env manually")
             # Manual .env file loading
-            with open(env_file, 'r') as f:
+            with open(env_file, "r") as f:
                 for line in f:
                     line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
+                    if line and not line.startswith("#") and "=" in line:
+                        key, value = line.split("=", 1)
                         os.environ[key.strip()] = value.strip()
     else:
         logger.warning(f"Environment file {env_file} not found, using defaults")
@@ -211,19 +216,25 @@ class worker:
                 logger.info(
                     f"{Fore.GREEN}[+] Wordpress Domains: {Fore.CYAN}{wordpress_domains}{Style.RESET_ALL}"
                 )
-                
+
                 # Immediately kickoff WordPress Nuclei scan if WordPress sites are detected
                 if wordpress_domains:
-                    logger.info(f"{Fore.CYAN}Immediately running WordPress-specific Nuclei scan on detected sites...{Style.RESET_ALL}")
+                    logger.info(
+                        f"{Fore.CYAN}Immediately running WordPress-specific Nuclei scan on detected sites...{Style.RESET_ALL}"
+                    )
                     await run_wordpress_nuclei(wordpress_domains)
                 else:
-                    logger.info("No WordPress sites detected, skipping WordPress-specific scans")
-                    
+                    logger.info(
+                        "No WordPress sites detected, skipping WordPress-specific scans"
+                    )
+
                 return wordpress_domains
 
             async def run_wordpress_nuclei(domains):
                 if domains:
-                    logger.info(f"Running WordPress-specific nuclei scan on {len(domains.split(',')) if isinstance(domains, str) else len(domains)} detected WordPress sites")
+                    logger.info(
+                        f"Running WordPress-specific nuclei scan on {len(domains.split(',')) if isinstance(domains, str) else len(domains)} detected WordPress sites"
+                    )
 
                     with ThreadPoolExecutor() as executor:
                         wp_scanner = WordPressNucleiScanner(domains, self.org_domain)
@@ -261,7 +272,7 @@ class worker:
         # ? Normal mode
         elif self.mode == 2:
             all_scan_targets = get_scan_targets(self.target_df)
-            
+
             # Run these tasks in parallel
             tasks = []
 
@@ -276,17 +287,19 @@ class worker:
                     await asyncio.get_event_loop().run_in_executor(
                         executor, lambda: bbot_scanner.run(mode="normal")
                     )
-                
+
                 return {"bbot_scanner": bbot_scanner}
 
             tasks.append(run_bbot_normal())
 
             # Define rustscan task with CLI targets
             async def run_port_scan():
-                logger.info(f"{Fore.CYAN}Starting RustScan on CLI targets...{Style.RESET_ALL}")
-                
+                logger.info(
+                    f"{Fore.CYAN}Starting RustScan on CLI targets...{Style.RESET_ALL}"
+                )
+
                 rustscan_dir = prepare_output_directory(self.org_domain, "rustscanpy")
-                
+
                 rust_scanner = RustScanner(
                     batch_size=25000,
                     ulimit=35000,
@@ -295,18 +308,18 @@ class worker:
                     tries=1,
                     service_detection=True,
                 )
-                
+
                 rustscan_results = await run_rustscan(
                     rust_scanner,
                     all_scan_targets,
                     output_dir=rustscan_dir,
                     all_in_one=False,
-                    run_bruteforce=False
+                    run_bruteforce=False,
                 )
-                
+
                 scan_processed = process_scan_results(rustscan_results, self.org_domain)
                 return {"scan_processed": scan_processed}
-            
+
             tasks.append(run_port_scan())
 
             # Run all tasks in parallel
@@ -314,78 +327,104 @@ class worker:
 
         # ? Passive mode
         elif self.mode == 1:
-            logger.info(f"{Fore.CYAN}Starting passive scan using CLI targets only...{Style.RESET_ALL}")
+            logger.info(
+                f"{Fore.CYAN}Starting passive scan using CLI targets only...{Style.RESET_ALL}"
+            )
             with ThreadPoolExecutor() as executor:
                 bbot_scanner = BBotScanner(self.all_targets, self.org_domain)
                 await asyncio.get_event_loop().run_in_executor(
                     executor, lambda: bbot_scanner.run(mode="passive")
                 )
-                
+
         # ? Attack Surface Mode
         elif self.mode == 4:
             logger.info(f"{Fore.CYAN}Starting Attack Surface Mode...{Style.RESET_ALL}")
-            
+
             # First run bbot attack_surface scan and wait for it to complete
             async def run_attack_surface_scan():
-                logger.info(f"{Fore.CYAN}Running bbot attack surface scan...{Style.RESET_ALL}")
-                
+                logger.info(
+                    f"{Fore.CYAN}Running bbot attack surface scan...{Style.RESET_ALL}"
+                )
+
                 with ThreadPoolExecutor() as executor:
                     bbot_scanner = BBotScanner(self.all_targets, self.org_domain)
                     await asyncio.get_event_loop().run_in_executor(
                         executor, lambda: bbot_scanner.run(mode="attack_surface")
                     )
-                
+
                 # Get the generated output files
-                subdomains_file = f"{bbot_scanner.folder}/{bbot_scanner.foldername}/subdomains.txt"
+                subdomains_file = (
+                    f"{bbot_scanner.folder}/{bbot_scanner.foldername}/subdomains.txt"
+                )
                 ips_file = f"{bbot_scanner.folder}/{bbot_scanner.foldername}/ips.txt"
-                
+
                 if not os.path.exists(subdomains_file):
                     subdomains_file = "/tmp/subs.txt"  # Fallback
-                    
+
                 if not os.path.exists(ips_file):
                     ips_file = "/tmp/ips.txt"  # Fallback
-                
+
                 return {
                     "bbot_scanner": bbot_scanner,
                     "subdomains_file": subdomains_file,
-                    "ips_file": ips_file
+                    "ips_file": ips_file,
                 }
-            
+
             # Execute attack surface scan and wait for completion
             bbot_results = await run_attack_surface_scan()
-            
-            logger.info(f"{Fore.GREEN}[+] Attack surface mapping completed. Running subsequent scans on discovered assets...{Style.RESET_ALL}")
-            
+
+            logger.info(
+                f"{Fore.GREEN}[+] Attack surface mapping completed. Running subsequent scans on discovered assets...{Style.RESET_ALL}"
+            )
+
             # Now run follow-up scans based on bbot results
             tasks = []
-            
+
             # Run nuclei on discovered subdomains
             async def run_nuclei_on_discovered():
-                if os.path.exists(bbot_results["subdomains_file"]) and os.path.getsize(bbot_results["subdomains_file"]) > 0:
-                    logger.info(f"{Fore.CYAN}Running nuclei on discovered subdomains...{Style.RESET_ALL}")
-                    
+                if (
+                    os.path.exists(bbot_results["subdomains_file"])
+                    and os.path.getsize(bbot_results["subdomains_file"]) > 0
+                ):
+                    logger.info(
+                        f"{Fore.CYAN}Running nuclei on discovered subdomains...{Style.RESET_ALL}"
+                    )
+
                     with ThreadPoolExecutor() as executor:
-                        nuclei_scanner = NucleiScanner(bbot_results["subdomains_file"], self.org_domain)
+                        nuclei_scanner = NucleiScanner(
+                            bbot_results["subdomains_file"], self.org_domain
+                        )
                         await asyncio.get_event_loop().run_in_executor(
                             executor, nuclei_scanner.run
                         )
                 else:
-                    logger.warning(f"{Fore.YELLOW}No subdomains discovered, skipping nuclei scan{Style.RESET_ALL}")
-            
+                    logger.warning(
+                        f"{Fore.YELLOW}No subdomains discovered, skipping nuclei scan{Style.RESET_ALL}"
+                    )
+
             tasks.append(run_nuclei_on_discovered())
-            
+
             # Run RustScan on discovered IPs
             async def run_rustscan_on_discovered():
-                if os.path.exists(bbot_results["ips_file"]) and os.path.getsize(bbot_results["ips_file"]) > 0:
-                    logger.info(f"{Fore.CYAN}Running RustScan on discovered IPs...{Style.RESET_ALL}")
-                    
+                if (
+                    os.path.exists(bbot_results["ips_file"])
+                    and os.path.getsize(bbot_results["ips_file"]) > 0
+                ):
+                    logger.info(
+                        f"{Fore.CYAN}Running RustScan on discovered IPs...{Style.RESET_ALL}"
+                    )
+
                     # Read IPs from file
-                    with open(bbot_results["ips_file"], 'r') as f:
-                        discovered_ips = [line.strip() for line in f.readlines() if line.strip()]
-                    
+                    with open(bbot_results["ips_file"], "r") as f:
+                        discovered_ips = [
+                            line.strip() for line in f.readlines() if line.strip()
+                        ]
+
                     if discovered_ips:
-                        rustscan_dir = prepare_output_directory(self.org_domain, "rustscan_discovered")
-                        
+                        rustscan_dir = prepare_output_directory(
+                            self.org_domain, "rustscan_discovered"
+                        )
+
                         rust_scanner = RustScanner(
                             batch_size=25000,
                             ulimit=35000,
@@ -394,7 +433,7 @@ class worker:
                             tries=1,
                             service_detection=True,
                         )
-                        
+
                         rustscan_results = await run_rustscan(
                             rust_scanner,
                             discovered_ips,
@@ -403,9 +442,11 @@ class worker:
                             run_bruteforce=self.bruteforce,
                             bruteforce_timeout=self.bruteforce_timeout,
                         )
-                        
-                        scan_processed = process_scan_results(rustscan_results, self.org_domain)
-                        
+
+                        scan_processed = process_scan_results(
+                            rustscan_results, self.org_domain
+                        )
+
                         # Process bruteforce results if present
                         if (
                             isinstance(rustscan_results, dict)
@@ -415,47 +456,69 @@ class worker:
                                 rustscan_results["bruteforce_results"]
                             )
                     else:
-                        logger.warning(f"{Fore.YELLOW}IP file exists but contains no valid IPs{Style.RESET_ALL}")
+                        logger.warning(
+                            f"{Fore.YELLOW}IP file exists but contains no valid IPs{Style.RESET_ALL}"
+                        )
                 else:
-                    logger.warning(f"{Fore.YELLOW}No IPs discovered, skipping RustScan{Style.RESET_ALL}")
-            
+                    logger.warning(
+                        f"{Fore.YELLOW}No IPs discovered, skipping RustScan{Style.RESET_ALL}"
+                    )
+
             tasks.append(run_rustscan_on_discovered())
-            
+
             # Detect WordPress sites among discovered domains and immediately scan them
             async def detect_and_scan_wordpress():
-                if os.path.exists(bbot_results["subdomains_file"]) and os.path.getsize(bbot_results["subdomains_file"]) > 0:
-                    logger.info(f"{Fore.CYAN}Detecting WordPress sites among discovered domains...{Style.RESET_ALL}")
-                    
+                if (
+                    os.path.exists(bbot_results["subdomains_file"])
+                    and os.path.getsize(bbot_results["subdomains_file"]) > 0
+                ):
+                    logger.info(
+                        f"{Fore.CYAN}Detecting WordPress sites among discovered domains...{Style.RESET_ALL}"
+                    )
+
                     with ThreadPoolExecutor() as executor:
-                        wordpress_domains = await asyncio.get_event_loop().run_in_executor(
-                            executor, lambda: WordPressDetector().run(bbot_results["subdomains_file"])
+                        wordpress_domains = (
+                            await asyncio.get_event_loop().run_in_executor(
+                                executor,
+                                lambda: WordPressDetector().run(
+                                    bbot_results["subdomains_file"]
+                                ),
+                            )
                         )
-                    
+
                     logger.info(
                         f"{Fore.GREEN}[+] WordPress Domains: {Fore.CYAN}{wordpress_domains}{Style.RESET_ALL}"
                     )
-                    
+
                     # Immediately run WordPress-specific scans if sites were found
                     if wordpress_domains:
-                        logger.info(f"{Fore.CYAN}Immediately running WordPress-specific nuclei scan on detected sites...{Style.RESET_ALL}")
-                        
+                        logger.info(
+                            f"{Fore.CYAN}Immediately running WordPress-specific nuclei scan on detected sites...{Style.RESET_ALL}"
+                        )
+
                         with ThreadPoolExecutor() as executor:
-                            wp_scanner = WordPressNucleiScanner(wordpress_domains, self.org_domain)
+                            wp_scanner = WordPressNucleiScanner(
+                                wordpress_domains, self.org_domain
+                            )
                             await asyncio.get_event_loop().run_in_executor(
                                 executor, wp_scanner.run
                             )
                     else:
-                        logger.info("No WordPress sites found, skipping WordPress-specific scans")
-            
+                        logger.info(
+                            "No WordPress sites found, skipping WordPress-specific scans"
+                        )
+
             tasks.append(detect_and_scan_wordpress())
-            
+
             # Wait for all tasks to complete
             await asyncio.gather(*tasks)
-            
+
         # ─── openvas mode via FastAPI ───
         elif self.mode == 5:
             all_scan_targets = get_scan_targets(self.target_df)
-            logger.info(f"{Fore.CYAN}Discovered Targets: {Fore.YELLOW}{all_scan_targets}{Style.RESET_ALL}")
+            logger.info(
+                f"{Fore.CYAN}Discovered Targets: {Fore.YELLOW}{all_scan_targets}{Style.RESET_ALL}"
+            )
 
             # Initialize OpenVAS scanner and run scan
             openvas_scanner = OpenVASScanner(org_name=self.org_domain)
@@ -464,7 +527,10 @@ class worker:
             logger.info(f"{Fore.GREEN}[+] OpenVAS scanning completed{Style.RESET_ALL}")
 
         else:
-            logger.error(f"{Fore.RED}[-] Invalid mode {self.mode} specified{Style.RESET_ALL}")
+            logger.error(
+                f"{Fore.RED}[-] Invalid mode {self.mode} specified{Style.RESET_ALL}"
+            )
+
 
 def parse_targets(targets_str: str) -> pd.DataFrame:
     """

@@ -15,7 +15,6 @@
 #  * along with Darkstar. If not, see <https://www.gnu.org/licenses/>.
 #  *
 
-import asyncio
 import logging
 import pandas as pd
 from abc import ABC, abstractmethod
@@ -27,16 +26,22 @@ logger = logging.getLogger("base_scanner")
 class BaseScanner(ABC):
     """
     Abstract base class for all scanners in the Darkstar framework.
-    
+
     This class defines the common interface and shared functionality
     for all scanning modes.
     """
 
-    def __init__(self, targets: str, target_df: pd.DataFrame, org_name: str, 
-                 bruteforce: bool = False, bruteforce_timeout: int = 300):
+    def __init__(
+        self,
+        targets: str,
+        target_df: pd.DataFrame,
+        org_name: str,
+        bruteforce: bool = False,
+        bruteforce_timeout: int = 300,
+    ):
         """
         Initialize the base scanner.
-        
+
         Args:
             targets: Raw target string from command line
             target_df: Parsed targets organized by type
@@ -55,9 +60,9 @@ class BaseScanner(ABC):
     async def run(self) -> Dict[str, Any]:
         """
         Execute the scanning process.
-        
+
         This method must be implemented by all scanner subclasses.
-        
+
         Returns:
             Dict containing scan results and metadata
         """
@@ -66,9 +71,10 @@ class BaseScanner(ABC):
     def get_scan_targets(self) -> List[str]:
         """
         Extract scan targets from the target DataFrame.
-        
+
         Returns:
             List of target strings for scanning
         """
         from core.utils import get_scan_targets
+
         return get_scan_targets(self.target_df)

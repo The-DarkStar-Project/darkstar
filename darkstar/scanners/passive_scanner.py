@@ -30,7 +30,7 @@ logger = logging.getLogger("passive_scanner")
 class PassiveScanner(BaseScanner):
     """
     Passive scanner implementation for light reconnaissance.
-    
+
     This scanner performs passive reconnaissance without active scanning
     to avoid detection and minimize impact on target systems.
     """
@@ -38,16 +38,18 @@ class PassiveScanner(BaseScanner):
     async def run(self) -> Dict[str, Any]:
         """
         Execute passive scanning using only passive reconnaissance tools.
-        
+
         Returns:
             Dict containing scan results
         """
-        logger.info(f"{Fore.CYAN}Starting passive scan using CLI targets only...{Style.RESET_ALL}")
-        
+        logger.info(
+            f"{Fore.CYAN}Starting passive scan using CLI targets only...{Style.RESET_ALL}"
+        )
+
         with ThreadPoolExecutor() as executor:
             bbot_scanner = BBotScanner(self.targets, self.org_name)
             await asyncio.get_event_loop().run_in_executor(
                 executor, lambda: bbot_scanner.run(mode="passive")
             )
-        
+
         return {"bbot_scanner": bbot_scanner}

@@ -37,10 +37,10 @@ class WordPressNucleiScanner(BaseNucleiScanner):
     def _clean_domain_list(self, domains):
         """
         Remove http/https prefixes from domain list to ensure compatibility with nuclei.
-        
+
         Args:
             domains: String of comma-separated domains or list of domains
-            
+
         Returns:
             Clean comma-separated domain string without protocol prefixes
         """
@@ -48,32 +48,34 @@ class WordPressNucleiScanner(BaseNucleiScanner):
             # If domains is a list, clean each entry and join with commas
             cleaned = []
             for domain in domains:
-                if domain.startswith('http://'):
+                if domain.startswith("http://"):
                     domain = domain[7:]
-                elif domain.startswith('https://'):
+                elif domain.startswith("https://"):
                     domain = domain[8:]
                 # Remove any trailing slash
-                if domain.endswith('/'):
+                if domain.endswith("/"):
                     domain = domain[:-1]
                 cleaned.append(domain)
-            return ','.join(cleaned)
+            return ",".join(cleaned)
         elif isinstance(domains, str):
             # If domains is a string, split by comma, clean each and rejoin
-            domain_list = [d.strip() for d in domains.split(',')]
+            domain_list = [d.strip() for d in domains.split(",")]
             cleaned = []
             for domain in domain_list:
-                if domain.startswith('http://'):
+                if domain.startswith("http://"):
                     domain = domain[7:]
-                elif domain.startswith('https://'):
+                elif domain.startswith("https://"):
                     domain = domain[8:]
                 # Remove any trailing slash
-                if domain.endswith('/'):
+                if domain.endswith("/"):
                     domain = domain[:-1]
                 cleaned.append(domain)
-            return ','.join(cleaned)
+            return ",".join(cleaned)
         else:
             # If domains is neither a list nor a string, return an empty string
-            logger.warning(f"Unexpected domain format: {type(domains)}, expected string or list")
+            logger.warning(
+                f"Unexpected domain format: {type(domains)}, expected string or list"
+            )
             return ""
 
     def find_first_path_with_nuclei(self, pattern: str) -> Optional[str]:
@@ -221,15 +223,19 @@ class WordPressNucleiScanner(BaseNucleiScanner):
     def run(self):
         """
         Execute the WordPress-specific Nuclei scan.
-        
+
         This method is called from the main worker to start the scanning process.
         """
         if not self.domains:
             logger.warning("No WordPress domains provided for scanning")
             return
-        
+
         # Count domains for logging after ensuring they're clean
-        domain_count = len(self.domains.split(',')) if isinstance(self.domains, str) else len(self.domains)
+        domain_count = (
+            len(self.domains.split(","))
+            if isinstance(self.domains, str)
+            else len(self.domains)
+        )
         logger.info(f"Starting WordPress Nuclei scan against {domain_count} site(s)")
         self.scan_nuclei()
         logger.info("WordPress Nuclei scan completed")
