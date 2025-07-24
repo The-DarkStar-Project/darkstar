@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, Mock, mock_open
+from unittest.mock import patch, Mock, AsyncMock
 import asyncio
 import json
 import tempfile
@@ -14,43 +14,26 @@ def hydra_attack():
         attack = HydraAttack(output_dir=tmp_dir)
         yield attack
 
-
-@pytest.fixture
-def hydra_config():
-    return HydraConfig()
-
-
 @pytest.fixture
 def mock_process():
-    # Create a completely synchronous mock that mimics async behavior
-    process = Mock()
+    """Create a proper async mock process for testing."""
+    process = Mock()  # Use regular Mock as base
 
-    # Create mock streams with custom async methods
-    stdout_mock = Mock()
-    stderr_mock = Mock()
-
-    # Create custom coroutine functions that return actual coroutines without AsyncMock
-    async def mock_stdout_readline():
-        return b""
-
-    async def mock_stderr_readline():
-        return b""
-
-    async def mock_wait():
-        return 0
-
-    # Assign the coroutine functions directly
-    stdout_mock.readline = mock_stdout_readline
-    stderr_mock.readline = mock_stderr_readline
-
-    process.stdout = stdout_mock
-    process.stderr = stderr_mock
+    # Mock process attributes
     process.returncode = 0
 
-    # Use regular Mock for synchronous methods
+    # Mock stdout and stderr streams with AsyncMock for async methods
+    process.stdout = Mock()
+    process.stderr = Mock()
+
+    # Set up async methods with AsyncMock
+    process.stdout.readline = AsyncMock(return_value=b"")
+    process.stderr.readline = AsyncMock(return_value=b"")
+    process.wait = AsyncMock(return_value=0)
+
+    # Keep synchronous methods as regular Mock (these should NOT be awaited)
     process.terminate = Mock(return_value=None)
     process.kill = Mock(return_value=None)
-    process.wait = mock_wait
 
     return process
 
@@ -131,190 +114,218 @@ def test_parse_credentials(hydra_attack, line, expected):
 
 
 # Test command building
-def test_build_command(hydra_attack):
-    target = "example.com"
-    protocol = "ftp"
-    login_file = "logins.txt"
-    password_file = "passwords.txt"
-    tasks = 16
-    port = 21
-    stop_on_success = True
-
+@pytest.mark.parametrize(
+    "target,protocol,login_file,password_file,tasks,port,stop_on_success,expected_command",
+    [
+        (
+            "example.com",
+            "ftp",
+            "logins.txt",
+            "passwords.txt",
+            16,
+            21,
+            True,
+            [
+                "hydra",
+                "-P", "passwords.txt",
+                "-t", "16",
+                "-q",
+                "-I",
+                "-L", "logins.txt",
+                "-f",
+                "-s", "21",
+                "ftp://example.com",
+            ],
+        ),
+        (
+            "127.0.0.1",
+            "snmp",
+            None,
+            None,
+            8,
+            None,
+            False,
+            [
+                "hydra",
+                "-P", str(HydraConfig().get_default_wordlist_path("snmp", "passwords")),
+                "-t", "8",
+                "-q",
+                "-I",
+                "snmp://127.0.0.1"
+            ],
+        ),
+    ]
+)
+def test_build_command(hydra_attack, target, protocol, login_file, password_file, tasks, port, stop_on_success, expected_command):
+    """Test _build_command method with various parameters."""
     command = hydra_attack._build_command(
         target, protocol, login_file, password_file, tasks, port, stop_on_success
     )
-
-    assert command[0] == "hydra"
-    assert "-P" in command
-    assert str(password_file) in command
-    assert "-t" in command
-    assert str(tasks) in command
-    assert "-f" in command
-    assert "-s" in command
-    assert str(port) in command
-    assert f"{protocol}://{target}" in command
+    assert command == expected_command, f"Expected {expected_command}, got {command}"
 
 
 # Test save results - now properly isolated
-def test_save_results():
+def test_save_results(hydra_attack):
     """Test save_results method with proper isolation using temporary directory."""
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        hydra_attack = HydraAttack(output_dir=tmp_dir)
+    target = "example.com"
+    protocol = "ftp"
+    credentials = [{"username": "admin", "password": "password"}]
+    start_time = 1000.0
+    end_time = 1010.0
+    status = "success"
+    port = "21"
 
-        result = AttackResult(
-            target="example.com",
-            protocol="ftp",
-            credentials=[{"username": "admin", "password": "password"}],
-            start_time=1000.0,
-            end_time=1010.0,
-            status="success",
-            port="21",
-        )
+    result = AttackResult(
+        target=target,
+        protocol=protocol,
+        credentials=credentials,
+        start_time=start_time,
+        end_time=end_time,
+        status=status,
+        port=port,
+    )
 
-        hydra_attack.save_results(result)
+    hydra_attack.save_results(result)
 
-        # Check if file was created in temporary directory
-        result_files = list(Path(tmp_dir).glob("attack_*.json"))
+    # Check if file was created in temporary directory
+    result_files = list(Path(hydra_attack.results_dir).glob(f"attack_{result.protocol}_{result.target}_*.json"))
+    assert len(result_files) == 1
+
+    # Verify content
+    with open(result_files[0]) as f:
+        saved_data = json.load(f)
+        assert saved_data["target"] == target
+        assert saved_data["protocol"] == protocol
+        assert saved_data["port"] == port
+        assert saved_data["credentials"] == credentials
+        assert saved_data["duration"] == end_time - start_time
+        assert saved_data["status"] == status
+        assert saved_data["error"] is None
+        assert "timestamp" in saved_data
+
+@pytest.mark.asyncio
+async def test_process_hydra_output(hydra_attack):
+    """Test process_hydra_output method with proper isolation."""
+    # Create a mock process output
+    mock_output = [
+        b"[21][ftp] host: 192.217.238.3   login: sysadmin   password: 654321\n",
+    ]
+    mock_process = AsyncMock()
+    mock_process.stdout.readline = AsyncMock(side_effect=mock_output + [b""])  # End of stream
+    mock_process.stderr.readline = AsyncMock(return_value=b"")
+    mock_process.terminate = Mock(return_value=None)
+
+    stream = mock_process.stdout
+    results = []
+    hydra_attack.stop_on_success = False
+    await hydra_attack.process_hydra_output(stream, False, mock_process, results)
+    # Check if results were processed correctly
+    assert len(results) == 1
+    assert results[0]["port"] == "21"
+    assert results[0]["username"] == "sysadmin"
+    assert results[0]["password"] == "654321"
+    assert "timestamp" in results[0]
+
+
+@pytest.mark.asyncio
+async def test_run_attack_success(hydra_attack):
+    """Test successful attack with complete file operation mocking."""
+    # Create a proper mock process using the same pattern as the fixture
+    mock_process = Mock()
+    mock_process.returncode = 0
+    
+    # Mock stdout and stderr with regular Mock, but their methods with AsyncMock
+    mock_process.stdout = Mock()
+    mock_process.stderr = Mock()
+    
+    # Configure async methods
+    mock_process.stdout.readline = AsyncMock(side_effect=[
+        b"[21][ftp] host: 127.0.0.1   login: admin   password: 123456\n",
+        b""  # End of stream
+    ])
+    mock_process.stderr.readline = AsyncMock(return_value=b"")
+    mock_process.wait = AsyncMock(return_value=0)
+    
+    # Keep synchronous methods as regular Mock
+    mock_process.terminate = Mock(return_value=None)
+    mock_process.kill = Mock(return_value=None)
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+        result = await hydra_attack.run_attack(ip="127.0.0.1", protocol="ftp", port=21)
+
+        assert result.status == "success"
+        assert len(result.credentials) == 1
+        assert result.target == "127.0.0.1"
+        assert result.protocol == "ftp"
+        assert mock_exec.called
+
+        # Verify that a results file was created in the temporary directory
+        result_files = list(Path(hydra_attack.results_dir).glob("attack_*.json"))
         assert len(result_files) == 1
 
-        # Verify content
-        with open(result_files[0]) as f:
-            saved_data = json.load(f)
-            assert saved_data["target"] == "example.com"
-            assert saved_data["protocol"] == "ftp"
-            assert saved_data["port"] == "21"
-            assert len(saved_data["credentials"]) == 1
-
 
 @pytest.mark.asyncio
-async def test_run_attack_success():
-    """Test successful attack with complete file operation mocking."""
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        hydra_attack = HydraAttack(output_dir=tmp_dir)
-
-        # Create a mock process
-        mock_process = Mock()
-        mock_process.returncode = 0
-
-        # Create proper async mock functions for the test
-        async def mock_stdout_readline():
-            # First call returns credential line, second call returns empty to end loop
-            if not hasattr(mock_stdout_readline, "call_count"):
-                mock_stdout_readline.call_count = 0
-            mock_stdout_readline.call_count += 1
-
-            if mock_stdout_readline.call_count == 1:
-                return b"[21][ftp] host: 127.0.0.1   login: admin   password: 123456\n"
-            else:
-                return b""
-
-        async def mock_stderr_readline():
-            return b""
-
-        async def mock_wait():
-            return 0
-
-        # Set up mock streams
-        stdout_mock = Mock()
-        stderr_mock = Mock()
-        stdout_mock.readline = mock_stdout_readline
-        stderr_mock.readline = mock_stderr_readline
-
-        mock_process.stdout = stdout_mock
-        mock_process.stderr = stderr_mock
-        mock_process.terminate = Mock(return_value=None)
-        mock_process.kill = Mock(return_value=None)
-        mock_process.wait = mock_wait
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
-            result = await hydra_attack.run_attack(ip="127.0.0.1", protocol="ftp", port=21)
-
-            assert result.status == "success"
-            assert len(result.credentials) == 1
-            assert result.target == "127.0.0.1"
-            assert result.protocol == "ftp"
-            assert mock_exec.called
-
-            # Verify that a results file was created in the temporary directory
-            result_files = list(Path(tmp_dir).glob("attack_*.json"))
-            assert len(result_files) == 1
-
-
-@pytest.mark.asyncio
-async def test_run_attack_timeout():
+async def test_run_attack_timeout(hydra_attack):
     """Test attack timeout with proper file isolation."""
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        hydra_attack = HydraAttack(output_dir=tmp_dir)
+    # Create mock process using the same pattern
+    mock_process = Mock()
+    mock_process.returncode = None
+    
+    # Mock stdout and stderr with regular Mock
+    mock_process.stdout = Mock()
+    mock_process.stderr = Mock()
+    
+    # Configure async methods to raise TimeoutError
+    mock_process.stdout.readline = AsyncMock(side_effect=asyncio.TimeoutError())
+    mock_process.stderr.readline = AsyncMock(side_effect=asyncio.TimeoutError())
+    mock_process.wait = AsyncMock(return_value=0)
+    
+    # Keep synchronous methods as regular Mock
+    mock_process.terminate = Mock(return_value=None)
+    mock_process.kill = Mock(return_value=None)
 
-        mock_process = Mock()
-        mock_process.returncode = None
+    with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        result = await hydra_attack.run_attack(ip="127.0.0.1", protocol="ftp", timeout=1)
 
-        async def mock_timeout_readline():
-            raise asyncio.TimeoutError()
+        assert result.status == "timeout"
+        assert result.error is not None
+        assert len(result.credentials) == 0
 
-        async def mock_wait():
-            return 0
-
-        stdout_mock = Mock()
-        stderr_mock = Mock()
-        stdout_mock.readline = mock_timeout_readline
-        stderr_mock.readline = mock_timeout_readline
-
-        mock_process.stdout = stdout_mock
-        mock_process.stderr = stderr_mock
-        mock_process.terminate = Mock(return_value=None)
-        mock_process.kill = Mock(return_value=None)
-        mock_process.wait = mock_wait
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await hydra_attack.run_attack(
-                ip="127.0.0.1", protocol="ftp", timeout=1
-            )
-
-            assert result.status == "timeout"
-            assert result.error is not None
-            assert len(result.credentials) == 0
-
-            # Verify that a results file was still created (even for timeouts)
-            result_files = list(Path(tmp_dir).glob("attack_*.json"))
-            assert len(result_files) == 1
+        # Verify that a results file was still created (even for timeouts)
+        result_files = list(Path(hydra_attack.results_dir).glob("attack_*.json"))
+        assert len(result_files) == 1
 
 
 @pytest.mark.asyncio
-async def test_run_attack_hydra_not_found():
+async def test_run_attack_hydra_not_found(hydra_attack):
     """Test hydra not found error with proper file isolation."""
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        hydra_attack = HydraAttack(output_dir=tmp_dir)
+    with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError()):
+        result = await hydra_attack.run_attack(ip="127.0.0.1", protocol="ftp")
 
-        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError()):
-            result = await hydra_attack.run_attack(ip="127.0.0.1", protocol="ftp")
+        assert result.status == "failed"
+        assert "Hydra is not installed" in result.error
 
-            assert result.status == "failed"
-            assert "Hydra is not installed" in result.error
-
-            # The actual behavior: no results file is created when FileNotFoundError occurs
-            # because save_results is not called in the exception handler
-            result_files = list(Path(tmp_dir).glob("attack_*.json"))
-            assert len(result_files) == 0
+        # The actual behavior: no results file is created when FileNotFoundError occurs
+        # because save_results is not called in the exception handler
+        result_files = list(Path(hydra_attack.results_dir).glob("attack_*.json"))
+        assert len(result_files) == 0
 
 
-def test_hydra_config_wordlist_creation():
+def test_hydra_config_wordlist_creation(hydra_attack):
     """Test HydraConfig wordlist creation with temporary directories."""
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        # Override the default wordlists directory for testing
-        config = HydraConfig()
-        config.DEFAULT_WORDLISTS_DIR = Path(tmp_dir) / "wordlists"
-        config.DEFAULT_WORDLISTS_DIR.mkdir(parents=True, exist_ok=True)
+    config = HydraConfig()
+    config.DEFAULT_WORDLISTS_DIR = Path(hydra_attack.results_dir) / "wordlists"
+    config.DEFAULT_WORDLISTS_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Test custom wordlist creation
-        words = ["admin", "root", "user"]
-        output_path = config.DEFAULT_WORDLISTS_DIR / "test_logins.txt"
-        config.create_custom_wordlist(words, output_path)
+    # Test custom wordlist creation
+    words = ["admin", "root", "user"]
+    output_path = config.DEFAULT_WORDLISTS_DIR / "test_logins.txt"
+    config.create_custom_wordlist(words, output_path)
 
-        assert output_path.exists()
-        with open(output_path) as f:
-            content = f.read().strip()
-            assert content == "admin\nroot\nuser"
+    assert output_path.exists()
+    with open(output_path) as f:
+        content = f.read().strip()
+        assert content == "admin\nroot\nuser"
 
 
 if __name__ == "__main__":
