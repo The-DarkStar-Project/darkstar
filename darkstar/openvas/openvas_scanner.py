@@ -25,8 +25,8 @@ from colorama import Fore, Style
 from typing import List, Dict, Any
 
 from .openvas_connector import OpenVASAPIClient
-from ..core.db_helper import insert_vulnerability_to_database
-from ..core.models.vulnerability import Vulnerability
+from darkstar.core.db_helper import insert_vulnerability_to_database
+from darkstar.core.models.vulnerability import Vulnerability
 
 logger = logging.getLogger("openvas_scanner")
 

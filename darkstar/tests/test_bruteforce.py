@@ -4,7 +4,7 @@ import asyncio
 import json
 import tempfile
 from pathlib import Path
-from ..tools.bruteforce.hydrapy import HydraAttack, HydraConfig, AttackResult
+from darkstar.tools.bruteforce.hydrapy import HydraAttack, HydraConfig, AttackResult
 
 
 @pytest.fixture

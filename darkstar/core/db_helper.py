@@ -95,10 +95,10 @@ def flatten_list(value):
     Returns:
         str: Comma-separated string or original value if not a list
     """
-    print(f"Value: {value}")
+    logger.debug(f"Value: {value}")
     if isinstance(value, list):
         new = ", ".join(map(str, value))
-        print(f"New: {new}, type: {type(new)}")
+        logger.debug(f"New: {new}, type: {type(new)}")
         return new
     return value
 

@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock, mock_open
 # Add the parent directory to the path to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ..tools.hibp.HIBPwned import HIBPwned, SUCCES, PAGE_NOT_FOUND, TOO_MANY_CALLS
+from darkstar.tools.hibp.HIBPwned import HIBPwned, SUCCES, PAGE_NOT_FOUND, TOO_MANY_CALLS
 
 
 @pytest.fixture

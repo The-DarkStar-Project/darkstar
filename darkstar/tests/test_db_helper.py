@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 import pandas as pd
-from ..core.db_helper import (
+from darkstar.core.db_helper import (
     insert_bbot_to_db,
     sanitize_string,
     flatten_list,
@@ -9,7 +9,7 @@ from ..core.db_helper import (
     prepare_cve_data,
     prepare_non_cve_data,
 )
-from ..core.models.vulnerability import Vulnerability, CVE
+from darkstar.core.models.vulnerability import Vulnerability, CVE
 
 
 # Parametrized tests for sanitize_string function
