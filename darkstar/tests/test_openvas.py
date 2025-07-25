@@ -1,10 +1,10 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
+from pytest_mock import MockerFixture
 from httpx import HTTPStatusError
 import tempfile
 import os
 
-from darkstar.openvas.openvas_connector import (
+from openvas.openvas_connector import (
     OpenVASAPIClient,
     create_target,
     list_targets,
@@ -14,7 +14,7 @@ from darkstar.openvas.openvas_connector import (
     get_task_status,
     get_report,
 )
-from darkstar.openvas.openvas_scanner import OpenVASScanner
+from openvas.openvas_scanner import OpenVASScanner
 
 
 class TestOpenVASAPIClient:
@@ -26,25 +26,25 @@ class TestOpenVASAPIClient:
         return OpenVASAPIClient(base_url="http://test-openvas:8008")
 
     @pytest.fixture
-    def mock_httpx_client(self):
+    def mock_httpx_client(self, mocker: MockerFixture):
         """Fixture to provide a mocked httpx.AsyncClient."""
-        return AsyncMock()
+        return mocker.AsyncMock()
 
     @pytest.mark.asyncio
-    async def test_context_manager_entry_exit(self, client):
+    async def test_context_manager_entry_exit(self, client, mocker: MockerFixture):
         """Test that the client can be used as an async context manager."""
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client_class.return_value = mock_client
+        mock_client_class = mocker.patch("httpx.AsyncClient")
+        mock_client = mocker.AsyncMock()
+        mock_client_class.return_value = mock_client
 
-            async with client as c:
-                assert c is client
-                assert client._client is mock_client
-                mock_client_class.assert_called_once_with(
-                    base_url="http://test-openvas:8008"
-                )
+        async with client as c:
+            assert c is client
+            assert client._client is mock_client
+            mock_client_class.assert_called_once_with(
+                base_url="http://test-openvas:8008"
+            )
 
-            mock_client.aclose.assert_called_once()
+        mock_client.aclose.assert_called_once()
 
     @pytest.mark.parametrize(
         "name,hosts,port_range,port_list_id,expected_payload",
@@ -86,6 +86,7 @@ class TestOpenVASAPIClient:
         self,
         client,
         mock_httpx_client,
+        mocker: MockerFixture,
         name,
         hosts,
         port_range,
@@ -94,7 +95,7 @@ class TestOpenVASAPIClient:
     ):
         """Test target creation with various parameters."""
         expected_response = {"id": "target-123", "name": name}
-        mock_response = MagicMock()
+        mock_response = mocker.Mock()
         mock_response.json.return_value = expected_response
         mock_httpx_client.post.return_value = mock_response
 
@@ -113,11 +114,13 @@ class TestOpenVASAPIClient:
         assert result == expected_response
 
     @pytest.mark.asyncio
-    async def test_create_target_http_error(self, client, mock_httpx_client):
+    async def test_create_target_http_error(
+        self, client, mock_httpx_client, mocker: MockerFixture
+    ):
         """Test that HTTP errors are properly raised during target creation."""
-        mock_response = MagicMock()
+        mock_response = mocker.Mock()
         mock_response.raise_for_status.side_effect = HTTPStatusError(
-            "Bad Request", request=MagicMock(), response=MagicMock()
+            "Bad Request", request=mocker.Mock(), response=mocker.Mock()
         )
         mock_httpx_client.post.return_value = mock_response
 
@@ -127,13 +130,13 @@ class TestOpenVASAPIClient:
             await client.create_target("test", ["192.168.1.1"])
 
     @pytest.mark.asyncio
-    async def test_list_targets(self, client, mock_httpx_client):
+    async def test_list_targets(self, client, mock_httpx_client, mocker: MockerFixture):
         """Test listing targets."""
         expected_targets = [
             {"id": "target-1", "name": "Target 1", "hosts": ["192.168.1.1"]},
             {"id": "target-2", "name": "Target 2", "hosts": ["192.168.1.2"]},
         ]
-        mock_response = MagicMock()
+        mock_response = mocker.Mock()
         mock_response.json.return_value = expected_targets
         mock_httpx_client.get.return_value = mock_response
 
@@ -162,11 +165,17 @@ class TestOpenVASAPIClient:
     )
     @pytest.mark.asyncio
     async def test_create_task(
-        self, client, mock_httpx_client, name, target_id, expected_payload
+        self,
+        client,
+        mock_httpx_client,
+        mocker: MockerFixture,
+        name,
+        target_id,
+        expected_payload,
     ):
         """Test task creation with various parameters."""
         expected_response = {"id": "task-789", "name": name, "target_id": target_id}
-        mock_response = MagicMock()
+        mock_response = mocker.Mock()
         mock_response.json.return_value = expected_response
         mock_httpx_client.post.return_value = mock_response
 
@@ -179,13 +188,13 @@ class TestOpenVASAPIClient:
         assert result == expected_response
 
     @pytest.mark.asyncio
-    async def test_list_tasks(self, client, mock_httpx_client):
+    async def test_list_tasks(self, client, mock_httpx_client, mocker: MockerFixture):
         """Test listing tasks."""
         expected_tasks = [
             {"id": "task-1", "name": "Task 1", "status": "Running"},
             {"id": "task-2", "name": "Task 2", "status": "Done"},
         ]
-        mock_response = MagicMock()
+        mock_response = mocker.Mock()
         mock_response.json.return_value = expected_tasks
         mock_httpx_client.get.return_value = mock_response
 
@@ -198,7 +207,7 @@ class TestOpenVASAPIClient:
         assert result == expected_tasks
 
     @pytest.mark.asyncio
-    async def test_start_task(self, client, mock_httpx_client):
+    async def test_start_task(self, client, mock_httpx_client, mocker: MockerFixture):
         """Test starting a task."""
         task_id = "task-123"
         expected_response = {
@@ -206,7 +215,7 @@ class TestOpenVASAPIClient:
             "report_id": "report-456",
             "status": "Running",
         }
-        mock_response = MagicMock()
+        mock_response = mocker.Mock()
         mock_response.json.return_value = expected_response
         mock_httpx_client.post.return_value = mock_response
 
@@ -228,10 +237,10 @@ class TestOpenVASAPIClient:
     )
     @pytest.mark.asyncio
     async def test_get_task_status(
-        self, client, mock_httpx_client, task_id, expected_status
+        self, client, mock_httpx_client, mocker: MockerFixture, task_id, expected_status
     ):
         """Test getting task status with various statuses."""
-        mock_response = MagicMock()
+        mock_response = mocker.Mock()
         mock_response.json.return_value = expected_status
         mock_httpx_client.get.return_value = mock_response
 
@@ -244,11 +253,11 @@ class TestOpenVASAPIClient:
         assert result == expected_status
 
     @pytest.mark.asyncio
-    async def test_get_report(self, client, mock_httpx_client):
+    async def test_get_report(self, client, mock_httpx_client, mocker: MockerFixture):
         """Test getting a report."""
         report_id = "report-123"
         expected_xml = "<report><vulnerability>test</vulnerability></report>"
-        mock_response = MagicMock()
+        mock_response = mocker.Mock()
         mock_response.text = expected_xml
         mock_httpx_client.get.return_value = mock_response
 
@@ -265,95 +274,85 @@ class TestOpenVASConnectorConvenienceFunctions:
     """Test the convenience functions that wrap the client."""
 
     @pytest.mark.asyncio
-    async def test_create_target_convenience(self):
+    async def test_create_target_convenience(self, mocker: MockerFixture):
         """Test the convenience create_target function."""
-        with patch(
-            "darkstar.openvas.openvas_connector.OpenVASAPIClient"
-        ) as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.create_target.return_value = {"id": "target-123"}
-            mock_client_class.return_value = mock_client
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.create_target.return_value = {"id": "target-123"}
+        mock_client_class.return_value = mock_client
 
-            result = await create_target("test", ["192.168.1.1"], port_range="80")
+        result = await create_target("test", ["192.168.1.1"], port_range="80")
 
-            mock_client.create_target.assert_called_once_with(
-                "test", ["192.168.1.1"], port_range="80"
-            )
-            assert result == {"id": "target-123"}
+        mock_client.create_target.assert_called_once_with(
+            "test", ["192.168.1.1"], port_range="80"
+        )
+        assert result == {"id": "target-123"}
 
     @pytest.mark.asyncio
-    async def test_list_targets_convenience(self):
+    async def test_list_targets_convenience(self, mocker: MockerFixture):
         """Test the convenience list_targets function."""
-        with patch(
-            "darkstar.openvas.openvas_connector.OpenVASAPIClient"
-        ) as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.list_targets.return_value = [{"id": "target-1"}]
-            mock_client_class.return_value = mock_client
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.list_targets.return_value = [{"id": "target-1"}]
+        mock_client_class.return_value = mock_client
 
-            result = await list_targets()
+        result = await list_targets()
 
-            mock_client.list_targets.assert_called_once()
-            assert result == [{"id": "target-1"}]
+        mock_client.list_targets.assert_called_once()
+        assert result == [{"id": "target-1"}]
 
     @pytest.mark.asyncio
-    async def test_create_task_convenience(self):
+    async def test_create_task_convenience(self, mocker: MockerFixture):
         """Test the convenience create_task function."""
-        with patch(
-            "darkstar.openvas.openvas_connector.OpenVASAPIClient"
-        ) as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.create_task.return_value = {
-                "id": "task-789",
-                "name": "test-task",
-            }
-            mock_client_class.return_value = mock_client
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.create_task.return_value = {
+            "id": "task-789",
+            "name": "test-task",
+        }
+        mock_client_class.return_value = mock_client
 
-            result = await create_task("test-task", "target-123")
+        result = await create_task("test-task", "target-123")
 
-            mock_client.create_task.assert_called_once_with("test-task", "target-123")
-            assert result == {"id": "task-789", "name": "test-task"}
+        mock_client.create_task.assert_called_once_with("test-task", "target-123")
+        assert result == {"id": "task-789", "name": "test-task"}
 
     @pytest.mark.asyncio
-    async def test_list_tasks_convenience(self):
+    async def test_list_tasks_convenience(self, mocker: MockerFixture):
         """Test the convenience list_tasks function."""
-        with patch(
-            "darkstar.openvas.openvas_connector.OpenVASAPIClient"
-        ) as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.list_tasks.return_value = [
-                {"id": "task-1", "name": "Task 1", "status": "Running"},
-                {"id": "task-2", "name": "Task 2", "status": "Done"},
-            ]
-            mock_client_class.return_value = mock_client
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.list_tasks.return_value = [
+            {"id": "task-1", "name": "Task 1", "status": "Running"},
+            {"id": "task-2", "name": "Task 2", "status": "Done"},
+        ]
+        mock_client_class.return_value = mock_client
 
-            result = await list_tasks()
+        result = await list_tasks()
 
-            mock_client.list_tasks.assert_called_once()
-            assert result == [
-                {"id": "task-1", "name": "Task 1", "status": "Running"},
-                {"id": "task-2", "name": "Task 2", "status": "Done"},
-            ]
+        mock_client.list_tasks.assert_called_once()
+        assert result == [
+            {"id": "task-1", "name": "Task 1", "status": "Running"},
+            {"id": "task-2", "name": "Task 2", "status": "Done"},
+        ]
 
     @pytest.mark.asyncio
-    async def test_start_task_convenience(self):
+    async def test_start_task_convenience(self, mocker: MockerFixture):
         """Test the convenience start_task function."""
-        with patch(
-            "darkstar.openvas.openvas_connector.OpenVASAPIClient"
-        ) as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.start_task.return_value = {"report_id": "report-123"}
-            mock_client_class.return_value = mock_client
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.start_task.return_value = {"report_id": "report-123"}
+        mock_client_class.return_value = mock_client
 
-            result = await start_task("task-456")
+        result = await start_task("task-456")
 
-            mock_client.start_task.assert_called_once_with("task-456")
-            assert result == {"report_id": "report-123"}
+        mock_client.start_task.assert_called_once_with("task-456")
+        assert result == {"report_id": "report-123"}
 
     @pytest.mark.parametrize(
         "task_id,expected_status",
@@ -365,20 +364,20 @@ class TestOpenVASConnectorConvenienceFunctions:
         ],
     )
     @pytest.mark.asyncio
-    async def test_get_task_status_convenience(self, task_id, expected_status):
+    async def test_get_task_status_convenience(
+        self, mocker: MockerFixture, task_id, expected_status
+    ):
         """Test the convenience get_task_status function with various statuses."""
-        with patch(
-            "darkstar.openvas.openvas_connector.OpenVASAPIClient"
-        ) as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.get_task_status.return_value = expected_status
-            mock_client_class.return_value = mock_client
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.get_task_status.return_value = expected_status
+        mock_client_class.return_value = mock_client
 
-            result = await get_task_status(task_id)
+        result = await get_task_status(task_id)
 
-            mock_client.get_task_status.assert_called_once_with(task_id)
-            assert result == expected_status
+        mock_client.get_task_status.assert_called_once_with(task_id)
+        assert result == expected_status
 
     @pytest.mark.parametrize(
         "report_id,report_content",
@@ -398,55 +397,51 @@ class TestOpenVASConnectorConvenienceFunctions:
         ],
     )
     @pytest.mark.asyncio
-    async def test_get_report_convenience(self, report_id, report_content):
+    async def test_get_report_convenience(
+        self, mocker: MockerFixture, report_id, report_content
+    ):
         """Test the convenience get_report function with various report types."""
-        with patch(
-            "darkstar.openvas.openvas_connector.OpenVASAPIClient"
-        ) as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.get_report.return_value = report_content
-            mock_client_class.return_value = mock_client
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.get_report.return_value = report_content
+        mock_client_class.return_value = mock_client
 
-            result = await get_report(report_id)
+        result = await get_report(report_id)
 
-            mock_client.get_report.assert_called_once_with(report_id)
-            assert result == report_content
+        mock_client.get_report.assert_called_once_with(report_id)
+        assert result == report_content
 
     @pytest.mark.asyncio
-    async def test_convenience_functions_with_errors(self):
+    async def test_convenience_functions_with_errors(self, mocker: MockerFixture):
         """Test that convenience functions properly propagate errors."""
-        with patch(
-            "darkstar.openvas.openvas_connector.OpenVASAPIClient"
-        ) as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.create_task.side_effect = HTTPStatusError(
-                "Server Error", request=MagicMock(), response=MagicMock()
-            )
-            mock_client_class.return_value = mock_client
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.create_task.side_effect = HTTPStatusError(
+            "Server Error", request=mocker.Mock(), response=mocker.Mock()
+        )
+        mock_client_class.return_value = mock_client
 
-            with pytest.raises(HTTPStatusError):
-                await create_task("failing-task", "target-123")
+        with pytest.raises(HTTPStatusError):
+            await create_task("failing-task", "target-123")
 
     @pytest.mark.asyncio
-    async def test_convenience_functions_with_kwargs(self):
+    async def test_convenience_functions_with_kwargs(self, mocker: MockerFixture):
         """Test that convenience functions properly pass through kwargs."""
-        with patch(
-            "darkstar.openvas.openvas_connector.OpenVASAPIClient"
-        ) as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.create_task.return_value = {"id": "task-with-kwargs"}
-            mock_client_class.return_value = mock_client
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.create_task.return_value = {"id": "task-with-kwargs"}
+        mock_client_class.return_value = mock_client
 
-            # Test create_task with additional kwargs
-            result = await create_task("test-task", "target-123", custom_param="value")
+        # Test create_task with additional kwargs
+        result = await create_task("test-task", "target-123", custom_param="value")
 
-            mock_client.create_task.assert_called_once_with(
-                "test-task", "target-123", custom_param="value"
-            )
-            assert result == {"id": "task-with-kwargs"}
+        mock_client.create_task.assert_called_once_with(
+            "test-task", "target-123", custom_param="value"
+        )
+        assert result == {"id": "task-with-kwargs"}
 
 
 class TestOpenVASScanner:
@@ -512,90 +507,86 @@ class TestOpenVASScanner:
         assert scanner.base_url == "http://test-openvas:8008"
         assert scanner.vulnerabilities == []
 
-    def test_scanner_initialization_with_env_var(self):
+    def test_scanner_initialization_with_env_var(self, mocker: MockerFixture):
         """Test scanner initialization with environment variable."""
-        with patch.dict(os.environ, {"OPENVAS_API_URL": "http://env-openvas:9009"}):
-            scanner = OpenVASScanner("env-org")
-            assert scanner.base_url == "http://env-openvas:9009"
+        mocker.patch.dict(os.environ, {"OPENVAS_API_URL": "http://env-openvas:9009"})
+        scanner = OpenVASScanner("env-org")
+        assert scanner.base_url == "http://env-openvas:9009"
 
     @pytest.mark.asyncio
-    async def test_scan_targets_success(self, scanner):
+    async def test_scan_targets_success(self, scanner, mocker: MockerFixture):
         """Test successful scanning of targets."""
         targets = ["192.168.1.1", "192.168.1.2"]
 
-        with patch(
-            "darkstar.openvas.openvas_scanner.OpenVASAPIClient"
-        ) as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client_class.return_value = mock_client
+        mock_client_class = mocker.patch("openvas.openvas_scanner.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client_class.return_value = mock_client
 
-            # Mock target creation
-            mock_client.create_target.side_effect = [
-                {"id": "target-1", "name": "Discovered 192.168.1.1 - 2025-07-23"},
-                {"id": "target-2", "name": "Discovered 192.168.1.2 - 2025-07-23"},
-            ]
+        # Mock target creation
+        mock_client.create_target.side_effect = [
+            {"id": "target-1", "name": "Discovered 192.168.1.1 - 2025-07-23"},
+            {"id": "target-2", "name": "Discovered 192.168.1.2 - 2025-07-23"},
+        ]
 
-            # Mock task creation
-            mock_client.create_task.side_effect = [
-                {"id": "task-1", "name": "Scan for target-1"},
-                {"id": "task-2", "name": "Scan for target-2"},
-            ]
+        # Mock task creation
+        mock_client.create_task.side_effect = [
+            {"id": "task-1", "name": "Scan for target-1"},
+            {"id": "task-2", "name": "Scan for target-2"},
+        ]
 
-            # Mock task starting
-            mock_client.start_task.side_effect = [
-                {"report_id": "report-1"},
-                {"report_id": "report-2"},
-            ]
+        # Mock task starting
+        mock_client.start_task.side_effect = [
+            {"report_id": "report-1"},
+            {"report_id": "report-2"},
+        ]
 
-            # Mock monitor_task_queue
-            with patch.object(scanner, "monitor_task_queue") as mock_monitor:
-                mock_monitor.return_value = None
+        # Mock monitor_task_queue
+        mock_monitor = mocker.patch.object(scanner, "monitor_task_queue")
+        mock_monitor.return_value = None
 
-                await scanner.scan_targets(targets)
+        await scanner.scan_targets(targets)
 
-                # Verify calls
-                assert mock_client.create_target.call_count == 2
-                assert mock_client.create_task.call_count == 2
-                assert mock_client.start_task.call_count == 2
-                mock_monitor.assert_called_once()
+        # Verify calls
+        assert mock_client.create_target.call_count == 2
+        assert mock_client.create_task.call_count == 2
+        assert mock_client.start_task.call_count == 2
+        mock_monitor.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_scan_targets_with_errors(self, scanner):
+    async def test_scan_targets_with_errors(self, scanner, mocker: MockerFixture):
         """Test scanning targets with some failures."""
         targets = ["192.168.1.1", "192.168.1.2"]
 
-        with patch(
-            "darkstar.openvas.openvas_scanner.OpenVASAPIClient"
-        ) as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client_class.return_value = mock_client
+        mock_client_class = mocker.patch("openvas.openvas_scanner.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client_class.return_value = mock_client
 
-            # Mock target creation with one failure
-            mock_client.create_target.side_effect = [
-                {"id": "target-1", "name": "Discovered 192.168.1.1 - 2025-07-23"},
-                Exception("Target creation failed"),
-            ]
+        # Mock target creation with one failure
+        mock_client.create_target.side_effect = [
+            {"id": "target-1", "name": "Discovered 192.168.1.1 - 2025-07-23"},
+            Exception("Target creation failed"),
+        ]
 
-            # Mock task creation
-            mock_client.create_task.return_value = {
-                "id": "task-1",
-                "name": "Scan for target-1",
-            }
+        # Mock task creation
+        mock_client.create_task.return_value = {
+            "id": "task-1",
+            "name": "Scan for target-1",
+        }
 
-            # Mock task starting
-            mock_client.start_task.return_value = {"report_id": "report-1"}
+        # Mock task starting
+        mock_client.start_task.return_value = {"report_id": "report-1"}
 
-            with patch.object(scanner, "monitor_task_queue") as mock_monitor:
-                mock_monitor.return_value = None
+        mock_monitor = mocker.patch.object(scanner, "monitor_task_queue")
+        mock_monitor.return_value = None
 
-                await scanner.scan_targets(targets)
+        await scanner.scan_targets(targets)
 
-                # Only one target should succeed
-                assert mock_client.create_target.call_count == 2
-                assert mock_client.create_task.call_count == 1
-                assert mock_client.start_task.call_count == 1
+        # Only one target should succeed
+        assert mock_client.create_target.call_count == 2
+        assert mock_client.create_task.call_count == 1
+        assert mock_client.start_task.call_count == 1
 
     @pytest.mark.parametrize(
         "task_status,should_complete",
@@ -610,10 +601,10 @@ class TestOpenVASScanner:
     )
     @pytest.mark.asyncio
     async def test_monitor_task_queue_status_handling(
-        self, scanner, task_status, should_complete
+        self, scanner, mocker: MockerFixture, task_status, should_complete
     ):
         """Test task monitoring with different status values."""
-        mock_client = AsyncMock()
+        mock_client = mocker.AsyncMock()
         task_info = [
             {
                 "task_id": "task-1",
@@ -626,77 +617,77 @@ class TestOpenVASScanner:
         mock_client.get_task_status.return_value = {"status": task_status}
         mock_client.get_report.return_value = "<report></report>"
 
-        with (
-            patch("os.makedirs"),
-            patch("builtins.open", mock_open()),
-            patch.object(scanner, "parse_results_to_vulns") as mock_parse,
-            patch("asyncio.sleep") as mock_sleep,
-        ):
-            # Mock sleep to avoid waiting in tests
-            mock_sleep.side_effect = [None, Exception("Break loop")]
+        mock_makedirs = mocker.patch("os.makedirs")
+        mock_open = mocker.patch("builtins.open", mocker.mock_open())
+        mock_parse = mocker.patch.object(scanner, "parse_results_to_vulns")
+        mock_sleep = mocker.patch("asyncio.sleep")
 
-            try:
-                await scanner.monitor_task_queue(mock_client, task_info)
-            except Exception:
-                pass  # Expected to break the loop
+        # Mock sleep to avoid waiting in tests
+        mock_sleep.side_effect = [None, Exception("Break loop")]
 
-            assert task_info[0]["completed"] == should_complete
-            if should_complete and task_status in ["Done", "Stopped"]:
-                mock_client.get_report.assert_called_once_with("report-1")
-                mock_parse.assert_called_once()
+        try:
+            await scanner.monitor_task_queue(mock_client, task_info)
+        except Exception:
+            pass  # Expected to break the loop
+
+        assert task_info[0]["completed"] == should_complete
+        if should_complete and task_status in ["Done", "Stopped"]:
+            mock_client.get_report.assert_called_once_with("report-1")
+            mock_parse.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_parse_results_to_vulns(self, scanner, sample_xml_report):
+    async def test_parse_results_to_vulns(
+        self, scanner, sample_xml_report, mocker: MockerFixture
+    ):
         """Test parsing of XML report to vulnerabilities."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
             f.write(sample_xml_report)
             report_file = f.name
 
         try:
-            with (
-                patch("requests.get") as mock_requests,
-                patch(
-                    "darkstar.openvas.openvas_scanner.insert_vulnerability_to_database"
-                ) as mock_insert,
-                patch(
-                    "darkstar.core.models.vulnerability.Vulnerability.cve_enricher"
-                ) as mock_cve_enricher,
-            ):
-                # Mock EPSS API response
-                mock_response = MagicMock()
-                mock_response.status_code = 200
-                mock_response.json.return_value = {"data": [{"percentile": 0.8}]}
-                mock_requests.return_value = mock_response
+            mock_requests = mocker.patch("requests.get")
+            mock_insert = mocker.patch(
+                "openvas.openvas_scanner.insert_vulnerability_to_database"
+            )
+            mock_cve_enricher = mocker.patch(
+                "core.models.vulnerability.Vulnerability.cve_enricher"
+            )
 
-                # Mock the CVE enricher to avoid subprocess calls
-                mock_cve_enricher.return_value = {
-                    "cvss": "7.5",
-                    "epss": "0.8",
-                    "summary": "Test CVE summary",
-                    "impact": "High impact",
-                    "solution": "Update software",
-                }
+            # Mock EPSS API response
+            mock_response = mocker.Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"data": [{"percentile": 0.8}]}
+            mock_requests.return_value = mock_response
 
-                await scanner.parse_results_to_vulns(report_file)
+            # Mock the CVE enricher to avoid subprocess calls
+            mock_cve_enricher.return_value = {
+                "cvss": "7.5",
+                "epss": "0.8",
+                "summary": "Test CVE summary",
+                "impact": "High impact",
+                "solution": "Update software",
+            }
 
-                # Should have 2 vulnerabilities (one is skipped due to httpOnly)
-                assert len(scanner.vulnerabilities) == 2
+            await scanner.parse_results_to_vulns(report_file)
 
-                # Check first vulnerability (SQL Injection)
-                vuln1 = scanner.vulnerabilities[0]
-                assert vuln1.title == "SQL Injection"
-                assert vuln1.affected_item == "192.168.1.1"
-                assert vuln1.tool == "OpenVAS"
-                assert vuln1.confidence == 95
+            # Should have 2 vulnerabilities (one is skipped due to httpOnly)
+            assert len(scanner.vulnerabilities) == 2
 
-                # Check second vulnerability (Buffer Overflow)
-                vuln2 = scanner.vulnerabilities[1]
-                assert vuln2.title == "Buffer Overflow"
-                assert vuln2.affected_item == "192.168.1.3"
-                assert vuln2.confidence == 99
+            # Check first vulnerability (SQL Injection)
+            vuln1 = scanner.vulnerabilities[0]
+            assert vuln1.title == "SQL Injection"
+            assert vuln1.affected_item == "192.168.1.1"
+            assert vuln1.tool == "OpenVAS"
+            assert vuln1.confidence == 95
 
-                # Verify database insertions
-                assert mock_insert.call_count == 2
+            # Check second vulnerability (Buffer Overflow)
+            vuln2 = scanner.vulnerabilities[1]
+            assert vuln2.title == "Buffer Overflow"
+            assert vuln2.affected_item == "192.168.1.3"
+            assert vuln2.confidence == 99
+
+            # Verify database insertions
+            assert mock_insert.call_count == 2
 
         finally:
             os.unlink(report_file)
@@ -720,7 +711,9 @@ class TestOpenVASScanner:
             os.unlink(report_file)
 
     @pytest.mark.asyncio
-    async def test_parse_results_nocve_vulnerability(self, scanner):
+    async def test_parse_results_nocve_vulnerability(
+        self, scanner, mocker: MockerFixture
+    ):
         """Test parsing vulnerability without CVE."""
         nocve_xml = """<?xml version="1.0" encoding="UTF-8"?>
         <report>
@@ -745,16 +738,16 @@ class TestOpenVASScanner:
             report_file = f.name
 
         try:
-            with patch(
-                "darkstar.openvas.openvas_scanner.insert_vulnerability_to_database"
-            ) as mock_insert:
-                await scanner.parse_results_to_vulns(report_file)
+            mock_insert = mocker.patch(
+                "openvas.openvas_scanner.insert_vulnerability_to_database"
+            )
+            await scanner.parse_results_to_vulns(report_file)
 
-                assert len(scanner.vulnerabilities) == 1
-                vuln = scanner.vulnerabilities[0]
-                assert vuln.title == "Custom Vulnerability"
-                assert vuln.summary == "Custom vulnerability description"
-                mock_insert.assert_called_once()
+            assert len(scanner.vulnerabilities) == 1
+            vuln = scanner.vulnerabilities[0]
+            assert vuln.title == "Custom Vulnerability"
+            assert vuln.summary == "Custom vulnerability description"
+            mock_insert.assert_called_once()
 
         finally:
             os.unlink(report_file)
@@ -772,57 +765,56 @@ class TestOpenVASIntegration:
     """Integration tests for OpenVAS components."""
 
     @pytest.mark.asyncio
-    async def test_full_workflow_simulation(self):
+    async def test_full_workflow_simulation(self, mocker: MockerFixture):
         """Test a simulated full workflow from target creation to report parsing."""
         scanner = OpenVASScanner("integration-test")
 
-        with patch(
-            "darkstar.openvas.openvas_scanner.OpenVASAPIClient"
-        ) as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client_class.return_value = mock_client
+        mock_client_class = mocker.patch("openvas.openvas_scanner.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client_class.return_value = mock_client
 
-            # Simulate successful workflow
-            mock_client.create_target.return_value = {
-                "id": "target-1",
-                "name": "Test Target",
-            }
-            mock_client.create_task.return_value = {"id": "task-1", "name": "Test Task"}
-            mock_client.start_task.return_value = {"report_id": "report-1"}
-            mock_client.get_task_status.return_value = {"status": "Done"}
-            mock_client.get_report.return_value = """<?xml version="1.0" encoding="UTF-8"?>
-            <report>
-                <result>
-                    <name>Test Vulnerability</name>
-                    <nvt><cve>CVE-2023-12345</cve></nvt>
-                    <port>80/tcp</port>
-                    <threat>High</threat>
-                    <severity>7.5</severity>
-                    <description>Test description</description>
-                    <host>192.168.1.1</host>
-                    <qod><value>95</value></qod>
-                </result>
-            </report>"""
+        # Simulate successful workflow
+        mock_client.create_target.return_value = {
+            "id": "target-1",
+            "name": "Test Target",
+        }
+        mock_client.create_task.return_value = {"id": "task-1", "name": "Test Task"}
+        mock_client.start_task.return_value = {"report_id": "report-1"}
+        mock_client.get_task_status.return_value = {"status": "Done"}
+        mock_client.get_report.return_value = """<?xml version="1.0" encoding="UTF-8"?>
+        <report>
+            <result>
+                <name>Test Vulnerability</name>
+                <nvt><cve>CVE-2023-12345</cve></nvt>
+                <port>80/tcp</port>
+                <threat>High</threat>
+                <severity>7.5</severity>
+                <description>Test description</description>
+                <host>192.168.1.1</host>
+                <qod><value>95</value></qod>
+            </result>
+        </report>"""
 
-            with (
-                patch("os.makedirs"),
-                patch("builtins.open", mock_open()),
-                patch.object(scanner, "parse_results_to_vulns") as mock_parse,
-                patch("asyncio.sleep", side_effect=[None, Exception("Break")]),
-            ):
-                mock_parse.return_value = None
+        mock_makedirs = mocker.patch("os.makedirs")
+        mock_open = mocker.patch("builtins.open", mocker.mock_open())
+        mock_parse = mocker.patch.object(scanner, "parse_results_to_vulns")
+        mock_sleep = mocker.patch(
+            "asyncio.sleep", side_effect=[None, Exception("Break")]
+        )
 
-                # This should complete without errors
-                try:
-                    await scanner.scan_targets(["192.168.1.1"])
-                except Exception:
-                    pass  # Expected from breaking the monitoring loop
+        mock_parse.return_value = None
 
-                # Verify the workflow was followed
-                mock_client.create_target.assert_called_once()
-                mock_client.create_task.assert_called_once()
-                mock_client.start_task.assert_called_once()
+        # This should complete without errors
+        try:
+            await scanner.scan_targets(["192.168.1.1"])
+        except Exception:
+            pass  # Expected from breaking the monitoring loop
+
+        # Verify the workflow was followed
+        mock_client.create_target.assert_called_once()
+        mock_client.create_task.assert_called_once()
+        mock_client.start_task.assert_called_once()
 
 
 if __name__ == "__main__":

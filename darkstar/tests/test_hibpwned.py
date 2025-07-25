@@ -1,12 +1,12 @@
 import pytest
+from pytest_mock import MockerFixture
 import sys
 import os
-from unittest.mock import patch, MagicMock, mock_open
 
 # Add the parent directory to the path to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from darkstar.tools.hibp.HIBPwned import HIBPwned, SUCCES, PAGE_NOT_FOUND, TOO_MANY_CALLS
+from tools.hibp.HIBPwned import HIBPwned, SUCCES, PAGE_NOT_FOUND, TOO_MANY_CALLS
 
 
 @pytest.fixture
@@ -28,96 +28,104 @@ def clean_email():
 
 
 @pytest.fixture
-def mock_api():
+def mock_api(mocker: MockerFixture):
     """Fixture providing a mocked API instance."""
-    with patch("darkstar.tools.hibp.HIBPwned.RequestsAPI") as mock:
-        yield mock
+    return mocker.patch("tools.hibp.HIBPwned.RequestsAPI")
 
 
 @pytest.fixture
-def mock_find_breaches():
+def mock_find_breaches(mocker: MockerFixture):
     """Fixture providing a mocked FindBreaches instance."""
-    with patch("darkstar.tools.hibp.HIBPwned.FindBreaches") as mock:
-        yield mock
+    return mocker.patch("tools.hibp.HIBPwned.FindBreaches")
 
 
 @pytest.fixture
-def mock_db_functions():
+def mock_db_functions(mocker: MockerFixture):
     """Fixture providing mocked database functions."""
-    with (
-        patch("darkstar.tools.hibp.HIBPwned.insert_email_data") as mock_email,
-        patch(
-            "darkstar.tools.hibp.HIBPwned.insert_breached_email_data"
-        ) as mock_breached,
-        patch("darkstar.tools.hibp.HIBPwned.insert_password_data") as mock_password,
-    ):
-        yield {
-            "email": mock_email,
-            "breached": mock_breached,
-            "password": mock_password,
-        }
+    mock_email = mocker.patch("tools.hibp.HIBPwned.insert_email_data")
+    mock_breached = mocker.patch("tools.hibp.HIBPwned.insert_breached_email_data")
+    mock_password = mocker.patch("tools.hibp.HIBPwned.insert_password_data")
+
+    return {
+        "email": mock_email,
+        "breached": mock_breached,
+        "password": mock_password,
+    }
 
 
 class TestHIBPwnedInitialization:
     """Test the HIBPwned class initialization."""
 
-    def test_initialization(self, sample_emails):
+    def test_initialization(self, mocker: MockerFixture, sample_emails):
         """Test initializing the HIBPwned checker."""
-        with patch("builtins.open", mock_open(read_data=sample_emails)):
-            checker = HIBPwned("/path/to/emails.txt", "test_org")
-            assert checker.org_name == "test_org"
-            assert checker.emails == ["test1@example.com\n", "test2@example.com\n"]
+        mock_open_file = mocker.mock_open(read_data=sample_emails)
+        mocker.patch("builtins.open", mock_open_file)
 
-    def test_initialization_file_not_found(self):
+        checker = HIBPwned("/path/to/emails.txt", "test_org")
+        assert checker.org_name == "test_org"
+        assert checker.emails == ["test1@example.com\n", "test2@example.com\n"]
+
+    def test_initialization_file_not_found(self, mocker: MockerFixture):
         """Test initialization when email file doesn't exist."""
-        with patch("builtins.open", side_effect=FileNotFoundError()):
-            checker = HIBPwned("/nonexistent/emails.txt", "test_org")
-            assert checker.org_name == "test_org"
-            assert checker.emails == []
+        mocker.patch("builtins.open", side_effect=FileNotFoundError())
 
-    def test_initialization_file_error(self):
+        checker = HIBPwned("/nonexistent/emails.txt", "test_org")
+        assert checker.org_name == "test_org"
+        assert checker.emails == []
+
+    def test_initialization_file_error(self, mocker: MockerFixture):
         """Test initialization when there's an error reading the file."""
-        with patch("builtins.open", side_effect=Exception("Read error")):
-            checker = HIBPwned("/path/to/emails.txt", "test_org")
-            assert checker.org_name == "test_org"
-            assert checker.emails == []
+        mocker.patch("builtins.open", side_effect=Exception("Read error"))
+
+        checker = HIBPwned("/path/to/emails.txt", "test_org")
+        assert checker.org_name == "test_org"
+        assert checker.emails == []
 
 
 class TestHIBPwnedRun:
     """Test the HIBPwned run functionality."""
 
-    def test_run_with_no_emails(self, mock_api, mock_find_breaches, mock_db_functions):
+    def test_run_with_no_emails(
+        self, mocker: MockerFixture, mock_api, mock_find_breaches, mock_db_functions
+    ):
         """Test running with no emails loaded."""
-        with patch("builtins.open", mock_open(read_data="")):
-            checker = HIBPwned("/path/to/emails.txt", "test_org")
-            checker.emails = []  # Explicitly set to empty
-            checker.run()
+        mock_open_file = mocker.mock_open(read_data="")
+        mocker.patch("builtins.open", mock_open_file)
 
-            # Verify no API calls were made
-            mock_api.return_value.get_HIBPwned_request.assert_not_called()
-            mock_api.return_value.get_proxynova_request.assert_not_called()
+        checker = HIBPwned("/path/to/emails.txt", "test_org")
+        checker.emails = []  # Explicitly set to empty
+        checker.run()
+
+        # Verify no API calls were made
+        mock_api.return_value.get_HIBPwned_request.assert_not_called()
+        mock_api.return_value.get_proxynova_request.assert_not_called()
 
     def test_run_with_breached_emails(
-        self, sample_emails, mock_api, mock_find_breaches, mock_db_functions
+        self,
+        mocker: MockerFixture,
+        sample_emails,
+        mock_api,
+        mock_find_breaches,
+        mock_db_functions,
     ):
         """Test running the breach checker with emails that have breaches."""
         # Mock API responses
-        mock_hibp_response = MagicMock()
+        mock_hibp_response = mocker.Mock()
         mock_hibp_response.status_code = SUCCES
         mock_hibp_response.json.return_value = [{"breach": "data"}]
 
-        mock_proxynova_response = MagicMock()
+        mock_proxynova_response = mocker.Mock()
         mock_proxynova_response.status_code = SUCCES
         mock_proxynova_response.text = "test1@example.com:password1"
 
         # Setup API instance
-        mock_api_instance = MagicMock()
+        mock_api_instance = mocker.Mock()
         mock_api_instance.get_HIBPwned_request.return_value = mock_hibp_response
         mock_api_instance.get_proxynova_request.return_value = mock_proxynova_response
         mock_api.return_value = mock_api_instance
 
         # Setup FindBreaches instance
-        mock_find_breaches_instance = MagicMock()
+        mock_find_breaches_instance = mocker.Mock()
         mock_find_breaches_instance.find_email_breach.return_value = [
             ["test1@example.com", "Breach1", "2020-01-01", "breach.com"]
         ]
@@ -126,9 +134,11 @@ class TestHIBPwnedRun:
         ]
         mock_find_breaches.return_value = mock_find_breaches_instance
 
-        with patch("builtins.open", mock_open(read_data=sample_emails)):
-            checker = HIBPwned("/path/to/emails.txt", "test_org")
-            checker.run()
+        mock_open_file = mocker.mock_open(read_data=sample_emails)
+        mocker.patch("builtins.open", mock_open_file)
+
+        checker = HIBPwned("/path/to/emails.txt", "test_org")
+        checker.run()
 
         # Verify the databases were updated
         mock_db_functions["email"].assert_called_once()
@@ -140,33 +150,40 @@ class TestHIBPwnedRun:
         assert mock_api_instance.get_proxynova_request.call_count == 2
 
     def test_run_with_clean_emails(
-        self, clean_email, mock_api, mock_find_breaches, mock_db_functions
+        self,
+        mocker: MockerFixture,
+        clean_email,
+        mock_api,
+        mock_find_breaches,
+        mock_db_functions,
     ):
         """Test running the breach checker with emails that have no breaches or passwords."""
         # Mock API responses - success but no data found
-        mock_hibp_response = MagicMock()
+        mock_hibp_response = mocker.Mock()
         mock_hibp_response.status_code = SUCCES
         mock_hibp_response.json.return_value = []
 
-        mock_proxynova_response = MagicMock()
+        mock_proxynova_response = mocker.Mock()
         mock_proxynova_response.status_code = SUCCES
         mock_proxynova_response.text = ""
 
         # Setup API instance
-        mock_api_instance = MagicMock()
+        mock_api_instance = mocker.Mock()
         mock_api_instance.get_HIBPwned_request.return_value = mock_hibp_response
         mock_api_instance.get_proxynova_request.return_value = mock_proxynova_response
         mock_api.return_value = mock_api_instance
 
         # Setup FindBreaches instance - no breaches or passwords found
-        mock_find_breaches_instance = MagicMock()
+        mock_find_breaches_instance = mocker.Mock()
         mock_find_breaches_instance.find_email_breach.return_value = []
         mock_find_breaches_instance.find_passwords.return_value = []
         mock_find_breaches.return_value = mock_find_breaches_instance
 
-        with patch("builtins.open", mock_open(read_data=clean_email)):
-            checker = HIBPwned("/path/to/emails.txt", "test_org")
-            checker.run()
+        mock_open_file = mocker.mock_open(read_data=clean_email)
+        mocker.patch("builtins.open", mock_open_file)
+
+        checker = HIBPwned("/path/to/emails.txt", "test_org")
+        checker.run()
 
         # Verify only email data was inserted (not breach or password data since lists are empty)
         mock_db_functions["email"].assert_called_once()
@@ -182,31 +199,38 @@ class TestHIBPwnedRun:
         mock_api_instance.get_proxynova_request.assert_called_once()
 
     def test_run_with_not_found_emails(
-        self, clean_email, mock_api, mock_find_breaches, mock_db_functions
+        self,
+        mocker: MockerFixture,
+        clean_email,
+        mock_api,
+        mock_find_breaches,
+        mock_db_functions,
     ):
         """Test running the breach checker with emails that return 404."""
         # Mock API responses - not found
-        mock_hibp_response = MagicMock()
+        mock_hibp_response = mocker.Mock()
         mock_hibp_response.status_code = PAGE_NOT_FOUND
 
-        mock_proxynova_response = MagicMock()
+        mock_proxynova_response = mocker.Mock()
         mock_proxynova_response.status_code = SUCCES
         mock_proxynova_response.text = ""
 
         # Setup API instance
-        mock_api_instance = MagicMock()
+        mock_api_instance = mocker.Mock()
         mock_api_instance.get_HIBPwned_request.return_value = mock_hibp_response
         mock_api_instance.get_proxynova_request.return_value = mock_proxynova_response
         mock_api.return_value = mock_api_instance
 
         # Setup FindBreaches instance
-        mock_find_breaches_instance = MagicMock()
+        mock_find_breaches_instance = mocker.Mock()
         mock_find_breaches_instance.find_passwords.return_value = []
         mock_find_breaches.return_value = mock_find_breaches_instance
 
-        with patch("builtins.open", mock_open(read_data=clean_email)):
-            checker = HIBPwned("/path/to/emails.txt", "test_org")
-            checker.run()
+        mock_open_file = mocker.mock_open(read_data=clean_email)
+        mocker.patch("builtins.open", mock_open_file)
+
+        checker = HIBPwned("/path/to/emails.txt", "test_org")
+        checker.run()
 
         # Verify only email data was inserted
         mock_db_functions["email"].assert_called_once()
@@ -221,28 +245,35 @@ class TestHIBPwnedRun:
 class TestHIBPwnedRateLimit:
     """Test rate limiting functionality."""
 
-    @patch("darkstar.tools.hibp.HIBPwned.time.sleep")
     def test_run_with_rate_limit(
-        self, mock_sleep, single_email, mock_api, mock_find_breaches, mock_db_functions
+        self,
+        mocker: MockerFixture,
+        single_email,
+        mock_api,
+        mock_find_breaches,
+        mock_db_functions,
     ):
         """Test handling of rate limits from the APIs."""
+        # Mock sleep to avoid actual delays in tests
+        mock_sleep = mocker.patch("tools.hibp.HIBPwned.time.sleep")
+
         # Mock API responses - rate limit then success
-        mock_hibp_response_limit = MagicMock()
+        mock_hibp_response_limit = mocker.Mock()
         mock_hibp_response_limit.status_code = TOO_MANY_CALLS
 
-        mock_hibp_response_success = MagicMock()
+        mock_hibp_response_success = mocker.Mock()
         mock_hibp_response_success.status_code = SUCCES
         mock_hibp_response_success.json.return_value = []
 
-        mock_proxynova_response_limit = MagicMock()
+        mock_proxynova_response_limit = mocker.Mock()
         mock_proxynova_response_limit.status_code = TOO_MANY_CALLS
 
-        mock_proxynova_response_success = MagicMock()
+        mock_proxynova_response_success = mocker.Mock()
         mock_proxynova_response_success.status_code = SUCCES
         mock_proxynova_response_success.text = ""
 
         # Setup API instance to return rate limit first, then success
-        mock_api_instance = MagicMock()
+        mock_api_instance = mocker.Mock()
         mock_api_instance.get_HIBPwned_request.side_effect = [
             mock_hibp_response_limit,
             mock_hibp_response_success,
@@ -254,15 +285,19 @@ class TestHIBPwnedRateLimit:
         mock_api.return_value = mock_api_instance
 
         # Setup FindBreaches instance
-        mock_find_breaches_instance = MagicMock()
+        mock_find_breaches_instance = mocker.Mock()
         mock_find_breaches_instance.find_email_breach.return_value = []
         mock_find_breaches_instance.find_passwords.return_value = []
         mock_find_breaches.return_value = mock_find_breaches_instance
 
-        with patch("builtins.open", mock_open(read_data=single_email)):
-            with patch("darkstar.tools.hibp.HIBPwned.random.randint", return_value=10):
-                checker = HIBPwned("/path/to/emails.txt", "test_org")
-                checker.run()
+        # Mock random sleep time
+        mocker.patch("tools.hibp.HIBPwned.random.randint", return_value=10)
+
+        mock_open_file = mocker.mock_open(read_data=single_email)
+        mocker.patch("builtins.open", mock_open_file)
+
+        checker = HIBPwned("/path/to/emails.txt", "test_org")
+        checker.run()
 
         # Verify that sleep was called for rate limiting
         mock_sleep.assert_called()
@@ -292,6 +327,7 @@ class TestHIBPwnedAPIResponses:
     )
     def test_api_response_combinations(
         self,
+        mocker: MockerFixture,
         hibp_status,
         proxynova_status,
         expected_breaches,
@@ -303,12 +339,12 @@ class TestHIBPwnedAPIResponses:
     ):
         """Test various combinations of API responses."""
         # Mock API responses
-        mock_hibp_response = MagicMock()
+        mock_hibp_response = mocker.Mock()
         mock_hibp_response.status_code = hibp_status
         if hibp_status == SUCCES:
             mock_hibp_response.json.return_value = [{"breach": "data"}]
 
-        mock_proxynova_response = MagicMock()
+        mock_proxynova_response = mocker.Mock()
         mock_proxynova_response.status_code = proxynova_status
         if proxynova_status == SUCCES:
             mock_proxynova_response.text = "test@example.com:password1"
@@ -316,13 +352,13 @@ class TestHIBPwnedAPIResponses:
             mock_proxynova_response.text = ""
 
         # Setup API instance
-        mock_api_instance = MagicMock()
+        mock_api_instance = mocker.Mock()
         mock_api_instance.get_HIBPwned_request.return_value = mock_hibp_response
         mock_api_instance.get_proxynova_request.return_value = mock_proxynova_response
         mock_api.return_value = mock_api_instance
 
         # Setup FindBreaches instance
-        mock_find_breaches_instance = MagicMock()
+        mock_find_breaches_instance = mocker.Mock()
         if expected_breaches and hibp_status == SUCCES:
             mock_find_breaches_instance.find_email_breach.return_value = [
                 ["test@example.com", "Breach1", "2020-01-01", "breach.com"]
@@ -338,9 +374,11 @@ class TestHIBPwnedAPIResponses:
             mock_find_breaches_instance.find_passwords.return_value = []
         mock_find_breaches.return_value = mock_find_breaches_instance
 
-        with patch("builtins.open", mock_open(read_data=single_email)):
-            checker = HIBPwned("/path/to/emails.txt", "test_org")
-            checker.run()
+        mock_open_file = mocker.mock_open(read_data=single_email)
+        mocker.patch("builtins.open", mock_open_file)
+
+        checker = HIBPwned("/path/to/emails.txt", "test_org")
+        checker.run()
 
         # Verify database operations
         mock_db_functions["email"].assert_called_once()

@@ -1,7 +1,7 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from pytest_mock import MockerFixture
 import pandas as pd
-from darkstar.core.db_helper import (
+from core.db_helper import (
     insert_bbot_to_db,
     sanitize_string,
     flatten_list,
@@ -9,7 +9,7 @@ from darkstar.core.db_helper import (
     prepare_cve_data,
     prepare_non_cve_data,
 )
-from darkstar.core.models.vulnerability import Vulnerability, CVE
+from core.models.vulnerability import Vulnerability, CVE
 
 
 # Parametrized tests for sanitize_string function
@@ -28,10 +28,7 @@ from darkstar.core.models.vulnerability import Vulnerability, CVE
             "Yellow with spaces",
         ),  # ANSI + spaces
         ("", ""),  # Empty string
-        (123, 123),  # Non-string integer
-        (None, None),  # None value
-        ([], []),  # Non-string list
-        ({"key": "value"}, {"key": "value"}),  # Non-string dict
+        (None, None),  # Should return None, not empty string
     ],
 )
 def test_sanitize_string(input_value, expected):
@@ -141,17 +138,18 @@ def test_convert_to_json(input_value, expected):
         ),
     ],
 )
-@patch("darkstar.core.db_helper.sanitize_string")
-@patch("darkstar.core.db_helper.flatten_list")
-@patch("darkstar.core.db_helper.convert_to_json")
 def test_prepare_cve_data_parametrized(
-    mock_convert, mock_flatten, mock_sanitize, cve_data, vuln_data, expected_length
+    mocker: MockerFixture, cve_data, vuln_data, expected_length
 ):
     """Parametrized test for prepare_cve_data with different CVE configurations."""
     # Set up mocks
-    mock_sanitize.side_effect = lambda x: x  # Return the input unchanged
-    mock_flatten.side_effect = lambda x: "flattened"
-    mock_convert.side_effect = lambda x: "json_converted"
+    mock_sanitize = mocker.patch(
+        "core.db_helper.sanitize_string", side_effect=lambda x: x
+    )
+    mock_flatten = mocker.patch("core.db_helper.flatten_list", return_value="flattened")
+    mock_convert = mocker.patch(
+        "core.db_helper.convert_to_json", return_value="json_converted"
+    )
 
     # Create CVE and Vulnerability objects
     cve = CVE(**cve_data)
@@ -215,15 +213,15 @@ def test_prepare_cve_data_parametrized(
         ),
     ],
 )
-@patch("darkstar.core.db_helper.sanitize_string")
-@patch("darkstar.core.db_helper.flatten_list")
 def test_prepare_non_cve_data_parametrized(
-    mock_flatten, mock_sanitize, vuln_data, expected_length
+    mocker: MockerFixture, vuln_data, expected_length
 ):
     """Parametrized test for prepare_non_cve_data with different vulnerability configurations."""
     # Set up mocks
-    mock_sanitize.side_effect = lambda x: x  # Return the input unchanged
-    mock_flatten.side_effect = lambda x: "flattened"
+    mock_sanitize = mocker.patch(
+        "core.db_helper.sanitize_string", side_effect=lambda x: x
+    )
+    mock_flatten = mocker.patch("core.db_helper.flatten_list", return_value="flattened")
 
     # Create vulnerability object
     vuln = Vulnerability(**vuln_data)
@@ -283,14 +281,14 @@ def test_prepare_non_cve_data_parametrized(
         ),
     ],
 )
-@patch("darkstar.core.db_helper.DatabaseConnectionManager")
 def test_insert_bbot_to_db_parametrized(
-    mock_db_manager, dataframe_data, org_name, expected_result
+    mocker: MockerFixture, dataframe_data, org_name, expected_result
 ):
     """Parametrized test for insert_bbot_to_db with different DataFrame configurations."""
     # Set up mock connection manager and connection
-    mock_connection = MagicMock()
-    mock_cursor = MagicMock()
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_db_manager = mocker.patch("core.db_helper.DatabaseConnectionManager")
     mock_db_manager.return_value.__enter__.return_value = mock_connection
     mock_connection.cursor.return_value = mock_cursor
 

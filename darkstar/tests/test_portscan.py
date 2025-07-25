@@ -1,10 +1,10 @@
 import pytest
 import json
 import tempfile
-from unittest.mock import patch, MagicMock, AsyncMock, mock_open
+from pytest_mock import MockerFixture
 
 # Fix import paths to use proper module structure
-from darkstar.scanners.portscan.rustscan_utils import (
+from scanners.portscan.rustscan_utils import (
     verify_installation,
     verify_rustscan,
     verify_all_installations,
@@ -13,7 +13,7 @@ from darkstar.scanners.portscan.rustscan_utils import (
     process_scan_results,
 )
 
-from darkstar.scanners.portscan.rustscanpy import ScanTarget, RustScanner, run, main
+from scanners.portscan.rustscanpy import ScanTarget, RustScanner, run, main
 
 
 class TestRustScanUtils:
@@ -30,37 +30,37 @@ class TestRustScanUtils:
         ],
     )
     async def test_verify_installation(
-        self, program, which_return, subprocess_return, expected
+        self, mocker: MockerFixture, program, which_return, subprocess_return, expected
     ):
         """Test program installation verification."""
-        with patch("shutil.which", return_value=which_return) as mock_which:
-            if which_return is not None:
-                result = await verify_installation(program)
-                assert result == expected
-                mock_which.assert_called_once_with(program)
-            else:
-                with patch("asyncio.create_subprocess_exec") as mock_subprocess:
-                    if subprocess_return is not None:
-                        mock_process = AsyncMock()
-                        mock_process.communicate.return_value = ("", "")
-                        mock_process.returncode = subprocess_return
-                        mock_subprocess.return_value = mock_process
-                    else:
-                        mock_subprocess.side_effect = Exception("Test error")
+        mock_which = mocker.patch("shutil.which", return_value=which_return)
 
-                    result = await verify_installation(program)
-                    assert result == expected
+        if which_return is not None:
+            result = await verify_installation(program)
+            assert result == expected
+            mock_which.assert_called_once_with(program)
+        else:
+            mock_subprocess = mocker.patch("asyncio.create_subprocess_exec")
+            if subprocess_return is not None:
+                mock_process = mocker.AsyncMock()
+                mock_process.communicate.return_value = ("", "")
+                mock_process.returncode = subprocess_return
+                mock_subprocess.return_value = mock_process
+            else:
+                mock_subprocess.side_effect = Exception("Test error")
+
+            result = await verify_installation(program)
+            assert result == expected
 
     @pytest.mark.asyncio
-    async def test_verify_rustscan(self):
+    async def test_verify_rustscan(self, mocker: MockerFixture):
         """Test RustScan specific verification."""
-        with patch(
-            "darkstar.scanners.portscan.rustscan_utils.verify_installation"
-        ) as mock_verify:
-            mock_verify.return_value = True
-            result = await verify_rustscan()
-            assert result is True
-            mock_verify.assert_called_once_with("rustscan")
+        mock_verify = mocker.patch(
+            "scanners.portscan.rustscan_utils.verify_installation", return_value=True
+        )
+        result = await verify_rustscan()
+        assert result is True
+        mock_verify.assert_called_once_with("rustscan")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -70,14 +70,16 @@ class TestRustScanUtils:
             (False, False),
         ],
     )
-    async def test_verify_all_installations(self, rustscan_installed, expected):
+    async def test_verify_all_installations(
+        self, mocker: MockerFixture, rustscan_installed, expected
+    ):
         """Test verification of all required installations."""
-        with patch(
-            "darkstar.scanners.portscan.rustscan_utils.verify_rustscan"
-        ) as mock_verify:
-            mock_verify.return_value = rustscan_installed
-            result = await verify_all_installations()
-            assert result == expected
+        mock_verify = mocker.patch(
+            "scanners.portscan.rustscan_utils.verify_rustscan",
+            return_value=rustscan_installed,
+        )
+        result = await verify_all_installations()
+        assert result == expected
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -112,22 +114,22 @@ class TestRustScanUtils:
                     assert target in created_files
 
     @pytest.mark.asyncio
-    async def test_save_results_default_directory(self):
+    async def test_save_results_default_directory(self, mocker: MockerFixture):
         """Test save_results with default directory creation."""
         results = [{"target": "test.com", "ports": [80]}]
 
         # Use temporary directory to avoid creating real scan_results directory
         with tempfile.TemporaryDirectory() as temp_dir:
-            with (
-                patch("os.makedirs") as mock_makedirs,
-                patch("builtins.open", mock_open()) as mock_file,
-                patch("json.dump") as mock_json_dump,
-            ):
-                # Call save_results with explicit temp directory instead of default
-                created_files = await save_results(results, temp_dir)
+            mock_makedirs = mocker.patch("os.makedirs")
+            mock_open_file = mocker.mock_open()
+            mocker.patch("builtins.open", mock_open_file)
+            mock_json_dump = mocker.patch("json.dump")
 
-                # Should create the specified directory
-                mock_makedirs.assert_called_once_with(temp_dir, exist_ok=True)
+            # Call save_results with explicit temp directory instead of default
+            created_files = await save_results(results, temp_dir)
+
+            # Should create the specified directory
+            mock_makedirs.assert_called_once_with(temp_dir, exist_ok=True)
 
     @pytest.mark.asyncio
     async def test_save_results_handles_non_string_targets(self):
@@ -220,30 +222,33 @@ class TestRustScanUtils:
             ([{"scan_results": {"ip_results": {"192.168.1.1": {"ports": []}}}}], False),
         ],
     )
-    def test_process_scan_results(self, scan_results, expected_ports_found):
+    def test_process_scan_results(
+        self, mocker: MockerFixture, scan_results, expected_ports_found
+    ):
         """Test processing of scan results."""
-        with patch(
-            "darkstar.scanners.portscan.rustscan_utils.extract_service_info"
-        ) as mock_extract:
-            if expected_ports_found:
-                mock_extract.return_value = {
-                    "192.168.1.1": [
-                        {"port": 80, "service": "http"},
-                        {"port": 443, "service": "https"},
-                    ]
-                }
-            else:
-                mock_extract.return_value = {}
+        mock_extract = mocker.patch(
+            "scanners.portscan.rustscan_utils.extract_service_info"
+        )
 
-            result = process_scan_results(scan_results, "test.com")
+        if expected_ports_found:
+            mock_extract.return_value = {
+                "192.168.1.1": [
+                    {"port": 80, "service": "http"},
+                    {"port": 443, "service": "https"},
+                ]
+            }
+        else:
+            mock_extract.return_value = {}
 
-            assert "service_info" in result
-            assert "ports_by_host" in result
+        result = process_scan_results(scan_results, "test.com")
 
-            if expected_ports_found:
-                assert len(result["ports_by_host"]) > 0
-            else:
-                assert len(result["ports_by_host"]) == 0
+        assert "service_info" in result
+        assert "ports_by_host" in result
+
+        if expected_ports_found:
+            assert len(result["ports_by_host"]) > 0
+        else:
+            assert len(result["ports_by_host"]) == 0
 
 
 class TestScanTarget:
@@ -395,96 +400,96 @@ class TestRustScanner:
         assert result == expected
 
     @pytest.mark.asyncio
-    async def test_resolve_target_ip(self, rust_scanner):
+    async def test_resolve_target_ip(self, mocker: MockerFixture, rust_scanner):
         """Test target resolution for IP addresses."""
         target = "192.168.1.1"
 
-        with (
-            patch.object(rust_scanner, "_is_valid_ip", return_value=True),
-            patch.object(rust_scanner, "_is_ip_behind_cdn", return_value=False),
-        ):
-            result = await rust_scanner._resolve_target(target)
+        mocker.patch.object(rust_scanner, "_is_valid_ip", return_value=True)
+        mocker.patch.object(rust_scanner, "_is_ip_behind_cdn", return_value=False)
 
-            assert result.target == target
-            assert result.resolved_ips == [target]
-            assert result.is_ip is True
-            assert result.is_cidr is False
-            assert result.is_behind_cdn is False
+        result = await rust_scanner._resolve_target(target)
+
+        assert result.target == target
+        assert result.resolved_ips == [target]
+        assert result.is_ip is True
+        assert result.is_cidr is False
+        assert result.is_behind_cdn is False
 
     @pytest.mark.asyncio
-    async def test_resolve_target_cidr(self, rust_scanner):
+    async def test_resolve_target_cidr(self, mocker: MockerFixture, rust_scanner):
         """Test target resolution for CIDR ranges."""
         target = "192.168.1.0/30"
 
-        with (
-            patch.object(rust_scanner, "_is_valid_ip", return_value=False),
-            patch.object(rust_scanner, "_is_valid_cidr", return_value=True),
-            patch.object(
-                rust_scanner,
-                "_expand_cidr",
-                return_value=["192.168.1.1", "192.168.1.2"],
-            ),
-        ):
-            result = await rust_scanner._resolve_target(target)
+        mocker.patch.object(rust_scanner, "_is_valid_ip", return_value=False)
+        mocker.patch.object(rust_scanner, "_is_valid_cidr", return_value=True)
+        mocker.patch.object(
+            rust_scanner,
+            "_expand_cidr",
+            return_value=["192.168.1.1", "192.168.1.2"],
+        )
 
-            assert result.target == target
-            assert result.resolved_ips == ["192.168.1.1", "192.168.1.2"]
-            assert result.is_ip is False
-            assert result.is_cidr is True
-            assert result.is_behind_cdn is False
+        result = await rust_scanner._resolve_target(target)
+
+        assert result.target == target
+        assert result.resolved_ips == ["192.168.1.1", "192.168.1.2"]
+        assert result.is_ip is False
+        assert result.is_cidr is True
+        assert result.is_behind_cdn is False
 
     @pytest.mark.asyncio
-    async def test_resolve_target_domain(self, rust_scanner):
+    async def test_resolve_target_domain(self, mocker: MockerFixture, rust_scanner):
         """Test target resolution for domain names."""
         target = "example.com"
 
-        with (
-            patch.object(rust_scanner, "_is_valid_ip", return_value=False),
-            patch.object(rust_scanner, "_is_valid_cidr", return_value=False),
-            patch(
-                "darkstar.scanners.portscan.rustscanpy.dns.asyncresolver.Resolver"
-            ) as mock_resolver_class,
-        ):
-            mock_resolver = AsyncMock()
-            mock_resolver_class.return_value = mock_resolver
+        mocker.patch.object(rust_scanner, "_is_valid_ip", return_value=False)
+        mocker.patch.object(rust_scanner, "_is_valid_cidr", return_value=False)
 
-            # Mock A record resolution with proper answer object
-            mock_answer = MagicMock()
-            mock_answer.__str__ = MagicMock(return_value="192.168.1.1")
-            mock_a_answers = [mock_answer]
+        mock_resolver_class = mocker.patch(
+            "scanners.portscan.rustscanpy.dns.asyncresolver.Resolver"
+        )
 
-            mock_resolver.resolve.side_effect = [
-                mock_a_answers,  # A record
-                Exception("No AAAA records"),  # AAAA record
-            ]
+        mock_resolver = mocker.AsyncMock()
+        mock_resolver_class.return_value = mock_resolver
 
-            with patch.object(rust_scanner, "_is_ip_behind_cdn", return_value=False):
-                result = await rust_scanner._resolve_target(target)
+        # Mock A record resolution with proper answer object
+        mock_answer = mocker.Mock()
+        mock_answer.__str__ = mocker.Mock(return_value="192.168.1.1")
+        mock_a_answers = [mock_answer]
 
-                assert result.target == target
-                assert "192.168.1.1" in result.resolved_ips
-                assert result.is_ip is False
-                assert result.is_cidr is False
+        mock_resolver.resolve.side_effect = [
+            mock_a_answers,  # A record
+            Exception("No AAAA records"),  # AAAA record
+        ]
+
+        mocker.patch.object(rust_scanner, "_is_ip_behind_cdn", return_value=False)
+
+        result = await rust_scanner._resolve_target(target)
+
+        assert result.target == target
+        assert "192.168.1.1" in result.resolved_ips
+        assert result.is_ip is False
+        assert result.is_cidr is False
 
     @pytest.mark.asyncio
-    async def test_resolve_target_domain_no_resolution(self, rust_scanner):
+    async def test_resolve_target_domain_no_resolution(
+        self, mocker: MockerFixture, rust_scanner
+    ):
         """Test target resolution for domain that doesn't resolve."""
         target = "nonexistent.domain"
 
-        with (
-            patch.object(rust_scanner, "_is_valid_ip", return_value=False),
-            patch.object(rust_scanner, "_is_valid_cidr", return_value=False),
-            patch("dns.asyncresolver.Resolver") as mock_resolver_class,
-        ):
-            mock_resolver = AsyncMock()
-            mock_resolver_class.return_value = mock_resolver
-            mock_resolver.resolve.side_effect = Exception("No resolution")
+        mocker.patch.object(rust_scanner, "_is_valid_ip", return_value=False)
+        mocker.patch.object(rust_scanner, "_is_valid_cidr", return_value=False)
 
-            result = await rust_scanner._resolve_target(target)
+        mock_resolver_class = mocker.patch("dns.asyncresolver.Resolver")
+        mock_resolver = mocker.AsyncMock()
+        mock_resolver_class.return_value = mock_resolver
+        mock_resolver.resolve.side_effect = Exception("No resolution")
 
-            assert result.target == target
-            assert result.resolved_ips == []
-            assert result.is_behind_cdn is False
+        result = await rust_scanner._resolve_target(target)
+
+        assert result.target == target
+        assert result.resolved_ips == []
+        assert result.is_behind_cdn is False
 
     @pytest.mark.asyncio
     async def test_process_discovered_port(self, rust_scanner):
@@ -549,7 +554,7 @@ class TestRustScanner:
         await rust_scanner._process_service_info(line, "192.168.1.1", scan_results)
 
     @pytest.mark.asyncio
-    async def test_setup_base_command_ipv4(self, rust_scanner):
+    async def test_setup_base_command_ipv4(self, mocker: MockerFixture, rust_scanner):
         """Test base command setup for IPv4 targets."""
         target = ScanTarget(
             target="192.168.1.1",
@@ -558,32 +563,32 @@ class TestRustScanner:
             is_ip=True,
         )
 
-        with patch.object(rust_scanner, "_is_ipv6", return_value=False):
-            cmd = await rust_scanner.setup_base_command(target)
+        mocker.patch.object(rust_scanner, "_is_ipv6", return_value=False)
+        cmd = await rust_scanner.setup_base_command(target)
 
-            expected_base = [
-                "rustscan",
-                "-a",
-                "192.168.1.1",
-                "-b",
-                "1000",
-                "--ulimit",
-                "5000",
-                "-t",
-                "1000",
-                "--tries",
-                "1",
-                "--accessible",
-            ]
+        expected_base = [
+            "rustscan",
+            "-a",
+            "192.168.1.1",
+            "-b",
+            "1000",
+            "--ulimit",
+            "5000",
+            "-t",
+            "1000",
+            "--tries",
+            "1",
+            "--accessible",
+        ]
 
-            assert cmd[: len(expected_base)] == expected_base
-            assert "--" in cmd  # Should have nmap flags
-            assert "-Pn" in cmd
-            assert "-T4" in cmd
-            assert "-n" in cmd
+        assert cmd[: len(expected_base)] == expected_base
+        assert "--" in cmd  # Should have nmap flags
+        assert "-Pn" in cmd
+        assert "-T4" in cmd
+        assert "-n" in cmd
 
     @pytest.mark.asyncio
-    async def test_setup_base_command_ipv6(self, rust_scanner):
+    async def test_setup_base_command_ipv6(self, mocker: MockerFixture, rust_scanner):
         """Test base command setup for IPv6 targets."""
         target = ScanTarget(
             target="2001:db8::1",
@@ -592,13 +597,13 @@ class TestRustScanner:
             is_ip=True,
         )
 
-        with patch.object(rust_scanner, "_is_ipv6", return_value=True):
-            cmd = await rust_scanner.setup_base_command(target)
+        mocker.patch.object(rust_scanner, "_is_ipv6", return_value=True)
+        cmd = await rust_scanner.setup_base_command(target)
 
-            assert "-6" in cmd
+        assert "-6" in cmd
 
     @pytest.mark.asyncio
-    async def test_setup_base_command_no_service_detection(self):
+    async def test_setup_base_command_no_service_detection(self, mocker: MockerFixture):
         """Test base command setup without service detection."""
         scanner = RustScanner(service_detection=False)
         target = ScanTarget(
@@ -608,31 +613,31 @@ class TestRustScanner:
             is_ip=True,
         )
 
-        with patch.object(scanner, "_is_ipv6", return_value=False):
-            cmd = await scanner.setup_base_command(target)
+        mocker.patch.object(scanner, "_is_ipv6", return_value=False)
+        cmd = await scanner.setup_base_command(target)
 
-            # Should not contain nmap service detection flags
-            assert "-Pn" not in cmd
-            assert "-T4" not in cmd
+        # Should not contain nmap service detection flags
+        assert "-Pn" not in cmd
+        assert "-T4" not in cmd
 
     @pytest.mark.asyncio
-    async def test_scan_target_no_resolution(self, rust_scanner):
+    async def test_scan_target_no_resolution(self, mocker: MockerFixture, rust_scanner):
         """Test scanning target that fails to resolve."""
         target = "nonexistent.domain"
 
-        with patch.object(rust_scanner, "_resolve_target") as mock_resolve:
-            mock_resolve.return_value = ScanTarget(
-                target=target, resolved_ips=[], is_behind_cdn=False
-            )
+        mock_resolve = mocker.patch.object(rust_scanner, "_resolve_target")
+        mock_resolve.return_value = ScanTarget(
+            target=target, resolved_ips=[], is_behind_cdn=False
+        )
 
-            result = await rust_scanner.scan_target(target)
+        result = await rust_scanner.scan_target(target)
 
-            assert result["target"] == target
-            assert "error" in result
-            assert result["error"] == "Target resolution failed"
+        assert result["target"] == target
+        assert "error" in result
+        assert result["error"] == "Target resolution failed"
 
     @pytest.mark.asyncio
-    async def test_execute_rustscan_success(self, rust_scanner):
+    async def test_execute_rustscan_success(self, mocker: MockerFixture, rust_scanner):
         """Test successful execution of rustscan."""
         target = ScanTarget(
             target="192.168.1.1",
@@ -641,43 +646,44 @@ class TestRustScanner:
             is_ip=True,
         )
 
-        with (
-            patch.object(
-                rust_scanner,
-                "setup_base_command",
-                return_value=["rustscan", "-a", "192.168.1.1"],
-            ),
-            patch("asyncio.create_subprocess_exec") as mock_subprocess,
-        ):
-            # Mock process
-            mock_process = AsyncMock()
-            mock_process.wait.return_value = 0
+        mocker.patch.object(
+            rust_scanner,
+            "setup_base_command",
+            return_value=["rustscan", "-a", "192.168.1.1"],
+        )
+        mock_subprocess = mocker.patch("asyncio.create_subprocess_exec")
 
-            # Mock stdout output
-            stdout_lines = [
-                b"Scanning 192.168.1.1\n",
-                b"Discovered open port 80/tcp on 192.168.1.1\n",
-                b"80/tcp open http Apache\n",
-                b"",  # End of stream
-            ]
+        # Mock process
+        mock_process = mocker.AsyncMock()
+        mock_process.wait.return_value = 0
 
-            async def mock_readline():
-                if stdout_lines:
-                    return stdout_lines.pop(0)
-                return b""
+        # Mock stdout output
+        stdout_lines = [
+            b"Scanning 192.168.1.1\n",
+            b"Discovered open port 80/tcp on 192.168.1.1\n",
+            b"80/tcp open http Apache\n",
+            b"",  # End of stream
+        ]
 
-            mock_process.stdout.readline = mock_readline
-            mock_process.stderr.readline = AsyncMock(return_value=b"")
-            mock_subprocess.return_value = mock_process
+        async def mock_readline():
+            if stdout_lines:
+                return stdout_lines.pop(0)
+            return b""
 
-            result = await rust_scanner._execute_rustscan(target)
+        mock_process.stdout.readline = mock_readline
+        mock_process.stderr.readline = mocker.AsyncMock(return_value=b"")
+        mock_subprocess.return_value = mock_process
 
-            assert result["status"] == "completed"
-            assert result["target"] == target.target
-            assert result["exit_code"] == 0
+        result = await rust_scanner._execute_rustscan(target)
+
+        assert result["status"] == "completed"
+        assert result["target"] == target.target
+        assert result["exit_code"] == 0
 
     @pytest.mark.asyncio
-    async def test_execute_rustscan_with_retry(self, rust_scanner):
+    async def test_execute_rustscan_with_retry(
+        self, mocker: MockerFixture, rust_scanner
+    ):
         """Test rustscan execution with retry on failure."""
         target = ScanTarget(
             target="192.168.1.1",
@@ -687,147 +693,148 @@ class TestRustScanner:
             max_retries=1,
         )
 
-        with (
-            patch.object(
-                rust_scanner,
-                "setup_base_command",
-                return_value=["rustscan", "-a", "192.168.1.1"],
-            ),
-            patch(
-                "asyncio.create_subprocess_exec",
-                side_effect=Exception("Connection failed"),
-            ) as mock_subprocess,
-            patch("asyncio.sleep") as mock_sleep,
-        ):
-            result = await rust_scanner._execute_rustscan(target)
+        mocker.patch.object(
+            rust_scanner,
+            "setup_base_command",
+            return_value=["rustscan", "-a", "192.168.1.1"],
+        )
+        mock_subprocess = mocker.patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=Exception("Connection failed"),
+        )
+        mock_sleep = mocker.patch("asyncio.sleep")
 
-            assert result["status"] == "failed"
-            assert "error" in result
-            # Should have tried twice (original + 1 retry)
-            assert mock_subprocess.call_count == 2
-            mock_sleep.assert_called_with(rust_scanner.retry_delay)
+        result = await rust_scanner._execute_rustscan(target)
+
+        assert result["status"] == "failed"
+        assert "error" in result
+        # Should have tried twice (original + 1 retry)
+        assert mock_subprocess.call_count == 2
+        mock_sleep.assert_called_with(rust_scanner.retry_delay)
 
     @pytest.mark.asyncio
-    async def test_bulk_scan_no_installations(self, rust_scanner):
+    async def test_bulk_scan_no_installations(
+        self, mocker: MockerFixture, rust_scanner
+    ):
         """Test bulk scan when required tools are not installed."""
         targets = ["192.168.1.1", "example.com"]
 
-        with patch(
-            "darkstar.scanners.portscan.rustscan_utils.verify_all_installations"
-        ) as mock_verify:
-            mock_verify.return_value = False
+        # Patch where the function is imported and used, not where it's defined
+        mocker.patch(
+            "scanners.portscan.rustscanpy.verify_all_installations", return_value=False
+        )
 
-            results = await rust_scanner.bulk_scan(targets)
+        results = await rust_scanner.bulk_scan(targets)
 
-            assert len(results) == 1
-            assert results[0]["status"] == "failed"
-            assert "not installed" in results[0]["error"]
+        assert len(results) == 1
+        assert results[0]["status"] == "failed"
+        assert "not installed" in results[0]["error"]
 
     @pytest.mark.asyncio
-    async def test_bulk_scan_with_exception(self, rust_scanner):
+    async def test_bulk_scan_with_exception(self, mocker: MockerFixture, rust_scanner):
         """Test bulk scan handling exceptions."""
         targets = ["192.168.1.1"]
 
         # Need to patch the verify_all_installations at the module level where it's called
-        with patch.object(rust_scanner, "bulk_scan") as mock_bulk_scan:
-            mock_bulk_scan.side_effect = Exception("Test error")
+        mock_bulk_scan = mocker.patch.object(rust_scanner, "bulk_scan")
+        mock_bulk_scan.side_effect = Exception("Test error")
 
-            # Call the method directly to test exception handling
-            try:
-                results = await rust_scanner.bulk_scan(targets)
-            except Exception as e:
-                # The exception should be caught and returned as a result
-                results = [{"status": "failed", "error": str(e), "type": "Exception"}]
+        # Call the method directly to test exception handling
+        try:
+            results = await rust_scanner.bulk_scan(targets)
+        except Exception as e:
+            # The exception should be caught and returned as a result
+            results = [{"status": "failed", "error": str(e), "type": "Exception"}]
 
-            assert len(results) == 1
-            assert results[0]["status"] == "failed"
-            assert "Test error" in str(results[0]["error"])
+        assert len(results) == 1
+        assert results[0]["status"] == "failed"
+        assert "Test error" in str(results[0]["error"])
 
     @pytest.mark.asyncio
-    async def test_bulk_scan_success(self, rust_scanner):
+    async def test_bulk_scan_success(self, mocker: MockerFixture, rust_scanner):
         """Test successful bulk scan."""
         targets = ["192.168.1.1", "192.168.1.2"]
 
         # Mock at the instance level to avoid installation check
-        with patch.object(rust_scanner, "scan_target") as mock_scan:
-            mock_scan.side_effect = [
-                {"target": "192.168.1.1", "status": "completed"},
-                {"target": "192.168.1.2", "status": "completed"},
-            ]
+        mock_scan = mocker.patch.object(rust_scanner, "scan_target")
+        mock_scan.side_effect = [
+            {"target": "192.168.1.1", "status": "completed"},
+            {"target": "192.168.1.2", "status": "completed"},
+        ]
 
-            # Manually create the expected results to test the logic
-            results = []
-            for target in targets:
-                result = await mock_scan(target)
-                results.append(result)
+        # Manually create the expected results to test the logic
+        results = []
+        for target in targets:
+            result = await mock_scan(target)
+            results.append(result)
 
-            assert len(results) == 2
-            assert all(result["status"] == "completed" for result in results)
+        assert len(results) == 2
+        assert all(result["status"] == "completed" for result in results)
 
 
 class TestRunFunction:
     """Test cases for the run function."""
 
     @pytest.fixture
-    def mock_scanner(self):
+    def mock_scanner(self, mocker: MockerFixture):
         """Fixture providing a mock RustScanner."""
-        scanner = MagicMock()
+        scanner = mocker.Mock()
         scanner.service_detection = True
         scanner.concurrent_limit = 2
         return scanner
 
     @pytest.mark.asyncio
-    async def test_run_basic_scan(self, mock_scanner):
+    async def test_run_basic_scan(self, mocker: MockerFixture, mock_scanner):
         """Test basic run function without bruteforce."""
         targets = ["192.168.1.1"]
         scan_results = [{"target": "192.168.1.1", "ports": [80, 443]}]
 
         # Use temporary directory to ensure no real files are created
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch(
-                "darkstar.scanners.portscan.rustscan_utils.save_results"
-            ) as mock_save:
-                mock_scanner.bulk_scan = AsyncMock(return_value=scan_results)
-                mock_save.return_value = {"192.168.1.1": f"{temp_dir}/file.json"}
+            mock_save = mocker.patch("scanners.portscan.rustscan_utils.save_results")
+            mock_scanner.bulk_scan = mocker.AsyncMock(return_value=scan_results)
+            mock_save.return_value = {"192.168.1.1": f"{temp_dir}/file.json"}
 
-                result = await run(mock_scanner, targets, output_dir=temp_dir)
+            result = await run(mock_scanner, targets, output_dir=temp_dir)
 
-                assert "scan_results" in result
-                assert "file_paths" in result
-                assert "bruteforce_results" in result
-                assert result["scan_results"] == scan_results
+            assert "scan_results" in result
+            assert "file_paths" in result
+            assert "bruteforce_results" in result
+            assert result["scan_results"] == scan_results
 
     @pytest.mark.asyncio
-    async def test_run_with_bruteforce_import_error(self, mock_scanner):
+    async def test_run_with_bruteforce_import_error(
+        self, mocker: MockerFixture, mock_scanner
+    ):
         """Test run function with bruteforce import error."""
         targets = ["192.168.1.1"]
         scan_results = [{"target": "192.168.1.1", "ports": [22]}]
 
         # Use temporary directory to ensure no real files are created
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch(
-                "darkstar.scanners.portscan.rustscan_utils.save_results"
-            ) as mock_save:
-                mock_scanner.bulk_scan = AsyncMock(return_value=scan_results)
-                mock_save.return_value = {"192.168.1.1": f"{temp_dir}/file.json"}
+            mock_save = mocker.patch("scanners.portscan.rustscan_utils.save_results")
+            mock_scanner.bulk_scan = mocker.AsyncMock(return_value=scan_results)
+            mock_save.return_value = {"192.168.1.1": f"{temp_dir}/file.json"}
 
-                # Test the run function behavior when bruteforce is not available
-                result = await run(
-                    mock_scanner, targets, output_dir=temp_dir, run_bruteforce=False
-                )  # Disable bruteforce
+            # Test the run function behavior when bruteforce is not available
+            result = await run(
+                mock_scanner, targets, output_dir=temp_dir, run_bruteforce=False
+            )  # Disable bruteforce
 
-                # Should complete successfully without bruteforce
-                assert "scan_results" in result
-                assert result["bruteforce_results"] == {}
+            # Should complete successfully without bruteforce
+            assert "scan_results" in result
+            assert result["bruteforce_results"] == {}
 
     @pytest.mark.asyncio
-    async def test_run_with_exception(self, mock_scanner):
+    async def test_run_with_exception(self, mocker: MockerFixture, mock_scanner):
         """Test run function handling exceptions."""
         targets = ["192.168.1.1"]
 
         # Use temporary directory to ensure no real files are created
         with tempfile.TemporaryDirectory() as temp_dir:
-            mock_scanner.bulk_scan = AsyncMock(side_effect=Exception("Scan failed"))
+            mock_scanner.bulk_scan = mocker.AsyncMock(
+                side_effect=Exception("Scan failed")
+            )
 
             result = await run(mock_scanner, targets, output_dir=temp_dir)
 
@@ -839,11 +846,12 @@ class TestRunFunction:
 class TestMainFunction:
     """Test cases for the main function."""
 
-    @patch("argparse.ArgumentParser.parse_args")
-    @patch("asyncio.run")
-    def test_main_function(self, mock_asyncio_run, mock_parse_args):
+    def test_main_function(self, mocker: MockerFixture):
         """Test the main function argument parsing and execution."""
-        mock_args = MagicMock()
+        mock_parse_args = mocker.patch("argparse.ArgumentParser.parse_args")
+        mock_run = mocker.patch("scanners.portscan.rustscanpy.run")
+
+        mock_args = mocker.Mock()
         mock_args.targets = ["192.168.1.1", "example.com"]
         mock_args.batch_size = 1000
         mock_args.ulimit = 5000
@@ -858,15 +866,14 @@ class TestMainFunction:
         main()
 
         # Verify asyncio.run was called
-        mock_asyncio_run.assert_called_once()
+        mock_run.assert_called_once()
 
-    @patch("argparse.ArgumentParser.parse_args")
-    @patch("asyncio.run")
-    def test_main_function_with_no_service_detection(
-        self, mock_asyncio_run, mock_parse_args
-    ):
+    def test_main_function_with_no_service_detection(self, mocker: MockerFixture):
         """Test the main function with service detection disabled."""
-        mock_args = MagicMock()
+        mock_parse_args = mocker.patch("argparse.ArgumentParser.parse_args")
+        mock_run = mocker.patch("scanners.portscan.rustscanpy.run")
+
+        mock_args = mocker.Mock()
         mock_args.targets = ["192.168.1.1"]
         mock_args.batch_size = 1000
         mock_args.ulimit = 5000
@@ -881,7 +888,7 @@ class TestMainFunction:
         main()
 
         # Verify asyncio.run was called
-        mock_asyncio_run.assert_called_once()
+        mock_run.assert_called_once()
 
 
 class TestEdgeCases:

@@ -1,51 +1,51 @@
 import pytest
+from pytest_mock import MockerFixture
 import requests
 import tempfile
 import os
-from unittest.mock import patch, MagicMock
-from darkstar.scanners.recon import RequestsAPI, WordPressDetector, FindBreaches
+from scanners.recon import RequestsAPI, WordPressDetector, FindBreaches
 
 
 class TestRequestsAPI:
     """Test cases for the RequestsAPI class."""
 
-    def test_get_hibpwned_request(self):
+    def test_get_hibpwned_request(self, mocker: MockerFixture):
         """Test that get_HIBPwned_request sends the correct request."""
-        with (
-            patch("darkstar.scanners.recon.HIBP_KEY", "test_api_key"),
-            patch("darkstar.scanners.recon.requests.get") as mock_get,
-        ):
-            # Setup mock
-            mock_response = MagicMock()
-            mock_get.return_value = mock_response
+        mocker.patch("scanners.recon.HIBP_KEY", "test_api_key")
+        mock_get = mocker.patch("scanners.recon.requests.get")
 
-            # Create API instance and call method
-            api = RequestsAPI()
-            result = api.get_HIBPwned_request("test@example.com")
+        # Setup mock
+        mock_response = mocker.Mock()
+        mock_get.return_value = mock_response
 
-            # Check that the request was made correctly
-            mock_get.assert_called_once_with(
-                "https://haveibeenpwned.com/api/v3/breachedaccount/test@example.com?truncateResponse=false",
-                headers={"hibp-api-key": "test_api_key"},
-            )
-            assert result == mock_response
+        # Create API instance and call method
+        api = RequestsAPI()
+        result = api.get_HIBPwned_request("test@example.com")
 
-    def test_get_proxynova_request(self):
+        # Check that the request was made correctly
+        mock_get.assert_called_once_with(
+            "https://haveibeenpwned.com/api/v3/breachedaccount/test@example.com?truncateResponse=false",
+            headers={"hibp-api-key": "test_api_key"},
+        )
+        assert result == mock_response
+
+    def test_get_proxynova_request(self, mocker: MockerFixture):
         """Test that get_proxynova_request sends the correct request."""
-        with patch("darkstar.scanners.recon.requests.get") as mock_get:
-            # Setup mock
-            mock_response = MagicMock()
-            mock_get.return_value = mock_response
+        mock_get = mocker.patch("scanners.recon.requests.get")
 
-            # Create API instance and call method
-            api = RequestsAPI()
-            result = api.get_proxynova_request("test@example.com")
+        # Setup mock
+        mock_response = mocker.Mock()
+        mock_get.return_value = mock_response
 
-            # Check that the request was made correctly
-            mock_get.assert_called_once_with(
-                "https://api.proxynova.com/comb?query=test@example.com"
-            )
-            assert result == mock_response
+        # Create API instance and call method
+        api = RequestsAPI()
+        result = api.get_proxynova_request("test@example.com")
+
+        # Check that the request was made correctly
+        mock_get.assert_called_once_with(
+            "https://api.proxynova.com/comb?query=test@example.com"
+        )
+        assert result == mock_response
 
 
 class TestWordPressDetector:
@@ -88,76 +88,70 @@ class TestWordPressDetector:
             ("<html><head></head><body>Regular site</body></html>", False),
         ],
     )
-    def test_check_main_page(self, html_content, expected):
+    def test_check_main_page(self, mocker: MockerFixture, html_content, expected):
         """Test that check_main_page correctly identifies WordPress sites."""
-        with patch("darkstar.scanners.recon.requests.get") as mock_get:
-            # Setup mock
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.text = html_content
-            mock_get.return_value = mock_response
+        mock_get = mocker.patch("scanners.recon.requests.get")
 
-            detector = WordPressDetector()
-            result = detector.check_main_page("https://example.com")
-            assert result == expected
+        # Setup mock
+        mock_response = mocker.Mock()
+        mock_response.status_code = 200
+        mock_response.text = html_content
+        mock_get.return_value = mock_response
 
-    def test_check_main_page_request_exception(self):
+        detector = WordPressDetector()
+        result = detector.check_main_page("https://example.com")
+        assert result == expected
+
+    def test_check_main_page_request_exception(self, mocker: MockerFixture):
         """Test that check_main_page handles exceptions gracefully."""
-        with patch("darkstar.scanners.recon.requests.get") as mock_get:
-            # Setup mock to raise the specific RequestException
-            mock_get.side_effect = requests.RequestException("Connection error")
+        mock_get = mocker.patch("scanners.recon.requests.get")
 
-            detector = WordPressDetector()
-            result = detector.check_main_page("https://example.com")
-            assert result is False
+        # Setup mock to raise the specific RequestException
+        mock_get.side_effect = requests.RequestException("Connection error")
 
-    def test_check_main_page_non_200_status(self):
+        detector = WordPressDetector()
+        result = detector.check_main_page("https://example.com")
+        assert result is False
+
+    def test_check_main_page_non_200_status(self, mocker: MockerFixture):
         """Test that check_main_page returns False for non-200 status codes."""
-        with patch("darkstar.scanners.recon.requests.get") as mock_get:
-            mock_response = MagicMock()
-            mock_response.status_code = 404
-            mock_get.return_value = mock_response
+        mock_get = mocker.patch("scanners.recon.requests.get")
 
-            detector = WordPressDetector()
-            result = detector.check_main_page("https://example.com")
-            assert result is False
+        mock_response = mocker.Mock()
+        mock_response.status_code = 404
+        mock_get.return_value = mock_response
 
-    def test_is_wordpress(self):
+        detector = WordPressDetector()
+        result = detector.check_main_page("https://example.com")
+        assert result is False
+
+    def test_is_wordpress(self, mocker: MockerFixture):
         """Test that is_wordpress checks for WordPress indicators."""
-        with (
-            patch(
-                "darkstar.scanners.recon.WordPressDetector.check_main_page"
-            ) as mock_check_main_page,
-            patch(
-                "darkstar.scanners.recon.WordPressDetector.check_wp_login"
-            ) as mock_wp_login,
-            patch(
-                "darkstar.scanners.recon.WordPressDetector.check_readme"
-            ) as mock_readme,
-            patch(
-                "darkstar.scanners.recon.WordPressDetector.check_xmlrpc"
-            ) as mock_xmlrpc,
-            patch(
-                "darkstar.scanners.recon.WordPressDetector.check_wp_json"
-            ) as mock_wp_json,
-        ):
-            # Setup mocks - only one needs to return True
-            mock_check_main_page.return_value = True
-            mock_wp_login.return_value = False
-            mock_readme.return_value = False
-            mock_xmlrpc.return_value = False
-            mock_wp_json.return_value = False
+        mock_check_main_page = mocker.patch(
+            "scanners.recon.WordPressDetector.check_main_page"
+        )
+        mock_wp_login = mocker.patch("scanners.recon.WordPressDetector.check_wp_login")
+        mock_readme = mocker.patch("scanners.recon.WordPressDetector.check_readme")
+        mock_xmlrpc = mocker.patch("scanners.recon.WordPressDetector.check_xmlrpc")
+        mock_wp_json = mocker.patch("scanners.recon.WordPressDetector.check_wp_json")
 
-            detector = WordPressDetector()
-            result = detector.is_wordpress("https://example.com")
+        # Setup mocks - only one needs to return True
+        mock_check_main_page.return_value = True
+        mock_wp_login.return_value = False
+        mock_readme.return_value = False
+        mock_xmlrpc.return_value = False
+        mock_wp_json.return_value = False
 
-            # Verify all checks were called
-            mock_check_main_page.assert_called_once_with("https://example.com")
-            mock_wp_login.assert_called_once_with("https://example.com")
-            mock_readme.assert_called_once_with("https://example.com")
-            mock_xmlrpc.assert_called_once_with("https://example.com")
-            mock_wp_json.assert_called_once_with("https://example.com")
-            assert result is True
+        detector = WordPressDetector()
+        result = detector.is_wordpress("https://example.com")
+
+        # Verify all checks were called
+        mock_check_main_page.assert_called_once_with("https://example.com")
+        mock_wp_login.assert_called_once_with("https://example.com")
+        mock_readme.assert_called_once_with("https://example.com")
+        mock_xmlrpc.assert_called_once_with("https://example.com")
+        mock_wp_json.assert_called_once_with("https://example.com")
+        assert result is True
 
     @pytest.mark.parametrize(
         "https_result,http_result,expected",
@@ -168,27 +162,30 @@ class TestWordPressDetector:
             (True, True, True),  # Both succeed (should return on first)
         ],
     )
-    def test_check_domain(self, https_result, http_result, expected):
+    def test_check_domain(
+        self, mocker: MockerFixture, https_result, http_result, expected
+    ):
         """Test that check_domain tries both HTTP and HTTPS."""
-        with patch(
-            "darkstar.scanners.recon.WordPressDetector.is_wordpress"
-        ) as mock_is_wordpress:
-            # Setup mock to return different values for HTTPS and HTTP
-            mock_is_wordpress.side_effect = (
-                [https_result, http_result] if not https_result else [https_result]
-            )
+        mock_is_wordpress = mocker.patch(
+            "scanners.recon.WordPressDetector.is_wordpress"
+        )
 
-            detector = WordPressDetector()
-            result = detector.check_domain("example.com")
+        # Setup mock to return different values for HTTPS and HTTP
+        mock_is_wordpress.side_effect = (
+            [https_result, http_result] if not https_result else [https_result]
+        )
 
-            # Verify HTTPS was always tried first
-            mock_is_wordpress.assert_any_call("https://example.com")
+        detector = WordPressDetector()
+        result = detector.check_domain("example.com")
 
-            # If HTTPS failed, HTTP should be tried
-            if not https_result:
-                mock_is_wordpress.assert_any_call("http://example.com")
+        # Verify HTTPS was always tried first
+        mock_is_wordpress.assert_any_call("https://example.com")
 
-            assert result == expected
+        # If HTTPS failed, HTTP should be tried
+        if not https_result:
+            mock_is_wordpress.assert_any_call("http://example.com")
+
+        assert result == expected
 
     @pytest.mark.parametrize(
         "domain_results,expected_domains",
@@ -198,7 +195,7 @@ class TestWordPressDetector:
             ([True, True, True], "example1.com,example2.com,example3.com"),
         ],
     )
-    def test_run(self, domain_results, expected_domains):
+    def test_run(self, mocker: MockerFixture, domain_results, expected_domains):
         """Test that run processes a file of domains correctly."""
         # Create a temporary file with test domains
         with tempfile.NamedTemporaryFile("w", delete=False) as temp_file:
@@ -207,35 +204,37 @@ class TestWordPressDetector:
 
         try:
             # Test the run method with direct patching to avoid coroutine issues
-            with patch.object(WordPressDetector, "check_domain") as mock_check_domain:
-                # Ensure the mock returns simple boolean values, not coroutines
-                mock_check_domain.side_effect = domain_results
+            mock_check_domain = mocker.patch.object(WordPressDetector, "check_domain")
 
-                detector = WordPressDetector()
-                result = detector.run(file_path)
+            # Ensure the mock returns simple boolean values, not coroutines
+            mock_check_domain.side_effect = domain_results
 
-                # Check the result
-                assert result == expected_domains
+            detector = WordPressDetector()
+            result = detector.run(file_path)
 
-                # Verify all domains were checked
-                assert mock_check_domain.call_count == len(domain_results)
+            # Check the result
+            assert result == expected_domains
+
+            # Verify all domains were checked
+            assert mock_check_domain.call_count == len(domain_results)
         finally:
             # Clean up
             os.unlink(file_path)
 
-    def test_run_empty_file(self):
+    def test_run_empty_file(self, mocker: MockerFixture):
         """Test that run handles empty files correctly."""
         # Create an empty temporary file
         with tempfile.NamedTemporaryFile("w", delete=False) as temp_file:
             file_path = temp_file.name
 
         try:
-            with patch.object(WordPressDetector, "check_domain") as mock_check_domain:
-                detector = WordPressDetector()
-                result = detector.run(file_path)
+            mock_check_domain = mocker.patch.object(WordPressDetector, "check_domain")
 
-                assert result == ""
-                mock_check_domain.assert_not_called()
+            detector = WordPressDetector()
+            result = detector.run(file_path)
+
+            assert result == ""
+            mock_check_domain.assert_not_called()
         finally:
             os.unlink(file_path)
 

@@ -2,7 +2,7 @@ import os
 import sys
 import pandas as pd
 import pytest
-from unittest.mock import patch, MagicMock, mock_open
+from pytest_mock import MockerFixture
 
 # Add the parent directory to the path to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,12 +15,11 @@ from scanners.nuclei.wordpress import WordPressNucleiScanner
 class TestBBotScanner:
     """Test the BBotScanner class."""
 
-    @patch("scanners.bbot.os.makedirs")
-    @patch("scanners.bbot.os.path.exists")
-    @patch("scanners.bbot.hashlib.md5")
-    def test_bbot_initialization(self, mock_md5, mock_exists, mock_makedirs):
+    def test_bbot_initialization(self, mocker: MockerFixture):
         """Test initializing the bbot scanner."""
-        mock_exists.return_value = False
+        mock_makedirs = mocker.patch("scanners.bbot.os.makedirs")
+        mock_exists = mocker.patch("scanners.bbot.os.path.exists", return_value=False)
+        mock_md5 = mocker.patch("scanners.bbot.hashlib.md5")
         mock_md5().hexdigest.return_value = "abc123"
 
         scanner = BBotScanner("example.com", "test_org")
@@ -31,10 +30,11 @@ class TestBBotScanner:
         assert scanner.foldername == "abc123"
         mock_makedirs.assert_called_once_with("/app/bbot_output", exist_ok=True)
 
-    @patch("scanners.bbot.os.makedirs")
-    @patch("scanners.bbot.insert_vulnerability_to_database")
-    def test_vulns_to_db(self, mock_insert, mock_makedirs):
+    def test_vulns_to_db(self, mocker: MockerFixture):
         """Test adding vulnerabilities to the database."""
+        mock_makedirs = mocker.patch("scanners.bbot.os.makedirs")
+        mock_insert = mocker.patch("scanners.bbot.insert_vulnerability_to_database")
+
         scanner = BBotScanner("example.com", "test_org")
 
         # Create a mock DataFrame with vulnerability findings
@@ -57,9 +57,10 @@ class TestBBotScanner:
         # Assert that the insert function was called twice (once per row)
         assert mock_insert.call_count == 2
 
-    @patch("scanners.bbot.os.makedirs")
-    def test_vulns_to_db_no_vulnerabilities(self, mock_makedirs):
+    def test_vulns_to_db_no_vulnerabilities(self, mocker: MockerFixture):
         """Test vulns_to_db with no vulnerabilities."""
+        mock_makedirs = mocker.patch("scanners.bbot.os.makedirs")
+
         scanner = BBotScanner("example.com", "test_org")
 
         # Create DataFrame with no vulnerability data
@@ -76,24 +77,23 @@ class TestBBotScanner:
         # Should not raise any exceptions
         scanner.vulns_to_db(df)
 
-    @patch("scanners.bbot.os.makedirs")
-    @patch("scanners.bbot.subprocess.Popen")
-    @patch("scanners.bbot.insert_bbot_to_db")
-    @patch("builtins.open", new_callable=mock_open)
-    @patch("scanners.bbot.os.path.exists")
-    def test_passive_scan(
-        self, mock_exists, mock_open_func, mock_insert, mock_popen, mock_makedirs
-    ):
+    def test_passive_scan(self, mocker: MockerFixture):
         """Test running a passive bbot scan."""
-        mock_exists.return_value = True
-        mock_process = MagicMock()
+        mock_makedirs = mocker.patch("scanners.bbot.os.makedirs")
+        mock_popen = mocker.patch("scanners.bbot.subprocess.Popen")
+        mock_insert = mocker.patch("scanners.bbot.insert_bbot_to_db")
+        mock_open_func = mocker.mock_open()
+        mocker.patch("builtins.open", mock_open_func)
+        mock_exists = mocker.patch("scanners.bbot.os.path.exists", return_value=True)
+
+        mock_process = mocker.Mock()
         mock_process.wait.return_value = 0
         mock_popen.return_value = mock_process
 
         scanner = BBotScanner("example.com", "test_org")
 
         # Mock the prep_data method
-        scanner.prep_data = MagicMock(return_value="mock_dataframe")
+        scanner.prep_data = mocker.Mock(return_value="mock_dataframe")
 
         # Call the passive scan method
         scanner.passive()
@@ -128,26 +128,25 @@ class TestBBotScanner:
             ),
         ],
     )
-    @patch("scanners.bbot.os.makedirs")
-    @patch("scanners.bbot.subprocess.Popen")
-    @patch("scanners.bbot.insert_bbot_to_db")
-    @patch("builtins.open", new_callable=mock_open)
     def test_run_scan_modes(
         self,
-        mock_open_func,
-        mock_insert,
-        mock_popen,
-        mock_makedirs,
         scan_mode,
         expected_flags,
+        mocker: MockerFixture,
     ):
         """Test different scan modes with parametrized testing."""
-        mock_process = MagicMock()
+        mock_makedirs = mocker.patch("scanners.bbot.os.makedirs")
+        mock_popen = mocker.patch("scanners.bbot.subprocess.Popen")
+        mock_insert = mocker.patch("scanners.bbot.insert_bbot_to_db")
+        mock_open_func = mocker.mock_open()
+        mocker.patch("builtins.open", mock_open_func)
+
+        mock_process = mocker.Mock()
         mock_process.wait.return_value = 0
         mock_popen.return_value = mock_process
 
         scanner = BBotScanner("example.com", "test_org")
-        scanner.prep_data = MagicMock(return_value=pd.DataFrame())
+        scanner.prep_data = mocker.Mock(return_value=pd.DataFrame())
 
         # Call the run method with different modes
         scanner.run(mode=scan_mode)
@@ -161,25 +160,29 @@ class TestBBotScanner:
 class TestNucleiScanner:
     """Test the NucleiScanner class."""
 
-    @patch("builtins.open", mock_open(read_data="example.com\ntest.com\n"))
-    def test_nuclei_initialization(self):
+    def test_nuclei_initialization(self, mocker: MockerFixture):
         """Test initializing the Nuclei scanner."""
+        mock_open_func = mocker.mock_open(read_data="example.com\ntest.com\n")
+        mocker.patch("builtins.open", mock_open_func)
+
         scanner = NucleiScanner("subdomains.txt", "test_org")
         assert scanner.file == "subdomains.txt"
         assert scanner.org_name == "test_org"
         assert scanner.target_count == 2
 
-    @patch("builtins.open", side_effect=FileNotFoundError("File not found"))
-    def test_nuclei_initialization_file_error(self, mock_open_func):
+    def test_nuclei_initialization_file_error(self, mocker: MockerFixture):
         """Test Nuclei scanner initialization with file error."""
+        mocker.patch("builtins.open", side_effect=FileNotFoundError("File not found"))
+
         scanner = NucleiScanner("nonexistent.txt", "test_org")
         assert scanner.file == "nonexistent.txt"
         assert scanner.org_name == "test_org"
         assert scanner.target_count == 0
 
-    @patch("scanners.nuclei.base.threading.Thread")
-    def test_run_calls_parent_for_standard_nuclei(self, mock_thread):
+    def test_run_calls_parent_for_standard_nuclei(self, mocker: MockerFixture):
         """Test that standard NucleiScanner run method starts a thread."""
+        mock_thread = mocker.patch("scanners.nuclei.base.threading.Thread")
+
         scanner = NucleiScanner("subdomains.txt", "test_org")
 
         scanner.run()
@@ -272,14 +275,14 @@ class TestWordPressNucleiScanner:
         result = scanner._clean_domain_list(123)  # Invalid input type
         assert result == ""
 
-    def test_run_calls_scan_nuclei_directly(self):
+    def test_run_calls_scan_nuclei_directly(self, mocker: MockerFixture):
         """Test that WordPress scanner run method calls scan_nuclei directly (no threading)."""
         scanner = WordPressNucleiScanner("example.com", "test_org")
 
         # Mock the scan_nuclei method to avoid actual scanning
-        with patch.object(scanner, "scan_nuclei") as mock_scan:
-            scanner.run()
-            mock_scan.assert_called_once()
+        mock_scan = mocker.patch.object(scanner, "scan_nuclei")
+        scanner.run()
+        mock_scan.assert_called_once()
 
     def test_run_with_empty_domains(self):
         """Test run method with empty domains."""
@@ -288,26 +291,28 @@ class TestWordPressNucleiScanner:
         # Should not raise an exception and should return early
         scanner.run()
 
-    @patch("scanners.nuclei.wordpress.subprocess.run")
-    def test_find_first_path_with_nuclei(self, mock_subprocess_run):
+    def test_find_first_path_with_nuclei(self, mocker: MockerFixture):
         """Test finding nuclei template files."""
+        mock_subprocess_run = mocker.patch("scanners.nuclei.wordpress.subprocess.run")
+
         scanner = WordPressNucleiScanner("example.com", "test_org")
 
         # Mock subprocess return
-        mock_result = MagicMock()
+        mock_result = mocker.Mock()
         mock_result.stdout = "/path/to/nuclei/template.yaml\n/another/path"
         mock_subprocess_run.return_value = mock_result
 
         result = scanner.find_first_path_with_nuclei("template-hash")
         assert result == "/path/to/nuclei/template.yaml"
 
-    @patch("scanners.nuclei.wordpress.subprocess.run")
-    def test_find_first_path_with_nuclei_not_found(self, mock_subprocess_run):
+    def test_find_first_path_with_nuclei_not_found(self, mocker: MockerFixture):
         """Test finding nuclei template files when not found."""
+        mock_subprocess_run = mocker.patch("scanners.nuclei.wordpress.subprocess.run")
+
         scanner = WordPressNucleiScanner("example.com", "test_org")
 
         # Mock subprocess return with no nuclei paths
-        mock_result = MagicMock()
+        mock_result = mocker.Mock()
         mock_result.stdout = "/path/to/other/file.yaml\n/another/path"
         mock_subprocess_run.return_value = mock_result
 
@@ -317,17 +322,18 @@ class TestWordPressNucleiScanner:
 
 # Integration test fixtures
 @pytest.fixture
-def sample_bbot_scanner():
+def sample_bbot_scanner(mocker: MockerFixture):
     """Fixture providing a sample BBotScanner instance."""
-    with patch("scanners.bbot.os.makedirs"):
-        return BBotScanner("example.com", "test_org")
+    mocker.patch("scanners.bbot.os.makedirs")
+    return BBotScanner("example.com", "test_org")
 
 
 @pytest.fixture
-def sample_nuclei_scanner():
+def sample_nuclei_scanner(mocker: MockerFixture):
     """Fixture providing a sample NucleiScanner instance."""
-    with patch("builtins.open", mock_open(read_data="example.com\n")):
-        return NucleiScanner("test_file.txt", "test_org")
+    mock_open_func = mocker.mock_open(read_data="example.com\n")
+    mocker.patch("builtins.open", mock_open_func)
+    return NucleiScanner("test_file.txt", "test_org")
 
 
 @pytest.fixture

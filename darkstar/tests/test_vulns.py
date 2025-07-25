@@ -1,6 +1,6 @@
 import pytest
-from unittest.mock import patch, MagicMock
-from darkstar.core.models.vulnerability import CVE, Vulnerability
+from pytest_mock import MockerFixture
+from core.models.vulnerability import CVE, Vulnerability
 
 
 class TestCVE:
@@ -18,11 +18,13 @@ class TestCVE:
             ("invalid", "Unknown"),
         ],
     )
-    @patch("subprocess.run")
-    def test_search_epss_by_cve(self, mock_run, subprocess_output, expected_result):
+    def test_search_epss_by_cve(
+        self, mocker: MockerFixture, subprocess_output, expected_result
+    ):
         """Test that search_epss_by_cve correctly parses subprocess output."""
         # Set up mock
-        mock_process = MagicMock()
+        mock_run = mocker.patch("subprocess.run")
+        mock_process = mocker.Mock()
         mock_process.stdout = subprocess_output
         mock_run.return_value = mock_process
 
@@ -48,14 +50,12 @@ class TestVulnerability:
     """Test cases for the Vulnerability class."""
 
     @pytest.fixture
-    def mock_cve_enricher(self):
+    def mock_cve_enricher(self, mocker: MockerFixture):
         """Fixture that provides a mock CVE enricher."""
-        with patch(
-            "darkstar.core.models.vulnerability.Vulnerability.cve_enricher"
-        ) as mock:
-            mock_cve = CVE(cve="CVE-2023-1234")
-            mock.return_value = mock_cve
-            yield mock
+        mock = mocker.patch("core.models.vulnerability.Vulnerability.cve_enricher")
+        mock_cve = CVE(cve="CVE-2023-1234")
+        mock.return_value = mock_cve
+        return mock
 
     def test_vulnerability_initialization_with_cve(self, mock_cve_enricher):
         """Test that Vulnerability objects are correctly initialized with a CVE."""
@@ -78,48 +78,47 @@ class TestVulnerability:
         mock_cve_enricher.assert_called_once_with("CVE-2023-1234")
 
     @pytest.fixture
-    def mock_external_dependencies(self):
+    def mock_external_dependencies(self, mocker: MockerFixture):
         """Fixture that mocks all external dependencies for CVE enrichment."""
-        with (
-            patch(
-                "darkstar.core.models.vulnerability.CVE.search_epss_by_cve"
-            ) as mock_epss,
-            patch("darkstar.core.models.vulnerability.requests.get") as mock_get,
-            patch("darkstar.core.models.vulnerability.pd.read_csv") as mock_read_csv,
-        ):
-            # Set up EPSS mock
-            mock_epss.return_value = 0.75
+        # Set up EPSS mock
+        mock_epss = mocker.patch(
+            "core.models.vulnerability.CVE.search_epss_by_cve", return_value=0.75
+        )
 
-            # Set up DataFrame mock for KEV data
-            mock_df = MagicMock()
-            mock_df_values = MagicMock()
-            mock_df_values.values = ["CVE-2023-1234"]
-            mock_df.__getitem__.return_value = mock_df_values
-            mock_df.__contains__ = MagicMock(return_value=True)
-            mock_read_csv.return_value = mock_df
+        # Set up DataFrame mock for KEV data
+        mock_read_csv = mocker.patch("core.models.vulnerability.pd.read_csv")
+        mock_df = mocker.Mock()
+        # Configure the DataFrame mock properly
+        mock_df.__contains__ = mocker.Mock(return_value=True)
+        mock_df.__getitem__ = mocker.Mock()
+        mock_df_values = mocker.Mock()
+        mock_df_values.values = ["CVE-2023-1234"]
+        mock_df.__getitem__.return_value = mock_df_values
+        mock_read_csv.return_value = mock_df
 
-            # Set up requests mock
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "solution": "Update to latest version",
-                "impact": {"confidentiality": "high"},
-                "access": {"vector": "network"},
-                "references": ["ref1", "ref2"],
-                "Published": "2023-01-01T12:00:00",
-                "cvss": 8.5,
-                "cwe": "CWE-79",
-                "capec": "CAPEC-123",
-                "summary": "Test summary",
-            }
-            mock_get.return_value = mock_response
+        # Set up requests mock
+        mock_get = mocker.patch("core.models.vulnerability.requests.get")
+        mock_response = mocker.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "solution": "Update to latest version",
+            "impact": {"confidentiality": "high"},
+            "access": {"vector": "network"},
+            "references": ["ref1", "ref2"],
+            "Published": "2023-01-01T12:00:00",
+            "cvss": 8.5,
+            "cwe": "CWE-79",
+            "capec": "CAPEC-123",
+            "summary": "Test summary",
+        }
+        mock_get.return_value = mock_response
 
-            yield {
-                "mock_epss": mock_epss,
-                "mock_get": mock_get,
-                "mock_read_csv": mock_read_csv,
-                "mock_df": mock_df,
-            }
+        return {
+            "mock_epss": mock_epss,
+            "mock_get": mock_get,
+            "mock_read_csv": mock_read_csv,
+            "mock_df": mock_df,
+        }
 
     def test_cve_enricher_success(self, mock_external_dependencies):
         """Test that cve_enricher correctly enriches a CVE."""
@@ -159,42 +158,42 @@ class TestVulnerability:
         ],
     )
     def test_cve_enricher_failure_cases(
-        self, status_code, json_response, expected_result
+        self, mocker: MockerFixture, status_code, json_response, expected_result
     ):
         """Test that cve_enricher handles failure cases correctly."""
-        with (
-            patch(
-                "darkstar.core.models.vulnerability.CVE.search_epss_by_cve"
-            ) as mock_epss,
-            patch("darkstar.core.models.vulnerability.requests.get") as mock_get,
-            patch("darkstar.core.models.vulnerability.pd.read_csv") as mock_read_csv,
-        ):
-            # Set up mocks
-            mock_epss.return_value = 0.5
-            mock_df = MagicMock()
-            mock_df.__contains__.return_value = False
-            mock_read_csv.return_value = mock_df
+        # Set up mocks
+        mock_epss = mocker.patch(
+            "core.models.vulnerability.CVE.search_epss_by_cve", return_value=0.5
+        )
+        mock_read_csv = mocker.patch("core.models.vulnerability.pd.read_csv")
+        mock_get = mocker.patch("core.models.vulnerability.requests.get")
 
-            mock_response = MagicMock()
-            mock_response.status_code = status_code
-            if json_response is not None:
-                mock_response.json.return_value = json_response
-            else:
-                mock_response.json.return_value = {}
-            mock_get.return_value = mock_response
+        # Create a proper DataFrame mock that supports subscripting
+        import pandas as pd
 
-            # Create vulnerability and test enricher
-            vuln = Vulnerability(
-                title="Test",
-                affected_item="test.com",
-                tool="nuclei",
-                confidence=90,
-                severity="high",
-                host="192.168.1.1",
-            )
+        mock_df = pd.DataFrame({"cveID": []})  # Empty DataFrame
+        mock_read_csv.return_value = mock_df
 
-            result = vuln.cve_enricher("CVE-2023-9999")
-            assert result == expected_result
+        mock_response = mocker.Mock()
+        mock_response.status_code = status_code
+        if json_response is not None:
+            mock_response.json.return_value = json_response
+        else:
+            mock_response.json.return_value = {}
+        mock_get.return_value = mock_response
+
+        # Create vulnerability and test enricher
+        vuln = Vulnerability(
+            title="Test",
+            affected_item="test.com",
+            tool="nuclei",
+            confidence=90,
+            severity="high",
+            host="192.168.1.1",
+        )
+
+        result = vuln.cve_enricher("CVE-2023-9999")
+        assert result == expected_result
 
     def test_vulnerability_with_empty_cve_number(self):
         """Test that empty CVE number doesn't trigger enrichment."""
