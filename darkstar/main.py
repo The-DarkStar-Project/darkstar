@@ -328,7 +328,9 @@ class worker:
             # Read IPs from file
             with open(bbot_results["ips_file"], "r") as attack_surface_file:
                 discovered_ips = [
-                    line.strip() for line in attack_surface_file.readlines() if line.strip()
+                    line.strip()
+                    for line in attack_surface_file.readlines()
+                    if line.strip()
                 ]
 
             if discovered_ips:
@@ -343,9 +345,9 @@ class worker:
             )
 
         # Write the discovered subdomains from bbot_results["domains_file"] and IP/Port combinations from scan_processed to a file
-        with open(f'{self.org_domain}_attack_surface.txt', 'w') as attack_surface_file:
+        with open(f"{self.org_domain}_attack_surface.txt", "w") as attack_surface_file:
             if os.path.exists(bbot_results["subdomains_file"]):
-                with open(bbot_results["subdomains_file"], 'r') as subdomains_file:
+                with open(bbot_results["subdomains_file"], "r") as subdomains_file:
                     subdomains = subdomains_file.readlines()
                     attack_surface_file.writelines(subdomains)
 

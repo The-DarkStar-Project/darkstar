@@ -3,6 +3,7 @@ from pytest_mock import MockerFixture
 from core.models.vulnerability import CVE, Vulnerability
 import pandas as pd
 
+
 class TestCVE:
     """Test cases for the CVE class."""
 
