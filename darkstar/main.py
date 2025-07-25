@@ -316,6 +316,7 @@ class worker:
         )
 
         # Run RustScan on discovered IPs
+        scan_processed = None
         if (
             os.path.exists(bbot_results["ips_file"])
             and os.path.getsize(bbot_results["ips_file"]) > 0
@@ -325,13 +326,13 @@ class worker:
             )
 
             # Read IPs from file
-            with open(bbot_results["ips_file"], "r") as f:
+            with open(bbot_results["ips_file"], "r") as attack_surface_file:
                 discovered_ips = [
-                    line.strip() for line in f.readlines() if line.strip()
+                    line.strip() for line in attack_surface_file.readlines() if line.strip()
                 ]
 
             if discovered_ips:
-                await self.run_port_scan(discovered_ips)
+                _, scan_processed, _ = await self.run_port_scan(discovered_ips)
             else:
                 logger.warning(
                     f"{Fore.YELLOW}IP file exists but contains no valid IPs{Style.RESET_ALL}"
@@ -340,6 +341,18 @@ class worker:
             logger.warning(
                 f"{Fore.YELLOW}No IPs discovered, skipping RustScan{Style.RESET_ALL}"
             )
+
+        # Write the discovered subdomains from bbot_results["domains_file"] and IP/Port combinations from scan_processed to a file
+        with open(f'{self.org_domain}_attack_surface.txt', 'w') as attack_surface_file:
+            if os.path.exists(bbot_results["subdomains_file"]):
+                with open(bbot_results["subdomains_file"], 'r') as subdomains_file:
+                    subdomains = subdomains_file.readlines()
+                    attack_surface_file.writelines(subdomains)
+
+            if scan_processed and "ports_by_host" in scan_processed:
+                for ip, ports in scan_processed["ports_by_host"].items():
+                    for port in ports:
+                        attack_surface_file.write(f"{ip}:{port}\n")
 
     async def run(self):
         """
@@ -390,7 +403,7 @@ def setup_parser():
         "-t",
         "--target",
         required=True,
-        help="Fill in the CIDR, IP or domain (without http/https) to scan",
+        help="Fill in the CIDR, IP or domain (without http/https) to scan. Separate multiple targets by comma's. Can also be a file with a list of targets (one per line).",
     )
     parser.add_argument(
         "-m",
@@ -464,6 +477,10 @@ def main(args=None):
     else:
         args = parser.parse_args(args)
 
+    if os.path.exists(args.target):
+        with open(args.target, "r") as f:
+            args.target = ",".join([line.strip() for line in f])
+
     # Banner
     display_banner(args)
 
@@ -477,6 +494,7 @@ def main(args=None):
     logger.info(f"Initializing scan in {mode_info[args.mode]}")
 
     # Run the scanner
+
     scanner = worker(
         mode=args.mode,
         targets=args.target,
