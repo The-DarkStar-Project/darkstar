@@ -1,7 +1,7 @@
 import pytest
 from pytest_mock import MockerFixture
 from core.models.vulnerability import CVE, Vulnerability
-
+import pandas as pd
 
 class TestCVE:
     """Test cases for the CVE class."""
@@ -167,9 +167,6 @@ class TestVulnerability:
         )
         mock_read_csv = mocker.patch("core.models.vulnerability.pd.read_csv")
         mock_get = mocker.patch("core.models.vulnerability.requests.get")
-
-        # Create a proper DataFrame mock that supports subscripting
-        import pandas as pd
 
         mock_df = pd.DataFrame({"cveID": []})  # Empty DataFrame
         mock_read_csv.return_value = mock_df
