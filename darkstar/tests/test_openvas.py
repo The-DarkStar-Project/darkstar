@@ -1,240 +1,821 @@
-import unittest
-import sys
+import pytest
+from pytest_mock import MockerFixture
+from httpx import HTTPStatusError
+import tempfile
 import os
-import pandas as pd
-import xml.etree.ElementTree as ET
-from unittest.mock import patch, MagicMock, mock_open
 
-# Add the parent directory to the path to import modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from modules.openvas import openvas
-
-
-class TestOpenVAS(unittest.TestCase):
-    """Test the OpenVAS scanner functionality."""
-
-    def test_initialization(self):
-        """Test initializing the OpenVAS scanner."""
-        scanner = openvas("192.168.1.1", "test_org")
-        
-        self.assertEqual(scanner.ips, "192.168.1.1")
-        self.assertEqual(scanner.org_name, "test_org")
-        self.assertEqual(scanner.username, os.getenv('OPENVAS_USER'))
-        self.assertEqual(scanner.password, os.getenv('OPENVAS_PASSWORD'))
-        self.assertEqual(scanner.vulnerabilities, [])
-        self.assertEqual(scanner.queue_reportIDs, [])
-        self.assertEqual(scanner.queue_scan_names, [])
-        self.assertEqual(scanner.queue_report_location, [])
-
-    def test_split_cidr(self):
-        """Test splitting CIDR ranges."""
-        scanner = openvas("192.168.1.0/24", "test_org")
-        
-        # Test with a small subnet that doesn't need splitting
-        small_subnet = scanner.split_cidr("192.168.1.0/24")
-        self.assertEqual(len(small_subnet), 1)
-        self.assertEqual(small_subnet[0], "192.168.1.0/24")
-        
-        # Test with a large subnet that needs splitting
-        large_subnet = scanner.split_cidr("10.0.0.0/8")
-        self.assertTrue(len(large_subnet) > 1)
-        self.assertTrue(all(subnet.startswith("10.") for subnet in large_subnet))
-
-    @patch('modules.openvas.requests.post')
-    def test_get_report(self, mock_post):
-        """Test retrieving a report from OpenVAS."""
-        # Mock the API response
-        mock_response = MagicMock()
-        mock_response.json.return_value = {'message': '<report>Test report content</report>'}
-        mock_post.return_value = mock_response
-        
-        scanner = openvas("192.168.1.1", "test_org")
-        scanner.command_prefix = "mock_prefix"
-        scanner.formatID = "mock_format_id"
-        
-        # Mock file opening
-        with patch('builtins.open', mock_open()) as mock_file:
-            scanner.get_report("report123", "/tmp/report.xml")
-            
-            # Verify API call and file write
-            mock_post.assert_called_once()
-            mock_file.assert_called_once_with("/tmp/report.xml", "w")
-            mock_file().write.assert_called_once_with('<report>Test report content</report>')
-
-    @patch('modules.openvas.requests.post')
-    def test_check_if_finished_done(self, mock_post):
-        """Test checking if a scan is finished and is done."""
-        # Create a more realistic XML response that matches what OpenVAS API returns
-        # The scan status is nested under a <report> tag
-        xml_response = '''
-        <get_reports_response status="200" status_text="OK">
-          <report id="report123">
-            <scan_run_status>Done</scan_run_status>
-          </report>
-        </get_reports_response>
-        '''
-        
-        mock_response = MagicMock()
-        mock_response.json.return_value = {'message': xml_response}
-        mock_post.return_value = mock_response
-        
-        scanner = openvas("192.168.1.1", "test_org")
-        scanner.command_prefix = "mock_prefix"
-        scanner.formatID = "mock_format_id"
-        
-        result = scanner.check_if_finished("report123")
-        self.assertTrue(result)
-    
-    @patch('modules.openvas.requests.post')
-    def test_check_if_finished_running(self, mock_post):
-        """Test checking if a scan is running with progress."""
-        # Create XML response indicating scan is running
-        xml_response = '<report><scan_run_status>Running</scan_run_status><progress>50</progress></report>'
-        
-        mock_response = MagicMock()
-        mock_response.json.return_value = {'message': xml_response}
-        mock_post.return_value = mock_response
-        
-        scanner = openvas("192.168.1.1", "test_org")
-        scanner.command_prefix = "mock_prefix"
-        scanner.formatID = "mock_format_id"
-        
-        result = scanner.check_if_finished("report123")
-        self.assertFalse(result)
-
-    @patch('modules.openvas.ET.parse')
-    @patch('modules.openvas.insert_vulnerability_to_database')
-    @patch('modules.vulns.Vulnerability')  # Mock the Vulnerability class to prevent CVE enrichment
-    def test_process_findings(self, mock_vuln_class, mock_insert, mock_parse):
-        """Test processing vulnerability findings from an XML report."""
-        # Setup mock vulnerability instance
-        mock_vuln_instance = MagicMock()
-        mock_vuln_class.return_value = mock_vuln_instance
-        
-        # Create a mock XML structure
-        mock_root = MagicMock()
-        mock_result = MagicMock()
-        mock_nvt = MagicMock()
-        mock_qod = MagicMock()
-        
-        # Set up the attributes for the finding
-        mock_result.find.side_effect = lambda x: {
-            'name': MagicMock(text="Test Vulnerability"),
-            'nvt': mock_nvt,
-            'port': MagicMock(text="443/tcp"),
-            'threat': MagicMock(text="High"),
-            'severity': MagicMock(text="7.5"),
-            'description': MagicMock(text="Test description"),
-            'host': MagicMock(text="192.168.1.1"),
-            'qod': mock_qod
-        }[x]
-        
-        mock_nvt.find.return_value = MagicMock(text="CVE-2021-12345")
-        mock_qod.find.return_value = MagicMock(text="95")
-        
-        # Set up the root to return our mock result
-        mock_root.findall.return_value = [mock_result]
-        mock_parse.return_value.getroot.return_value = mock_root
-        
-        # Create the scanner and process the findings
-        scanner = openvas("192.168.1.1", "test_org")
-        scanner.process_findings("/tmp/report.xml")
-        
-        # Verify vulnerability was created and inserted
-        self.assertEqual(len(scanner.vulnerabilities), 1)
-        mock_insert.assert_called_once()
-
-    @patch('modules.openvas.threading.Thread')
-    def test_run_with_valid_targets(self, mock_thread):
-        """Test running OpenVAS scan with valid targets."""
-        # Create a scanner with IP addresses
-        targets = pd.Series(["192.168.1.1", "192.168.1.2"])
-        scanner = openvas(targets, "test_org")
-        
-        # Mock the scan creation methods
-        scanner.create_target = MagicMock()
-        scanner.create_task = MagicMock()
-        scanner.run_task = MagicMock()
-        
-        # Run the scan
-        with patch('time.sleep'):  # Don't actually sleep in tests
-            scanner.run()
-            
-        # Verify methods were called for each target
-        self.assertEqual(scanner.create_target.call_count, 2)
-        self.assertEqual(scanner.create_task.call_count, 2)
-        self.assertEqual(scanner.run_task.call_count, 2)
-        
-        # Verify monitoring thread was started
-        mock_thread.assert_called_once_with(target=scanner.wait_for_scan)
-        mock_thread.return_value.start.assert_called_once()
-
-    def test_run_with_empty_targets(self):
-        """Test running OpenVAS scan with empty targets."""
-        # Create a scanner with empty series
-        empty_series = pd.Series([])
-        scanner = openvas(empty_series, "test_org")
-        
-        # Mock the scan creation methods
-        scanner.create_target = MagicMock()
-        scanner.create_task = MagicMock()
-        scanner.run_task = MagicMock()
-        
-        # Run the scan
-        scanner.run()
-        
-        # Verify no methods were called due to empty targets
-        scanner.create_target.assert_not_called()
-        scanner.create_task.assert_not_called()
-        scanner.run_task.assert_not_called()
-
-    def test_run_with_nan_targets(self):
-        """Test running OpenVAS scan with NaN targets."""
-        # Create a scanner with NaN values
-        nan_series = pd.Series([float('nan')])
-        scanner = openvas(nan_series, "test_org")
-        
-        # Mock the scan creation methods
-        scanner.create_target = MagicMock()
-        scanner.create_task = MagicMock()
-        scanner.run_task = MagicMock()
-        
-        # Run the scan
-        scanner.run()
-        
-        # Verify no methods were called due to NaN targets
-        scanner.create_target.assert_not_called()
-        scanner.create_task.assert_not_called()
-        scanner.run_task.assert_not_called()
-
-    @patch('modules.openvas.logging.error')
-    @patch('modules.openvas.requests.post')
-    def test_api_error_handling(self, mock_post, mock_log):
-        """Test handling of API errors in OpenVAS scanner."""
-        # Set up mock to simulate API error response
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-        mock_response.json.side_effect = ValueError("Invalid JSON")
-        mock_post.return_value = mock_response
-        
-        scanner = openvas("192.168.1.1", "test_org")
-        scanner.command_prefix = "mock_prefix"
-        scanner.formatID = "mock_format_id"
-        
-        # Test error handling in check_if_finished
-        result = scanner.check_if_finished("report123")
-        self.assertFalse(result)  # Should return False on error
-        mock_log.assert_called()  # Should log the error
-        
-        mock_log.reset_mock()  # Reset the mock for the next test
-        
-        # Test error handling in get_report
-        with patch('builtins.open', mock_open()) as mock_file:
-            scanner.get_report("report123", "/tmp/report.xml")
-            mock_log.assert_called()  # Should log the error
-            # Verify file wasn't written to
-            mock_file().write.assert_not_called()
+from openvas.openvas_connector import (
+    OpenVASAPIClient,
+    create_target,
+    list_targets,
+    create_task,
+    list_tasks,
+    start_task,
+    get_task_status,
+    get_report,
+)
+from openvas.openvas_scanner import OpenVASScanner
 
 
-if __name__ == '__main__':
-    unittest.main()
+class TestOpenVASAPIClient:
+    """Test cases for the OpenVASAPIClient class."""
+
+    @pytest.fixture
+    def client(self):
+        """Fixture to provide an OpenVASAPIClient instance."""
+        return OpenVASAPIClient(base_url="http://test-openvas:8008")
+
+    @pytest.fixture
+    def mock_httpx_client(self, mocker: MockerFixture):
+        """Fixture to provide a mocked httpx.AsyncClient."""
+        return mocker.AsyncMock()
+
+    @pytest.mark.asyncio
+    async def test_context_manager_entry_exit(self, client, mocker: MockerFixture):
+        """Test that the client can be used as an async context manager."""
+        mock_client_class = mocker.patch("httpx.AsyncClient")
+        mock_client = mocker.AsyncMock()
+        mock_client_class.return_value = mock_client
+
+        async with client as c:
+            assert c is client
+            assert client._client is mock_client
+            mock_client_class.assert_called_once_with(
+                base_url="http://test-openvas:8008"
+            )
+
+        mock_client.aclose.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "name,hosts,port_range,port_list_id,expected_payload",
+        [
+            (
+                "test-target",
+                ["192.168.1.1"],
+                "1-65535",
+                None,
+                {
+                    "name": "test-target",
+                    "hosts": ["192.168.1.1"],
+                    "port_range": "1-65535",
+                },
+            ),
+            (
+                "multi-target",
+                ["192.168.1.1", "192.168.1.2"],
+                "80,443",
+                "port-list-123",
+                {
+                    "name": "multi-target",
+                    "hosts": ["192.168.1.1", "192.168.1.2"],
+                    "port_range": "80,443",
+                    "port_list_id": "port-list-123",
+                },
+            ),
+            (
+                "single-host",
+                ["10.0.0.1"],
+                "22",
+                None,
+                {"name": "single-host", "hosts": ["10.0.0.1"], "port_range": "22"},
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_create_target(
+        self,
+        client,
+        mock_httpx_client,
+        mocker: MockerFixture,
+        name,
+        hosts,
+        port_range,
+        port_list_id,
+        expected_payload,
+    ):
+        """Test target creation with various parameters."""
+        expected_response = {"id": "target-123", "name": name}
+        mock_response = mocker.Mock()
+        mock_response.json.return_value = expected_response
+        mock_httpx_client.post.return_value = mock_response
+
+        client._client = mock_httpx_client
+
+        kwargs = {"port_range": port_range}
+        if port_list_id:
+            kwargs["port_list_id"] = port_list_id
+
+        result = await client.create_target(name, hosts, **kwargs)
+
+        mock_httpx_client.post.assert_called_once_with(
+            "/targets", json=expected_payload
+        )
+        mock_response.raise_for_status.assert_called_once()
+        assert result == expected_response
+
+    @pytest.mark.asyncio
+    async def test_create_target_http_error(
+        self, client, mock_httpx_client, mocker: MockerFixture
+    ):
+        """Test that HTTP errors are properly raised during target creation."""
+        mock_response = mocker.Mock()
+        mock_response.raise_for_status.side_effect = HTTPStatusError(
+            "Bad Request", request=mocker.Mock(), response=mocker.Mock()
+        )
+        mock_httpx_client.post.return_value = mock_response
+
+        client._client = mock_httpx_client
+
+        with pytest.raises(HTTPStatusError):
+            await client.create_target("test", ["192.168.1.1"])
+
+    @pytest.mark.asyncio
+    async def test_list_targets(self, client, mock_httpx_client, mocker: MockerFixture):
+        """Test listing targets."""
+        expected_targets = [
+            {"id": "target-1", "name": "Target 1", "hosts": ["192.168.1.1"]},
+            {"id": "target-2", "name": "Target 2", "hosts": ["192.168.1.2"]},
+        ]
+        mock_response = mocker.Mock()
+        mock_response.json.return_value = expected_targets
+        mock_httpx_client.get.return_value = mock_response
+
+        client._client = mock_httpx_client
+
+        result = await client.list_targets()
+
+        mock_httpx_client.get.assert_called_once_with("/targets")
+        mock_response.raise_for_status.assert_called_once()
+        assert result == expected_targets
+
+    @pytest.mark.parametrize(
+        "name,target_id,expected_payload",
+        [
+            (
+                "scan-task-1",
+                "target-123",
+                {"name": "scan-task-1", "target_id": "target-123"},
+            ),
+            (
+                "weekly-scan",
+                "target-456",
+                {"name": "weekly-scan", "target_id": "target-456"},
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_create_task(
+        self,
+        client,
+        mock_httpx_client,
+        mocker: MockerFixture,
+        name,
+        target_id,
+        expected_payload,
+    ):
+        """Test task creation with various parameters."""
+        expected_response = {"id": "task-789", "name": name, "target_id": target_id}
+        mock_response = mocker.Mock()
+        mock_response.json.return_value = expected_response
+        mock_httpx_client.post.return_value = mock_response
+
+        client._client = mock_httpx_client
+
+        result = await client.create_task(name, target_id)
+
+        mock_httpx_client.post.assert_called_once_with("/tasks", json=expected_payload)
+        mock_response.raise_for_status.assert_called_once()
+        assert result == expected_response
+
+    @pytest.mark.asyncio
+    async def test_list_tasks(self, client, mock_httpx_client, mocker: MockerFixture):
+        """Test listing tasks."""
+        expected_tasks = [
+            {"id": "task-1", "name": "Task 1", "status": "Running"},
+            {"id": "task-2", "name": "Task 2", "status": "Done"},
+        ]
+        mock_response = mocker.Mock()
+        mock_response.json.return_value = expected_tasks
+        mock_httpx_client.get.return_value = mock_response
+
+        client._client = mock_httpx_client
+
+        result = await client.list_tasks()
+
+        mock_httpx_client.get.assert_called_once_with("/tasks")
+        mock_response.raise_for_status.assert_called_once()
+        assert result == expected_tasks
+
+    @pytest.mark.asyncio
+    async def test_start_task(self, client, mock_httpx_client, mocker: MockerFixture):
+        """Test starting a task."""
+        task_id = "task-123"
+        expected_response = {
+            "task_id": task_id,
+            "report_id": "report-456",
+            "status": "Running",
+        }
+        mock_response = mocker.Mock()
+        mock_response.json.return_value = expected_response
+        mock_httpx_client.post.return_value = mock_response
+
+        client._client = mock_httpx_client
+
+        result = await client.start_task(task_id)
+
+        mock_httpx_client.post.assert_called_once_with(f"/tasks/{task_id}/start")
+        mock_response.raise_for_status.assert_called_once()
+        assert result == expected_response
+
+    @pytest.mark.parametrize(
+        "task_id,expected_status",
+        [
+            ("task-123", {"status": "Running", "progress": 45}),
+            ("task-456", {"status": "Done", "progress": 100}),
+            ("task-789", {"status": "Failed", "error": "Connection timeout"}),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_get_task_status(
+        self, client, mock_httpx_client, mocker: MockerFixture, task_id, expected_status
+    ):
+        """Test getting task status with various statuses."""
+        mock_response = mocker.Mock()
+        mock_response.json.return_value = expected_status
+        mock_httpx_client.get.return_value = mock_response
+
+        client._client = mock_httpx_client
+
+        result = await client.get_task_status(task_id)
+
+        mock_httpx_client.get.assert_called_once_with(f"/tasks/{task_id}/status")
+        mock_response.raise_for_status.assert_called_once()
+        assert result == expected_status
+
+    @pytest.mark.asyncio
+    async def test_get_report(self, client, mock_httpx_client, mocker: MockerFixture):
+        """Test getting a report."""
+        report_id = "report-123"
+        expected_xml = "<report><vulnerability>test</vulnerability></report>"
+        mock_response = mocker.Mock()
+        mock_response.text = expected_xml
+        mock_httpx_client.get.return_value = mock_response
+
+        client._client = mock_httpx_client
+
+        result = await client.get_report(report_id)
+
+        mock_httpx_client.get.assert_called_once_with(f"/reports/{report_id}")
+        mock_response.raise_for_status.assert_called_once()
+        assert result == expected_xml
+
+
+class TestOpenVASConnectorConvenienceFunctions:
+    """Test the convenience functions that wrap the client."""
+
+    @pytest.mark.asyncio
+    async def test_create_target_convenience(self, mocker: MockerFixture):
+        """Test the convenience create_target function."""
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.create_target.return_value = {"id": "target-123"}
+        mock_client_class.return_value = mock_client
+
+        result = await create_target("test", ["192.168.1.1"], port_range="80")
+
+        mock_client.create_target.assert_called_once_with(
+            "test", ["192.168.1.1"], port_range="80"
+        )
+        assert result == {"id": "target-123"}
+
+    @pytest.mark.asyncio
+    async def test_list_targets_convenience(self, mocker: MockerFixture):
+        """Test the convenience list_targets function."""
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.list_targets.return_value = [{"id": "target-1"}]
+        mock_client_class.return_value = mock_client
+
+        result = await list_targets()
+
+        mock_client.list_targets.assert_called_once()
+        assert result == [{"id": "target-1"}]
+
+    @pytest.mark.asyncio
+    async def test_create_task_convenience(self, mocker: MockerFixture):
+        """Test the convenience create_task function."""
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.create_task.return_value = {
+            "id": "task-789",
+            "name": "test-task",
+        }
+        mock_client_class.return_value = mock_client
+
+        result = await create_task("test-task", "target-123")
+
+        mock_client.create_task.assert_called_once_with("test-task", "target-123")
+        assert result == {"id": "task-789", "name": "test-task"}
+
+    @pytest.mark.asyncio
+    async def test_list_tasks_convenience(self, mocker: MockerFixture):
+        """Test the convenience list_tasks function."""
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.list_tasks.return_value = [
+            {"id": "task-1", "name": "Task 1", "status": "Running"},
+            {"id": "task-2", "name": "Task 2", "status": "Done"},
+        ]
+        mock_client_class.return_value = mock_client
+
+        result = await list_tasks()
+
+        mock_client.list_tasks.assert_called_once()
+        assert result == [
+            {"id": "task-1", "name": "Task 1", "status": "Running"},
+            {"id": "task-2", "name": "Task 2", "status": "Done"},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_start_task_convenience(self, mocker: MockerFixture):
+        """Test the convenience start_task function."""
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.start_task.return_value = {"report_id": "report-123"}
+        mock_client_class.return_value = mock_client
+
+        result = await start_task("task-456")
+
+        mock_client.start_task.assert_called_once_with("task-456")
+        assert result == {"report_id": "report-123"}
+
+    @pytest.mark.parametrize(
+        "task_id,expected_status",
+        [
+            ("task-running", {"status": "Running", "progress": 45}),
+            ("task-done", {"status": "Done", "progress": 100}),
+            ("task-failed", {"status": "Failed", "error": "Connection timeout"}),
+            ("task-queued", {"status": "Queued", "progress": 0}),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_get_task_status_convenience(
+        self, mocker: MockerFixture, task_id, expected_status
+    ):
+        """Test the convenience get_task_status function with various statuses."""
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.get_task_status.return_value = expected_status
+        mock_client_class.return_value = mock_client
+
+        result = await get_task_status(task_id)
+
+        mock_client.get_task_status.assert_called_once_with(task_id)
+        assert result == expected_status
+
+    @pytest.mark.parametrize(
+        "report_id,report_content",
+        [
+            (
+                "report-xml",
+                "<?xml version='1.0'?><report><vulnerability>SQLi</vulnerability></report>",
+            ),
+            ("report-empty", "<?xml version='1.0'?><report></report>"),
+            (
+                "report-large",
+                "<?xml version='1.0'?><report>"
+                + "<result>" * 100
+                + "</result>" * 100
+                + "</report>",
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_get_report_convenience(
+        self, mocker: MockerFixture, report_id, report_content
+    ):
+        """Test the convenience get_report function with various report types."""
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.get_report.return_value = report_content
+        mock_client_class.return_value = mock_client
+
+        result = await get_report(report_id)
+
+        mock_client.get_report.assert_called_once_with(report_id)
+        assert result == report_content
+
+    @pytest.mark.asyncio
+    async def test_convenience_functions_with_errors(self, mocker: MockerFixture):
+        """Test that convenience functions properly propagate errors."""
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.create_task.side_effect = HTTPStatusError(
+            "Server Error", request=mocker.Mock(), response=mocker.Mock()
+        )
+        mock_client_class.return_value = mock_client
+
+        with pytest.raises(HTTPStatusError):
+            await create_task("failing-task", "target-123")
+
+    @pytest.mark.asyncio
+    async def test_convenience_functions_with_kwargs(self, mocker: MockerFixture):
+        """Test that convenience functions properly pass through kwargs."""
+        mock_client_class = mocker.patch("openvas.openvas_connector.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.create_task.return_value = {"id": "task-with-kwargs"}
+        mock_client_class.return_value = mock_client
+
+        # Test create_task with additional kwargs
+        result = await create_task("test-task", "target-123", custom_param="value")
+
+        mock_client.create_task.assert_called_once_with(
+            "test-task", "target-123", custom_param="value"
+        )
+        assert result == {"id": "task-with-kwargs"}
+
+
+class TestOpenVASScanner:
+    """Test cases for the OpenVASScanner class."""
+
+    @pytest.fixture
+    def scanner(self):
+        """Fixture to provide an OpenVASScanner instance."""
+        return OpenVASScanner(org_name="test-org", base_url="http://test-openvas:8008")
+
+    @pytest.fixture
+    def sample_xml_report(self):
+        """Fixture providing a sample OpenVAS XML report."""
+        return """<?xml version="1.0" encoding="UTF-8"?>
+        <report>
+            <result>
+                <name>SQL Injection</name>
+                <nvt>
+                    <cve>CVE-2023-12345</cve>
+                </nvt>
+                <port>80/tcp</port>
+                <threat>High</threat>
+                <severity>7.5</severity>
+                <description>SQL injection vulnerability found</description>
+                <host>192.168.1.1</host>
+                <qod>
+                    <value>95</value>
+                </qod>
+            </result>
+            <result>
+                <name>httpOnly Flag Missing</name>
+                <nvt>
+                    <cve>NOCVE</cve>
+                </nvt>
+                <port>443/tcp</port>
+                <threat>Low</threat>
+                <severity>2.0</severity>
+                <description>httpOnly flag missing on cookies</description>
+                <host>192.168.1.2</host>
+                <qod>
+                    <value>80</value>
+                </qod>
+            </result>
+            <result>
+                <name>Buffer Overflow</name>
+                <nvt>
+                    <cve>CVE-2023-67890</cve>
+                </nvt>
+                <port>22/tcp</port>
+                <threat>Critical</threat>
+                <severity>9.8</severity>
+                <description>Buffer overflow in SSH service</description>
+                <host>192.168.1.3</host>
+                <qod>
+                    <value>99</value>
+                </qod>
+            </result>
+        </report>"""
+
+    def test_scanner_initialization(self, scanner):
+        """Test scanner initialization."""
+        assert scanner.org_name == "test-org"
+        assert scanner.base_url == "http://test-openvas:8008"
+        assert scanner.vulnerabilities == []
+
+    def test_scanner_initialization_with_env_var(self, mocker: MockerFixture):
+        """Test scanner initialization with environment variable."""
+        mocker.patch.dict(os.environ, {"OPENVAS_API_URL": "http://env-openvas:9009"})
+        scanner = OpenVASScanner("env-org")
+        assert scanner.base_url == "http://env-openvas:9009"
+
+    @pytest.mark.asyncio
+    async def test_scan_targets_success(self, scanner, mocker: MockerFixture):
+        """Test successful scanning of targets."""
+        targets = ["192.168.1.1", "192.168.1.2"]
+
+        mock_client_class = mocker.patch("openvas.openvas_scanner.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client_class.return_value = mock_client
+
+        # Mock target creation
+        mock_client.create_target.side_effect = [
+            {"id": "target-1", "name": "Discovered 192.168.1.1 - 2025-07-23"},
+            {"id": "target-2", "name": "Discovered 192.168.1.2 - 2025-07-23"},
+        ]
+
+        # Mock task creation
+        mock_client.create_task.side_effect = [
+            {"id": "task-1", "name": "Scan for target-1"},
+            {"id": "task-2", "name": "Scan for target-2"},
+        ]
+
+        # Mock task starting
+        mock_client.start_task.side_effect = [
+            {"report_id": "report-1"},
+            {"report_id": "report-2"},
+        ]
+
+        # Mock monitor_task_queue
+        mock_monitor = mocker.patch.object(scanner, "monitor_task_queue")
+        mock_monitor.return_value = None
+
+        await scanner.scan_targets(targets)
+
+        # Verify calls
+        assert mock_client.create_target.call_count == 2
+        assert mock_client.create_task.call_count == 2
+        assert mock_client.start_task.call_count == 2
+        mock_monitor.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_scan_targets_with_errors(self, scanner, mocker: MockerFixture):
+        """Test scanning targets with some failures."""
+        targets = ["192.168.1.1", "192.168.1.2"]
+
+        mock_client_class = mocker.patch("openvas.openvas_scanner.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client_class.return_value = mock_client
+
+        # Mock target creation with one failure
+        mock_client.create_target.side_effect = [
+            {"id": "target-1", "name": "Discovered 192.168.1.1 - 2025-07-23"},
+            Exception("Target creation failed"),
+        ]
+
+        # Mock task creation
+        mock_client.create_task.return_value = {
+            "id": "task-1",
+            "name": "Scan for target-1",
+        }
+
+        # Mock task starting
+        mock_client.start_task.return_value = {"report_id": "report-1"}
+
+        mock_monitor = mocker.patch.object(scanner, "monitor_task_queue")
+        mock_monitor.return_value = None
+
+        await scanner.scan_targets(targets)
+
+        # Only one target should succeed
+        assert mock_client.create_target.call_count == 2
+        assert mock_client.create_task.call_count == 1
+        assert mock_client.start_task.call_count == 1
+
+    @pytest.mark.parametrize(
+        "task_status,should_complete",
+        [
+            ("Done", True),
+            ("Stopped", True),
+            ("Failed", True),
+            ("Interrupted", True),
+            ("Running", False),
+            ("Queued", False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_monitor_task_queue_status_handling(
+        self, scanner, mocker: MockerFixture, task_status, should_complete
+    ):
+        """Test task monitoring with different status values."""
+        mock_client = mocker.AsyncMock()
+        task_info = [
+            {
+                "task_id": "task-1",
+                "task_name": "Test Task",
+                "report_id": "report-1",
+                "completed": False,
+            }
+        ]
+
+        mock_client.get_task_status.return_value = {"status": task_status}
+        mock_client.get_report.return_value = "<report></report>"
+
+        mock_makedirs = mocker.patch("os.makedirs")
+        mock_open = mocker.patch("builtins.open", mocker.mock_open())
+        mock_parse = mocker.patch.object(scanner, "parse_results_to_vulns")
+        mock_sleep = mocker.patch("asyncio.sleep")
+
+        # Mock sleep to avoid waiting in tests
+        mock_sleep.side_effect = [None, Exception("Break loop")]
+
+        try:
+            await scanner.monitor_task_queue(mock_client, task_info)
+        except Exception:
+            pass  # Expected to break the loop
+
+        assert task_info[0]["completed"] == should_complete
+        if should_complete and task_status in ["Done", "Stopped"]:
+            mock_client.get_report.assert_called_once_with("report-1")
+            mock_parse.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_parse_results_to_vulns(
+        self, scanner, sample_xml_report, mocker: MockerFixture
+    ):
+        """Test parsing of XML report to vulnerabilities."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
+            f.write(sample_xml_report)
+            report_file = f.name
+
+        try:
+            mock_requests = mocker.patch("requests.get")
+            mock_insert = mocker.patch(
+                "openvas.openvas_scanner.insert_vulnerability_to_database"
+            )
+            mock_cve_enricher = mocker.patch(
+                "core.models.vulnerability.Vulnerability.cve_enricher"
+            )
+
+            # Mock EPSS API response
+            mock_response = mocker.Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"data": [{"percentile": 0.8}]}
+            mock_requests.return_value = mock_response
+
+            # Mock the CVE enricher to avoid subprocess calls
+            mock_cve_enricher.return_value = {
+                "cvss": "7.5",
+                "epss": "0.8",
+                "summary": "Test CVE summary",
+                "impact": "High impact",
+                "solution": "Update software",
+            }
+
+            await scanner.parse_results_to_vulns(report_file)
+
+            # Should have 2 vulnerabilities (one is skipped due to httpOnly)
+            assert len(scanner.vulnerabilities) == 2
+
+            # Check first vulnerability (SQL Injection)
+            vuln1 = scanner.vulnerabilities[0]
+            assert vuln1.title == "SQL Injection"
+            assert vuln1.affected_item == "192.168.1.1"
+            assert vuln1.tool == "OpenVAS"
+            assert vuln1.confidence == 95
+
+            # Check second vulnerability (Buffer Overflow)
+            vuln2 = scanner.vulnerabilities[1]
+            assert vuln2.title == "Buffer Overflow"
+            assert vuln2.affected_item == "192.168.1.3"
+            assert vuln2.confidence == 99
+
+            # Verify database insertions
+            assert mock_insert.call_count == 2
+
+        finally:
+            os.unlink(report_file)
+
+    @pytest.mark.asyncio
+    async def test_parse_results_invalid_xml(self, scanner):
+        """Test parsing of invalid XML report."""
+        invalid_xml = "This is not valid XML"
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
+            f.write(invalid_xml)
+            report_file = f.name
+
+        try:
+            await scanner.parse_results_to_vulns(report_file)
+
+            # Should not crash and vulnerabilities should remain empty
+            assert len(scanner.vulnerabilities) == 0
+
+        finally:
+            os.unlink(report_file)
+
+    @pytest.mark.asyncio
+    async def test_parse_results_nocve_vulnerability(
+        self, scanner, mocker: MockerFixture
+    ):
+        """Test parsing vulnerability without CVE."""
+        nocve_xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <report>
+            <result>
+                <name>Custom Vulnerability</name>
+                <nvt>
+                    <cve>NOCVE</cve>
+                </nvt>
+                <port>8080/tcp</port>
+                <threat>Medium</threat>
+                <severity>5.0</severity>
+                <description>Custom vulnerability description</description>
+                <host>10.0.0.1</host>
+                <qod>
+                    <value>85</value>
+                </qod>
+            </result>
+        </report>"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
+            f.write(nocve_xml)
+            report_file = f.name
+
+        try:
+            mock_insert = mocker.patch(
+                "openvas.openvas_scanner.insert_vulnerability_to_database"
+            )
+            await scanner.parse_results_to_vulns(report_file)
+
+            assert len(scanner.vulnerabilities) == 1
+            vuln = scanner.vulnerabilities[0]
+            assert vuln.title == "Custom Vulnerability"
+            assert vuln.summary == "Custom vulnerability description"
+            mock_insert.assert_called_once()
+
+        finally:
+            os.unlink(report_file)
+
+    def test_scanner_with_custom_base_url(self):
+        """Test scanner initialization with custom base URL."""
+        custom_url = "http://custom-openvas:7007"
+        scanner = OpenVASScanner("custom-org", base_url=custom_url)
+        assert scanner.base_url == custom_url
+        assert scanner.org_name == "custom-org"
+
+
+# Integration-style tests
+class TestOpenVASIntegration:
+    """Integration tests for OpenVAS components."""
+
+    @pytest.mark.asyncio
+    async def test_full_workflow_simulation(self, mocker: MockerFixture):
+        """Test a simulated full workflow from target creation to report parsing."""
+        scanner = OpenVASScanner("integration-test")
+
+        mock_client_class = mocker.patch("openvas.openvas_scanner.OpenVASAPIClient")
+        mock_client = mocker.AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client_class.return_value = mock_client
+
+        # Simulate successful workflow
+        mock_client.create_target.return_value = {
+            "id": "target-1",
+            "name": "Test Target",
+        }
+        mock_client.create_task.return_value = {"id": "task-1", "name": "Test Task"}
+        mock_client.start_task.return_value = {"report_id": "report-1"}
+        mock_client.get_task_status.return_value = {"status": "Done"}
+        mock_client.get_report.return_value = """<?xml version="1.0" encoding="UTF-8"?>
+        <report>
+            <result>
+                <name>Test Vulnerability</name>
+                <nvt><cve>CVE-2023-12345</cve></nvt>
+                <port>80/tcp</port>
+                <threat>High</threat>
+                <severity>7.5</severity>
+                <description>Test description</description>
+                <host>192.168.1.1</host>
+                <qod><value>95</value></qod>
+            </result>
+        </report>"""
+
+        mock_makedirs = mocker.patch("os.makedirs")
+        mock_open = mocker.patch("builtins.open", mocker.mock_open())
+        mock_parse = mocker.patch.object(scanner, "parse_results_to_vulns")
+        mock_sleep = mocker.patch(
+            "asyncio.sleep", side_effect=[None, Exception("Break")]
+        )
+
+        mock_parse.return_value = None
+
+        # This should complete without errors
+        try:
+            await scanner.scan_targets(["192.168.1.1"])
+        except Exception:
+            pass  # Expected from breaking the monitoring loop
+
+        # Verify the workflow was followed
+        mock_client.create_target.assert_called_once()
+        mock_client.create_task.assert_called_once()
+        mock_client.start_task.assert_called_once()
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])

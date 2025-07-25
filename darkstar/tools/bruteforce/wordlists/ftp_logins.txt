@@ -1,0 +1,11 @@
+root
+adm
+admin
+administrator
+auditor
+ftp
+sysadmin
+tempuser
+web
+webadmin
+webmaster

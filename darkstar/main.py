@@ -1,22 +1,3 @@
-"""
-Darkstar - Security Scanning Framework
-
-This is the main entry point for the Darkstar security scanning framework.
-It handles command line arguments, target parsing, and orchestration of
-various scanning modules based on the selected scan mode.
-
-Modes:
-    1. Passive: Light reconnaissance without active scanning
-    2. Normal: Standard scanning with passive and selected active modules
-    3. Aggressive: Full scanning with all active and aggressive modules
-
-Usage:
-    python main.py -t TARGET -m MODE -d DOMAIN -env ENV_FILE
-
-License:
-    GNU General Public License v3.0
-"""
-
 #  *
 #  * This file is part of Darkstar.
 #  *
@@ -35,216 +16,496 @@ License:
 #  *
 
 import argparse
-from dotenv import load_dotenv
 import pandas as pd
 import warnings
-import sys
-from modules.scanners import *
-from modules.openvas import openvas
-from colorama import Fore, Style, Back, init
-from modules.recon import WordPressDetector
-from tqdm import tqdm
-import time
+from scanners.bbot import BBotScanner
+from scanners.nuclei import NucleiScanner, WordPressNucleiScanner
+from colorama import Fore, Style, init
+from scanners.recon import WordPressDetector
+import asyncio
+import os
+from scanners.portscan import RustScanner, run_rustscan, process_scan_results
+from tools.bruteforce import process_bruteforce_results
+from core.utils import (
+    categorize_targets,
+    create_target_dataframe,
+    log_target_summary,
+    get_scan_targets,
+    prepare_output_directory,
+)
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from openvas.openvas_scanner import OpenVASScanner
+from typing import Literal
+import ipaddress
+
+# Set up basic logging configuration
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger("main")
+
 warnings.filterwarnings("ignore")
 init(autoreset=True)
 
-# Move this code outside of global scope to prevent execution during import
+
 def setup_env_from_args(args=None):
-    #? First, create a minimal argument parser just to grab the --envfile parameter.
+    """Load environment variables from .env file."""
+    # Create a minimal argument parser just to grab the --envfile parameter.
     env_parser = argparse.ArgumentParser(add_help=False)
-    env_parser.add_argument("-env", "--envfile", help="envfile location, default .env", default=".env", required=False)
-    
+    env_parser.add_argument(
+        "-env",
+        "--envfile",
+        help="envfile location, default is /app/.env",
+        default="/app/.env",
+        required=False,
+    )
+
     # Only parse sys.argv if args is not provided (for testing)
     if args is None:
         env_args, _ = env_parser.parse_known_args()
     else:
         env_args, _ = env_parser.parse_known_args(args)
-    
-    #? Load the env file early.
-    load_dotenv(env_args.envfile if hasattr(env_args, 'envfile') else ".env")
-    
+
+    # Load environment from file if it exists
+    env_file = env_args.envfile if hasattr(env_args, "envfile") else "/app/.env"
+    if os.path.exists(env_file):
+        try:
+            import dotenv
+
+            dotenv.load_dotenv(env_file)
+            logger.info(f"Loaded environment from {env_file}")
+        except ImportError:
+            logger.warning("python-dotenv not available, loading env manually")
+            # Manual .env file loading
+            with open(env_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, value = line.split("=", 1)
+                        os.environ[key.strip()] = value.strip()
+    else:
+        logger.warning(f"Environment file {env_file} not found, using defaults")
+
     return env_args
 
-class worker():
+
+class worker:
     """
     Main worker class that orchestrates and executes scanning operations.
-    
+
     This class is responsible for running the selected scanning modules
     based on the specified mode and managing the workflow between them.
-    
+
     Attributes:
         all_targets (str): Raw target string from command line arguments
-        target_df (DataFrame): Parsed targets organized by type
         mode (int): Scan intrusiveness level (1=passive, 2=normal, 3=aggressive)
         org_domain (str): Organization name for database storage
     """
-    
-    def __init__(self, mode: int, targets: str, target_df: pd.DataFrame, org_name: str):
+
+    def __init__(
+        self,
+        mode: int,
+        targets: str,
+        org_name: str,
+        bruteforce: bool = False,
+        bruteforce_timeout: int = 300,
+    ):
         self.all_targets = targets
-        self.target_df = target_df
+        self.target_df = parse_targets(targets)
         self.mode = mode
         self.org_domain = org_name
+        self.bruteforce = bruteforce
+        self.bruteforce_timeout = bruteforce_timeout
 
-    def run(self):
+    async def run_bbot(
+        self, mode: Literal["passive", "normal", "aggressive", "attack_surface"]
+    ):
+        logger.info(
+            f"{Fore.CYAN}Starting bbot {mode} scan using CLI targets...{Style.RESET_ALL}"
+        )
+
+        with ThreadPoolExecutor() as executor:
+            bbot_scanner = BBotScanner(self.all_targets, self.org_domain)
+            await asyncio.get_event_loop().run_in_executor(
+                executor, lambda: bbot_scanner.run(mode=mode)
+            )
+
+        # Get the generated filenames
+        subdomains_file = (
+            f"{bbot_scanner.folder}/{bbot_scanner.foldername}/subdomains.txt"
+        )
+        ips_file = f"{bbot_scanner.folder}/{bbot_scanner.foldername}/ips.txt"
+
+        targets = [
+            target.strip() for target in self.all_targets.split(",") if target.strip()
+        ]
+        domains = []
+        ips = []
+
+        for target in targets:
+            try:
+                ipaddress.ip_address(target)
+                ips.append(target)  # Valid IP address
+            except ValueError:
+                # If it raises ValueError, it's not a valid IP address, so it's a domain
+                domains.append(target)
+
+        if not os.path.exists(subdomains_file):
+            with open(subdomains_file, "w") as f:
+                # If no subdomains found, write the domains from all_targets directly
+                for domain in domains:
+                    f.write(f"{domain}\n")
+
+        if not os.path.exists(ips_file):
+            with open(ips_file, "w") as f:
+                # If no IPs found, write the IPs from all_targets directly
+                for ip in ips:
+                    f.write(f"{ip}\n")
+
+        return {
+            "bbot_scanner": bbot_scanner,
+            "subdomains_file": subdomains_file,
+            "ips_file": ips_file,
+        }
+
+    async def run_port_scan(self, targets):
+        logger.info(f"{Fore.CYAN}Starting RustScan on CLI targets...{Style.RESET_ALL}")
+
+        rustscan_dir = prepare_output_directory(self.org_domain, "rustscanpy")
+
+        rust_scanner = RustScanner(
+            batch_size=25000,
+            ulimit=35000,
+            timeout=3500,
+            concurrent_limit=2,
+            tries=1,
+            service_detection=True,
+        )
+
+        rustscan_results = await run_rustscan(
+            rust_scanner,
+            targets,
+            output_dir=rustscan_dir,
+            all_in_one=False,
+            run_bruteforce=self.bruteforce,  # Enable bruteforce if specified
+            bruteforce_timeout=self.bruteforce_timeout,
+        )
+
+        scan_processed = process_scan_results(rustscan_results, self.org_domain)
+
+        # Process bruteforce results if present
+        bruteforce_processed = None
+        if (
+            isinstance(rustscan_results, dict)
+            and "bruteforce_results" in rustscan_results
+        ):
+            bruteforce_processed = process_bruteforce_results(
+                rustscan_results["bruteforce_results"]
+            )
+
+        return {
+            "rustscan_results": rustscan_results,
+            "scan_processed": scan_processed,
+            "bruteforce_processed": bruteforce_processed,
+        }
+
+    async def run_nuclei(self, filename):
+        logger.info("Running nuclei scan on discovered subdomains")
+
+        with ThreadPoolExecutor() as executor:
+            nuclei_scanner = NucleiScanner(filename, self.org_domain)
+            await asyncio.get_event_loop().run_in_executor(executor, nuclei_scanner.run)
+
+    async def detect_wordpress(self, filename):
+        with ThreadPoolExecutor() as executor:
+            wordpress_domains = await asyncio.get_event_loop().run_in_executor(
+                executor, lambda: WordPressDetector().run(filename)
+            )
+
+        logger.info(
+            f"{Fore.GREEN}[+] Wordpress Domains: {Fore.CYAN}{wordpress_domains}{Style.RESET_ALL}"
+        )
+
+        return wordpress_domains
+
+    async def run_wordpress_nuclei(self, domains):
+        if domains:
+            logger.info(
+                f"Running WordPress-specific nuclei scan on {len(domains.split(',')) if isinstance(domains, str) else len(domains)} detected WordPress sites"
+            )
+
+            with ThreadPoolExecutor() as executor:
+                wp_scanner = WordPressNucleiScanner(domains, self.org_domain)
+                await asyncio.get_event_loop().run_in_executor(executor, wp_scanner.run)
+        else:
+            logger.info(
+                "No WordPress sites provided, skipping WordPress-specific scans"
+            )
+
+    async def detect_wordpress_and_run_nuclei(self, filename):
+        # Detect WordPress and automatically run WordPress-specific Nuclei
+        wordpress_domains = await self.detect_wordpress(filename)
+
+        # Immediately kickoff WordPress Nuclei scan if WordPress sites are detected
+        if wordpress_domains:
+            logger.info(
+                f"{Fore.CYAN}Immediately running WordPress-specific Nuclei scan on detected sites...{Style.RESET_ALL}"
+            )
+            await self.run_wordpress_nuclei(wordpress_domains)
+        else:
+            logger.info(
+                "No WordPress sites detected, skipping WordPress-specific scans"
+            )
+
+    async def run_openvas_scan(self, targets):
+        logger.info("Running OpenVAS scan on specified targets")
+
+        openvas_scanner = OpenVASScanner(org_name=self.org_domain)
+        await openvas_scanner.scan_targets(targets)
+
+    async def passive_scan(self):
+        await self.run_bbot(mode="passive")
+
+    async def normal_scan(self):
+        all_scan_targets = get_scan_targets(self.target_df)
+
+        # Run these tasks in parallel
+        tasks = [
+            self.run_bbot(mode="normal"),
+            self.run_port_scan(all_scan_targets),
+            self.run_openvas_scan(all_scan_targets),
+        ]
+
+        # Run all tasks in parallel
+        bbot_results, port_results, _ = await asyncio.gather(*tasks)
+
+        # Now run wordpress detection and nuclei scan
+        await self.detect_wordpress_and_run_nuclei(bbot_results["subdomains_file"])
+
+    async def aggressive_scan(self):
+        all_scan_targets = get_scan_targets(self.target_df)
+
+        # Execute port discovery, bbot and openvas in parallel
+        tasks = [
+            self.run_bbot(mode="aggressive"),
+            self.run_port_scan(all_scan_targets),
+            self.run_openvas_scan(all_scan_targets),
+        ]
+
+        # Wait for all to complete
+        bbot_results, port_results, _ = await asyncio.gather(*tasks)
+
+        # Now run nucle and wordpress detection and nuclei
+        tasks = [
+            self.run_nuclei(bbot_results["subdomains_file"]),
+            self.detect_wordpress_and_run_nuclei(bbot_results["subdomains_file"]),
+        ]
+
+        # Wait for all remaining tasks to complete
+        await asyncio.gather(*tasks)
+
+    async def attack_surface_scan(self):
+        logger.info(f"{Fore.CYAN}Starting Attack Surface Mode...{Style.RESET_ALL}")
+
+        # Execute attack surface scan and wait for completion
+        bbot_results = await self.run_bbot(mode="attack_surface")
+
+        logger.info(
+            f"{Fore.GREEN}[+] Attack surface mapping completed. Running subsequent scans on discovered assets...{Style.RESET_ALL}"
+        )
+
+        # Run RustScan on discovered IPs
+        scan_processed = None
+        if (
+            os.path.exists(bbot_results["ips_file"])
+            and os.path.getsize(bbot_results["ips_file"]) > 0
+        ):
+            logger.info(
+                f"{Fore.CYAN}Running RustScan on discovered IPs...{Style.RESET_ALL}"
+            )
+
+            # Read IPs from file
+            with open(bbot_results["ips_file"], "r") as attack_surface_file:
+                discovered_ips = [
+                    line.strip()
+                    for line in attack_surface_file.readlines()
+                    if line.strip()
+                ]
+
+            if discovered_ips:
+                _, scan_processed, _ = await self.run_port_scan(discovered_ips)
+            else:
+                logger.warning(
+                    f"{Fore.YELLOW}IP file exists but contains no valid IPs{Style.RESET_ALL}"
+                )
+        else:
+            logger.warning(
+                f"{Fore.YELLOW}No IPs discovered, skipping RustScan{Style.RESET_ALL}"
+            )
+
+        # Write the discovered subdomains from bbot_results["domains_file"] and IP/Port combinations from scan_processed to a file
+        with open(f"{self.org_domain}_attack_surface.txt", "w") as attack_surface_file:
+            if os.path.exists(bbot_results["subdomains_file"]):
+                with open(bbot_results["subdomains_file"], "r") as subdomains_file:
+                    subdomains = subdomains_file.readlines()
+                    attack_surface_file.writelines(subdomains)
+
+            if scan_processed and "ports_by_host" in scan_processed:
+                for ip, ports in scan_processed["ports_by_host"].items():
+                    for port in ports:
+                        attack_surface_file.write(f"{ip}:{port}\n")
+
+    async def run(self):
         """
         Execute the scanning process based on the selected mode.
-        
-        Each mode runs a different set of scanning modules:
-        - Mode 3 (Aggressive): Full active scanning with all modules
-        - Mode 2 (Normal): Passive scanning plus OpenVAS for IPv4 targets
-        - Mode 1 (Passive): Only passive reconnaissance
+
+        Uses asynchronous execution to run independent tasks in parallel.
         """
-        #? Aggressive mode
-        if self.mode == 3:
-            #? Run bbot with aggressive settings
-            bbot_scanner = bbot(self.all_targets, self.org_domain)
-            bbot_scanner.aggressive()
-            
-            # #? Run nuclei on the subdomains
-            filename = f'{bbot_scanner.folder}/{bbot_scanner.foldername}/subdomains.txt'
-            filename = '/tmp/subs.txt'
-            nuclei(filename, self.org_domain).run()
-
-            #? Detect wordpress
-            wordpress_domains = WordPressDetector().run(filename) 
-            print(f"[+] Wordpress Domains: {wordpress_domains}")
-            
-            #? Nuclei wordpress
-            nuclei_wordpress(wordpress_domains, self.org_domain).run()
-
-            if not self.target_df['IPv4'].empty:
-                openvas_handler = openvas(targets=self.target_df['IPv4'], org_name=self.org_domain)
-                openvas_handler.run()
-            else:
-                print(f"{Fore.RED}[-] No IPv4 targets found, skipping OpenVAS{Style.RESET_ALL}")
-        
-        #? Normal mode
-        elif self.mode == 2:
-            bbot_scanner = bbot(self.all_targets, self.org_domain)
-            bbot_scanner.passive()
-            #? Run OpenVas
-            if not self.target_df['IPv4'].empty:
-                openvas_handler = openvas(targets=self.target_df['IPv4'], org_name=self.org_domain)
-                openvas_handler.run()
-            else:
-                print(f"{Fore.RED}[-] No IPv4 targets found, skipping OpenVAS{Style.RESET_ALL}")
-
-        #? Passive mode
-        elif self.mode == 1:
-            bbot_scanner = bbot(self.all_targets, self.org_domain)
-            bbot_scanner.passive()
-        else:
-            print(f"{Fore.RED}[-] Invalid mode {Style.RESET_ALL}")
+        match self.mode:
+            case 1:  # 1 - Passive mode
+                await self.passive_scan()
+            case 2:  # 2 - Normal mode
+                await self.normal_scan()
+            case 3:  # 3 - Aggressive mode
+                await self.aggressive_scan()
+            case 4:  # 4 - Attack Surface Mode
+                await self.attack_surface_scan()
+            case _:  # Invalid mode
+                logger.error(
+                    f"{Fore.RED}[-] Invalid mode {self.mode} specified{Style.RESET_ALL}"
+                )
 
 
-def parse_targets(targets_str):
+def parse_targets(targets_str: str) -> pd.DataFrame:
     """
-    Parse and categorize targets by type.
-    
-    Args:
-        targets_str: Comma-separated target string
-    
+    Parse and categorize targets by type using proper validation.
     Returns:
-        pd.DataFrame: DataFrame with targets categorized
+        pd.DataFrame: DataFrame with targets categorized by type
     """
-    targets = targets_str.split(',')
-    cidrs, ipv4, ipv6, domains, urls = [], [], [], [], []
+    targets = [target.strip() for target in targets_str.split(",") if target.strip()]
+    if not targets:
+        logger.warning(f"{Fore.YELLOW}[!] No valid targets provided{Style.RESET_ALL}")
+        return pd.DataFrame()
+    categorized = categorize_targets(targets)
+    log_target_summary(categorized)
 
-    print(f"{Fore.CYAN}[*] {Back.BLACK}Parsing and categorizing targets...{Style.RESET_ALL}")
-    with tqdm(total=len(targets), desc="Target Classification", bar_format="{l_bar}%s{bar}%s{r_bar}" % (Fore.GREEN, Style.RESET_ALL)) as pbar:
-        for target in targets:
-            if "http" in target:
-                print(f"  {Fore.GREEN}[+] Target {Fore.YELLOW}{target}{Fore.GREEN} is a URL{Style.RESET_ALL}")
-                urls.append(target)
-            elif "/" in target:
-                print(f"  {Fore.GREEN}[+] Target {Fore.YELLOW}{target}{Fore.GREEN} is CIDR{Style.RESET_ALL}")
-                cidrs.append(target)
-            elif ":" in target:
-                print(f"  {Fore.GREEN}[+] Target {Fore.YELLOW}{target}{Fore.GREEN} is an IPv6{Style.RESET_ALL}")
-                ipv6.append(target)
-            elif target.replace(".", "").isnumeric():
-                print(f"  {Fore.GREEN}[+] Target {Fore.YELLOW}{target}{Fore.GREEN} is an IP{Style.RESET_ALL}")
-                ipv4.append(target)
-            else:
-                print(f"  {Fore.GREEN}[+] Target {Fore.YELLOW}{target}{Fore.GREEN} is a domain{Style.RESET_ALL}")
-                domains.append(target)
-            pbar.update(1)
-            time.sleep(0.1)  # Small delay for visual effect
-    
-    print(f"\n{Fore.MAGENTA}[>] Target Summary:{Style.RESET_ALL}")
-    print(f"  {Fore.MAGENTA}[>] CIDRs: {Fore.CYAN}{cidrs}{Style.RESET_ALL}")
-    print(f"  {Fore.MAGENTA}[>] IPs: {Fore.CYAN}{ipv4}{Style.RESET_ALL}")
-    print(f"  {Fore.MAGENTA}[>] Domains: {Fore.CYAN}{domains}{Style.RESET_ALL}")
-    print(f"  {Fore.MAGENTA}[>] IPv6: {Fore.CYAN}{ipv6}{Style.RESET_ALL}")
-    print(f"  {Fore.MAGENTA}[>] URLs: {Fore.CYAN}{urls}{Style.RESET_ALL}")
-    
-    print(f"\n{Fore.GREEN}{Back.BLACK}[+] Targets Locked and Ready for Scanning!{Style.RESET_ALL}")
+    return create_target_dataframe(categorized)
 
-    # Create a DataFrame with proper structure even if lists are empty
-    # This ensures it always returns a valid DataFrame with the expected columns
-    df = pd.DataFrame(columns=['CIDRs', 'IPv4', 'IPv6', 'Domains', 'URLs'])
-    
-    # Add data if we have any
-    if cidrs:
-        df['CIDRs'] = pd.Series(cidrs)
-    if ipv4:
-        df['IPv4'] = pd.Series(ipv4)
-    if ipv6:
-        df['IPv6'] = pd.Series(ipv6)
-    if domains:
-        df['Domains'] = pd.Series(domains)
-    if urls:
-        df['URLs'] = pd.Series(urls)
-        
-    return df
+
+def setup_parser():
+    """
+    Set up the command line argument parser for DarkStar.
+
+    Returns:
+        argparse.ArgumentParser: Configured argument parser
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-t",
+        "--target",
+        required=True,
+        help="Fill in the CIDR, IP or domain (without http/https) to scan. Separate multiple targets by comma's. Can also be a file with a list of targets (one per line).",
+    )
+    parser.add_argument(
+        "-m",
+        "--mode",
+        type=int,
+        required=True,
+        help="Scan intrusiveness: 1. passive, 2. normal, 3. aggressive, 4. attack surface",
+        choices=[1, 2, 3, 4],
+    )
+    parser.add_argument(
+        "-d",
+        "--domain",
+        help="The organisation name necessary for database selection",
+        required=True,
+    )
+    parser.add_argument(
+        "--bruteforce",
+        action="store_true",
+        help="Enable bruteforce attacks on discovered services",
+    )
+    parser.add_argument(
+        "--bruteforce-timeout",
+        type=int,
+        default=300,
+        help="Timeout for each bruteforce attack in seconds",
+    )
+    parser.add_argument(
+        "-env",
+        "--envfile",
+        help="envfile location, default is /app/.env",
+        default="/app/.env",
+        required=False,
+    )
+    return parser
+
+
+def display_banner(args):
+    """
+    Display the DarkStar banner with scan mode, target and domain information.
+
+    Args:
+        args: Parsed command line arguments containing mode, target and domain
+    """
+    logger.info(f"{Fore.BLUE}{'=' * 60}")
+    logger.info(f"{Fore.CYAN}DARKSTAR SECURITY SCANNING FRAMEWORK")
+    logger.info(
+        f"{Fore.CYAN}Mode: {Fore.YELLOW}{args.mode}{Fore.CYAN} | Target(s): {Fore.YELLOW}{args.target}{Fore.CYAN} | Organization: {Fore.YELLOW}{args.domain}"
+    )
+    logger.info(f"{Fore.BLUE}{'=' * 60}{Style.RESET_ALL}")
 
 
 def main(args=None):
     """
     Main function that parses arguments and initializes the scanning process.
-    
+
     Handles command line arguments, parses and categorizes targets by type,
     and initializes the worker to run the scanning process.
-    
+
     Args:
         args: Command line arguments (for testing)
     """
     # Initialize environment variables
     setup_env_from_args(args)
-    
-    #? Argument parser
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-t", "--target", required=True, help="Fill in the CIDR, IP or domain (without http/https) to scan")
-    parser.add_argument("-m", "--mode", type=int, required=True, help="Scan intrusiveness: 1. passive, 2. normal, 3. aggressive", choices=[1, 2, 3])
-    parser.add_argument("-d", "--domain", help="The organisation name necessary for database selection", required=True)
-    parser.add_argument("-env", "--envfile", help="envfile location, default .env", default=".env", required=False)
-    
-    #? Parse arguments
+
+    # Argument parser
+    parser = setup_parser()
+
+    # Parse arguments
     if args is None:
         args = parser.parse_args()
     else:
         args = parser.parse_args(args)
-    
+
+    if os.path.exists(args.target):
+        with open(args.target, "r") as f:
+            args.target = ",".join([line.strip() for line in f])
+
     # Banner
-    print(f"\n{Fore.BLUE}{'=' * 60}")
-    print(f"{Fore.CYAN}DARKSTAR SECURITY SCANNING FRAMEWORK")
-    print(f"{Fore.CYAN}Mode: {Fore.YELLOW}{args.mode}{Fore.CYAN} | Target: {Fore.YELLOW}{args.target}{Fore.CYAN} | Organization: {Fore.YELLOW}{args.domain}")
-    print(f"{Fore.BLUE}{'=' * 60}{Style.RESET_ALL}\n")
-    
-    # Parse targets
-    target_df = parse_targets(args.target)
+    display_banner(args)
 
     # Display scan mode information
     mode_info = {
         1: f"{Fore.GREEN}PASSIVE MODE{Style.RESET_ALL} - Light reconnaissance without active scanning",
         2: f"{Fore.YELLOW}NORMAL MODE{Style.RESET_ALL} - Standard scanning with passive and selected active modules",
-        3: f"{Fore.RED}AGGRESSIVE MODE{Style.RESET_ALL} - Full scanning with all active and aggressive modules"
+        3: f"{Fore.RED}AGGRESSIVE MODE{Style.RESET_ALL} - Full scanning with all active and aggressive modules",
+        4: f"{Fore.RED}ATTACK SURFACE MODE{Style.RESET_ALL} - Attack surface mapping with custom modules",
     }
-    print(f"\n{Fore.CYAN}[*] Initializing scan in {mode_info[args.mode]}\n")
+    logger.info(f"Initializing scan in {mode_info[args.mode]}")
 
-    #? Run the scanner
-    scanner = worker(mode=args.mode, targets=args.target, target_df=target_df, org_name=args.domain)
-    scanner.run()
+    # Run the scanner
+
+    scanner = worker(
+        mode=args.mode,
+        targets=args.target,
+        org_name=args.domain,
+        bruteforce=args.bruteforce,
+        bruteforce_timeout=args.bruteforce_timeout,
+    )
+
+    asyncio.run(scanner.run())
 
 
 if __name__ == "__main__":
