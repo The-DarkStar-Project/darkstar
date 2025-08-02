@@ -271,13 +271,15 @@ class worker:
 
         openvas_scanner = OpenVASScanner(org_name=self.org_domain)
         await openvas_scanner.scan_targets(targets)
-    
+
     async def run_asteroid(self, target, mode: Literal["normal", "aggressive"]):
         logger.info("Running Asteroid scan")
 
         with ThreadPoolExecutor() as executor:
             asteroid_scanner = AsteroidScanner(target, self.org_domain)
-            await asyncio.get_event_loop().run_in_executor(executor, lambda: asteroid_scanner.run(mode=mode))
+            await asyncio.get_event_loop().run_in_executor(
+                executor, lambda: asteroid_scanner.run(mode=mode)
+            )
 
     async def passive_scan(self):
         await self.run_bbot(mode="passive")
