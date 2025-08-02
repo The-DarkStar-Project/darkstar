@@ -22,6 +22,7 @@ from scanners.bbot import BBotScanner
 from scanners.nuclei import NucleiScanner, WordPressNucleiScanner
 from colorama import Fore, Style, init
 from scanners.recon import WordPressDetector
+from scanners.asteroid_scanner import AsteroidScanner
 import asyncio
 import os
 from scanners.portscan import RustScanner, run_rustscan, process_scan_results
@@ -111,7 +112,14 @@ class worker:
         bruteforce: bool = False,
         bruteforce_timeout: int = 300,
     ):
+        self.targets = targets
+
         self.all_targets = targets
+        # Read from file if it exists
+        if os.path.exists(self.targets):
+            with open(self.targets, "r") as f:
+                self.all_targets = ",".join([line.strip() for line in f])
+
         self.target_df = parse_targets(targets)
         self.mode = mode
         self.org_domain = org_name
@@ -263,6 +271,13 @@ class worker:
 
         openvas_scanner = OpenVASScanner(org_name=self.org_domain)
         await openvas_scanner.scan_targets(targets)
+    
+    async def run_asteroid(self, target, mode: Literal["normal", "aggressive"]):
+        logger.info("Running Asteroid scan")
+
+        with ThreadPoolExecutor() as executor:
+            asteroid_scanner = AsteroidScanner(target, self.org_domain)
+            await asyncio.get_event_loop().run_in_executor(executor, lambda: asteroid_scanner.run(mode=mode))
 
     async def passive_scan(self):
         await self.run_bbot(mode="passive")
@@ -278,10 +293,15 @@ class worker:
         ]
 
         # Run all tasks in parallel
-        bbot_results, port_results, _ = await asyncio.gather(*tasks)
+        # bbot_results, port_results, _ = await asyncio.gather(*tasks)
+        bbot_results, port_results = await asyncio.gather(*tasks)
 
-        # Now run wordpress detection and nuclei scan
-        await self.detect_wordpress_and_run_nuclei(bbot_results["subdomains_file"])
+        # Now run wordpress detection and nuclei scan, and Asteroid
+        tasks = [
+            self.detect_wordpress_and_run_nuclei(bbot_results["subdomains_file"]),
+            self.run_asteroid(bbot_results["subdomains_file"], mode="normal"),
+        ]
+        await asyncio.gather(*tasks)
 
     async def aggressive_scan(self):
         all_scan_targets = get_scan_targets(self.target_df)
@@ -296,10 +316,11 @@ class worker:
         # Wait for all to complete
         bbot_results, port_results, _ = await asyncio.gather(*tasks)
 
-        # Now run nucle and wordpress detection and nuclei
+        # Now run nucle and wordpress detection and nuclei and Asteroid
         tasks = [
             self.run_nuclei(bbot_results["subdomains_file"]),
             self.detect_wordpress_and_run_nuclei(bbot_results["subdomains_file"]),
+            self.run_asteroid(bbot_results["subdomains_file"], mode="aggressive"),
         ]
 
         # Wait for all remaining tasks to complete
@@ -478,10 +499,6 @@ def main(args=None):
         args = parser.parse_args()
     else:
         args = parser.parse_args(args)
-
-    if os.path.exists(args.target):
-        with open(args.target, "r") as f:
-            args.target = ",".join([line.strip() for line in f])
 
     # Banner
     display_banner(args)

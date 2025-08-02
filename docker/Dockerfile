@@ -10,6 +10,11 @@ RUN go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
 RUN export GITHUB_TEMPLATE_REPO=topscoder/nuclei-wordfence-cve && \
     /go/bin/nuclei -update-templates
 
+# Install Katana, Gau, httpx for Asteroid
+RUN CGO_ENABLED=1 go install github.com/projectdiscovery/katana/cmd/katana@latest
+RUN go install github.com/lc/gau/v2/cmd/gau@latest
+RUN go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+
 # ========== BUILD STAGE FOR RUST/RUSTSCAN ==========
 FROM rust:1.81-slim-bullseye AS rust-builder
 
@@ -93,13 +98,6 @@ WORKDIR /app
 RUN mkdir -p /app/bbot_output \
     /root/.config/nuclei /root/go/bin /root/.local/bin
 
-# Copy compiled binaries from build stages
-COPY --from=go-builder /go/bin/nuclei /usr/local/bin/
-COPY --from=go-builder /root/.config/nuclei /root/.config/nuclei/
-COPY --from=rust-builder /usr/local/cargo/bin/rustscan /usr/local/bin/
-COPY --from=c-builder /usr/local/bin/hydra* /usr/local/bin/
-COPY --from=c-builder /usr/local/bin/xhydra /usr/local/bin/
-
 # Install Python tooling
 RUN pipx install bbot
 
@@ -107,10 +105,23 @@ RUN pipx install bbot
 COPY requirements.txt /app/
 RUN pip3 install --no-cache-dir -r requirements.txt
 
+# Copy compiled binaries from build stages
+COPY --from=go-builder /go/bin/nuclei /usr/local/bin/
+COPY --from=go-builder /root/.config/nuclei /root/.config/nuclei/
+COPY --from=go-builder /go/bin/katana /usr/local/bin/
+COPY --from=go-builder /go/bin/gau /usr/local/bin/
+COPY --from=go-builder /go/bin/httpx /usr/local/bin/
+COPY --from=rust-builder /usr/local/cargo/bin/rustscan /usr/local/bin/
+COPY --from=c-builder /usr/local/bin/hydra* /usr/local/bin/
+COPY --from=c-builder /usr/local/bin/xhydra /usr/local/bin/
+
 # Copy all application code in one layer
 COPY ./darkstar /app/
 
 RUN gcc -o /app/tools/scripts/search_epss /app/tools/scripts/search_epss.c
+
+# Install Asteroid
+RUN bash scanners/asteroid-install.sh
 
 # Setup shell environment
 RUN echo 'source ~/.bashrc' > /etc/bash.bashrc && \
