@@ -425,7 +425,7 @@ class TestAsteroidScanner:
 
         # Should call insert_vulnerability_to_database for each vulnerability
         assert mock_insert.call_count == 2
-        assert mock_vulnerability.from_dict.call_count == 2
+        assert mock_vulnerability.call_count == 2
 
     def test_vulns_to_db_multiple_targets(self, mocker: MockerFixture):
         """Test vulnerability database insertion for multiple targets."""
@@ -445,7 +445,7 @@ class TestAsteroidScanner:
 
         # Should process both targets (2 targets × 1 vuln each = 2 calls)
         assert mock_insert.call_count == 2
-        assert mock_vulnerability.from_dict.call_count == 2
+        assert mock_vulnerability.call_count == 2
 
     def test_normal_scan_mode(self, mocker: MockerFixture):
         """Test running asteroid scanner in normal mode."""

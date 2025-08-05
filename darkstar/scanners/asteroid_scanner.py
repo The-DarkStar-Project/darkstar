@@ -54,7 +54,7 @@ class AsteroidScanner:
             with open(vulns_file) as f:
                 vulns = json.load(f)
             for vuln in vulns:
-                vuln_obj = Vulnerability.from_dict(vuln)
+                vuln_obj = Vulnerability(**vuln)
                 insert_vulnerability_to_database(vuln_obj, self.org_name)
         logger.info(
             "Vulnerabilities found by Asteroid successfully inserted into the database."
