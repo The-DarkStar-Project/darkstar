@@ -418,7 +418,6 @@ class worker:
                         f"{Fore.RED}[-] Invalid scanner {self.scanner} specified{Style.RESET_ALL}"
                     )
 
-
         else:
             match self.mode:
                 case 1:  # 1 - Passive mode
@@ -502,7 +501,18 @@ def setup_parser():
         "--scanner",
         type=str,
         help="Select a specific scanner to run (e.g., bbot, nuclei, openvas, asteroid). If not specified, all scanners will be run based on the mode.",
-        choices=["bbot_passive", "bbot_normal", "bbot_aggressive", "bbot_attack_surface", "rustscan", "nuclei", "wordpressnuclei", "openvas", "asteroid_normal", "asteroid_aggressive"],
+        choices=[
+            "bbot_passive",
+            "bbot_normal",
+            "bbot_aggressive",
+            "bbot_attack_surface",
+            "rustscan",
+            "nuclei",
+            "wordpressnuclei",
+            "openvas",
+            "asteroid_normal",
+            "asteroid_aggressive",
+        ],
     )
     return parser
 

@@ -36,7 +36,9 @@ class NucleiScanner(BaseNucleiScanner):
 
         if not os.path.exists(self.target):
             with open("/tmp/targets.txt", "w") as f:
-                f.writelines(f"{line.strip()}\n" for line in target.split(",") if line.strip())
+                f.writelines(
+                    f"{line.strip()}\n" for line in target.split(",") if line.strip()
+                )
             self.target = "/tmp/targets.txt"
 
         # Count targets for progress tracking

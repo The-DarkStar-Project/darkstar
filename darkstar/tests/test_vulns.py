@@ -14,9 +14,9 @@ class TestCVE:
             ("0.25", 0.25),
             ("0.0", 0.0),
             ("1.0", 1.0),
-            ("Not a number", "Unknown"),
-            ("", "Unknown"),
-            ("invalid", "Unknown"),
+            ("Not a number", None),
+            ("", None),
+            ("invalid", None),
         ],
     )
     def test_search_epss_by_cve(

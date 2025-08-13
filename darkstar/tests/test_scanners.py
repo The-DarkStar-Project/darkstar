@@ -165,20 +165,21 @@ class TestNucleiScanner:
         """Test initializing the Nuclei scanner."""
         mock_open_func = mocker.mock_open(read_data="example.com\ntest.com\n")
         mocker.patch("builtins.open", mock_open_func)
+        mocker.patch("os.path.exists", return_value=True)
 
         scanner = NucleiScanner("subdomains.txt", "test_org")
         assert scanner.target == "subdomains.txt"
         assert scanner.org_name == "test_org"
         assert scanner.target_count == 2
 
-    def test_nuclei_initialization_file_error(self, mocker: MockerFixture):
-        """Test Nuclei scanner initialization with file error."""
-        mocker.patch("builtins.open", side_effect=FileNotFoundError("File not found"))
+    def test_nuclei_initialization_no_file(self, mocker: MockerFixture):
+        """Test Nuclei scanner initialization without an existing file."""
+        mocker.patch("os.path.exists", return_value=False)
 
-        scanner = NucleiScanner("nonexistent.txt", "test_org")
-        assert scanner.target == "nonexistent.txt"
+        scanner = NucleiScanner("testphp.vulnweb.com", "test_org")
+        assert scanner.target == "/tmp/targets.txt"
         assert scanner.org_name == "test_org"
-        assert scanner.target_count == 0
+        assert scanner.target_count == 1
 
     def test_run_calls_parent_for_standard_nuclei(self, mocker: MockerFixture):
         """Test that standard NucleiScanner run method starts a thread."""
@@ -327,7 +328,9 @@ class TestAsteroidScanner:
     def test_asteroid_initialization_single_target(self, mocker: MockerFixture):
         """Test initializing the asteroid scanner with a single target."""
         _mock_makedirs = mocker.patch("scanners.asteroid_scanner.os.makedirs")
-        _mock_exists = mocker.patch("scanners.asteroid_scanner.os.path.exists", return_value=False)
+        _mock_exists = mocker.patch(
+            "scanners.asteroid_scanner.os.path.exists", return_value=False
+        )
 
         scanner = AsteroidScanner("example.com", "test_org")
 
@@ -342,32 +345,48 @@ class TestAsteroidScanner:
         mocker.patch("scanners.asteroid_scanner.os.makedirs")
         mocker.patch("scanners.asteroid_scanner.os.path.exists", return_value=False)
 
-        scanner = AsteroidScanner("example.com, test.com, https://secure.com", "test_org")
+        scanner = AsteroidScanner(
+            "example.com, test.com, https://secure.com", "test_org"
+        )
 
         assert scanner.target == "example.com, test.com, https://secure.com"
-        assert scanner.list_of_targets == ["http://example.com", "http://test.com", "https://secure.com"]
+        assert scanner.list_of_targets == [
+            "http://example.com",
+            "http://test.com",
+            "https://secure.com",
+        ]
 
     def test_asteroid_initialization_file_target(self, mocker: MockerFixture):
         """Test initializing the asteroid scanner with a file containing targets."""
         mocker.patch("scanners.asteroid_scanner.os.makedirs")
         mocker.patch("scanners.asteroid_scanner.os.path.exists", return_value=True)
-        mock_open = mocker.mock_open(read_data="example.com\ntest.com\nhttps://secure.com\n")
+        mock_open = mocker.mock_open(
+            read_data="example.com\ntest.com\nhttps://secure.com\n"
+        )
         mocker.patch("builtins.open", mock_open)
 
         scanner = AsteroidScanner("targets.txt", "test_org")
 
         assert scanner.target == "targets.txt"
-        assert scanner.list_of_targets == ["http://example.com", "http://test.com", "https://secure.com"]
+        assert scanner.list_of_targets == [
+            "http://example.com",
+            "http://test.com",
+            "https://secure.com",
+        ]
 
     def test_asteroid_initialization_directory_exists(self, mocker: MockerFixture):
         """Test initialization when output directory already exists."""
         mock_makedirs = mocker.patch("scanners.asteroid_scanner.os.makedirs")
+
         # Mock os.path.exists to return True for the output directory, False for target file check
         def mock_exists(path):
             if path == "/app/asteroid_output":
                 return True
             return False
-        mocker.patch("scanners.asteroid_scanner.os.path.exists", side_effect=mock_exists)
+
+        mocker.patch(
+            "scanners.asteroid_scanner.os.path.exists", side_effect=mock_exists
+        )
 
         AsteroidScanner("example.com", "test_org")
 
@@ -380,11 +399,19 @@ class TestAsteroidScanner:
             ("https://example.com", ["https://example.com"]),
             ("http://example.com", ["http://example.com"]),
             ("example.com,test.com", ["http://example.com", "http://test.com"]),
-            ("https://example.com,http://test.com", ["https://example.com", "http://test.com"]),
-            ("example.com, test.com , secure.com", ["http://example.com", "http://test.com", "http://secure.com"]),
+            (
+                "https://example.com,http://test.com",
+                ["https://example.com", "http://test.com"],
+            ),
+            (
+                "example.com, test.com , secure.com",
+                ["http://example.com", "http://test.com", "http://secure.com"],
+            ),
         ],
     )
-    def test_process_target_string_inputs(self, input_target, expected_output, mocker: MockerFixture):
+    def test_process_target_string_inputs(
+        self, input_target, expected_output, mocker: MockerFixture
+    ):
         """Test target processing with various string inputs."""
         mocker.patch("scanners.asteroid_scanner.os.makedirs")
         mocker.patch("scanners.asteroid_scanner.os.path.exists", return_value=False)
@@ -396,25 +423,33 @@ class TestAsteroidScanner:
         """Test target processing with file input."""
         mocker.patch("scanners.asteroid_scanner.os.makedirs")
         mocker.patch("scanners.asteroid_scanner.os.path.exists", return_value=True)
-        mock_open = mocker.mock_open(read_data="example.com\n\ntest.com\nhttps://secure.com\n\n")
+        mock_open = mocker.mock_open(
+            read_data="example.com\n\ntest.com\nhttps://secure.com\n\n"
+        )
         mocker.patch("builtins.open", mock_open)
 
         scanner = AsteroidScanner("targets.txt", "test_org")
 
         # Should skip empty lines and process non-empty ones
-        assert scanner.list_of_targets == ["http://example.com", "http://test.com", "https://secure.com"]
+        assert scanner.list_of_targets == [
+            "http://example.com",
+            "http://test.com",
+            "https://secure.com",
+        ]
 
     def test_vulns_to_db_single_target(self, mocker: MockerFixture):
         """Test vulnerability database insertion for single target."""
         mocker.patch("scanners.asteroid_scanner.os.makedirs")
         mocker.patch("scanners.asteroid_scanner.os.path.exists", return_value=False)
-        mock_insert = mocker.patch("scanners.asteroid_scanner.insert_vulnerability_to_database")
+        mock_insert = mocker.patch(
+            "scanners.asteroid_scanner.insert_vulnerability_to_database"
+        )
         mock_vulnerability = mocker.patch("scanners.asteroid_scanner.Vulnerability")
 
         # Mock JSON file content
         vuln_data = [
             {"id": "1", "name": "Test Vuln 1", "severity": "high"},
-            {"id": "2", "name": "Test Vuln 2", "severity": "medium"}
+            {"id": "2", "name": "Test Vuln 2", "severity": "medium"},
         ]
         mock_open = mocker.mock_open()
         mocker.patch("builtins.open", mock_open)
@@ -431,7 +466,9 @@ class TestAsteroidScanner:
         """Test vulnerability database insertion for multiple targets."""
         mocker.patch("scanners.asteroid_scanner.os.makedirs")
         mocker.patch("scanners.asteroid_scanner.os.path.exists", return_value=False)
-        mock_insert = mocker.patch("scanners.asteroid_scanner.insert_vulnerability_to_database")
+        mock_insert = mocker.patch(
+            "scanners.asteroid_scanner.insert_vulnerability_to_database"
+        )
         mock_vulnerability = mocker.patch("scanners.asteroid_scanner.Vulnerability")
 
         # Mock JSON file content for multiple targets
@@ -463,7 +500,7 @@ class TestAsteroidScanner:
             output_dir="/app/asteroid_output",
             specific_modules="katana,gau,extensioninspector,vulnscan,retirejs",
             rerun=True,
-            module_args={"search_vulns_api_key": "test_api_key"}
+            module_args={"search_vulns_api_key": "test_api_key"},
         )
         mock_asteroid_class.return_value.run.assert_called_once()
 
@@ -483,10 +520,7 @@ class TestAsteroidScanner:
             output_dir="/app/asteroid_output",
             specific_modules="all",
             rerun=True,
-            module_args={
-                "forms": True,
-                "search_vulns_api_key": "test_api_key"
-            }
+            module_args={"forms": True, "search_vulns_api_key": "test_api_key"},
         )
         mock_asteroid_class.return_value.run.assert_called_once()
 
@@ -527,7 +561,9 @@ class TestAsteroidScanner:
 
         scanner = AsteroidScanner("example.com", "test_org")
 
-        with pytest.raises(ValueError, match="Invalid mode. Use 'normal' or 'aggressive'."):
+        with pytest.raises(
+            ValueError, match="Invalid mode. Use 'normal' or 'aggressive'."
+        ):
             scanner.run("invalid_mode")
 
     def test_normal_mode_with_missing_api_key(self, mocker: MockerFixture):
@@ -580,7 +616,11 @@ class TestScannerIntegration:
     """Integration tests for scanner classes."""
 
     def test_scanner_org_name_consistency(
-        self, sample_bbot_scanner, sample_nuclei_scanner, sample_wordpress_scanner, sample_asteroid_scanner
+        self,
+        sample_bbot_scanner,
+        sample_nuclei_scanner,
+        sample_wordpress_scanner,
+        sample_asteroid_scanner,
     ):
         """Test that all scanners maintain org_name consistency."""
         assert sample_bbot_scanner.org_name == "test_org"
@@ -602,8 +642,13 @@ class TestScannerIntegration:
     def test_target_processing_consistency(self, sample_asteroid_scanner):
         """Test that AsteroidScanner processes targets consistently."""
         # Test that targets are properly formatted with http prefix
-        assert all(target.startswith(("http://", "https://")) for target in sample_asteroid_scanner.list_of_targets)
+        assert all(
+            target.startswith(("http://", "https://"))
+            for target in sample_asteroid_scanner.list_of_targets
+        )
 
-    def test_output_directory_creation(self, sample_asteroid_scanner, mocker: MockerFixture):
+    def test_output_directory_creation(
+        self, sample_asteroid_scanner, mocker: MockerFixture
+    ):
         """Test that AsteroidScanner creates output directories consistently."""
         assert sample_asteroid_scanner.output_dir == "/app/asteroid_output"
