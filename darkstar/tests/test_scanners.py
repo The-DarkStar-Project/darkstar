@@ -167,7 +167,7 @@ class TestNucleiScanner:
         mocker.patch("builtins.open", mock_open_func)
 
         scanner = NucleiScanner("subdomains.txt", "test_org")
-        assert scanner.file == "subdomains.txt"
+        assert scanner.target == "subdomains.txt"
         assert scanner.org_name == "test_org"
         assert scanner.target_count == 2
 
@@ -176,7 +176,7 @@ class TestNucleiScanner:
         mocker.patch("builtins.open", side_effect=FileNotFoundError("File not found"))
 
         scanner = NucleiScanner("nonexistent.txt", "test_org")
-        assert scanner.file == "nonexistent.txt"
+        assert scanner.target == "nonexistent.txt"
         assert scanner.org_name == "test_org"
         assert scanner.target_count == 0
 

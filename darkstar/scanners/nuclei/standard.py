@@ -8,6 +8,7 @@ vulnerabilities across a range of target systems.
 import logging
 import re
 import subprocess
+import os
 
 from core.db_helper import insert_vulnerability_to_database
 from core.models.vulnerability import Vulnerability
@@ -29,16 +30,21 @@ class NucleiScanner(BaseNucleiScanner):
         target_count (int): Number of targets in the file
     """
 
-    def __init__(self, filename: str, org_name: str):
+    def __init__(self, target: str, org_name: str):
         super().__init__(org_name)
-        self.file = filename
+        self.target = target
+
+        if not os.path.exists(self.target):
+            with open("/tmp/targets.txt", "w") as f:
+                f.writelines(f"{line.strip()}\n" for line in target.split(",") if line.strip())
+            self.target = "/tmp/targets.txt"
 
         # Count targets for progress tracking
         try:
-            with open(self.file, "r") as f:
+            with open(self.target, "r") as f:
                 self.target_count = sum(1 for _ in f)
         except Exception as e:
-            logger.error(f"Error counting targets in {filename}: {e}")
+            logger.error(f"Error counting targets in {target}: {e}")
             self.target_count = 0
 
     def scan_nuclei(self) -> None:
@@ -48,10 +54,10 @@ class NucleiScanner(BaseNucleiScanner):
         Runs Nuclei against the targets, parses the output to extract
         vulnerability information, and inserts findings into the database.
         """
-        logger.info(f"Starting Nuclei scan on targets from {self.file}")
+        logger.info(f"Starting Nuclei scan on targets from {self.target}")
         logger.info(f"Scanning {self.target_count} targets for vulnerabilities")
 
-        nuclei_command = f"nuclei -l {self.file} -s low,medium,high,critical,unknown -et github -bs 400 -rl 1000"
+        nuclei_command = f"nuclei -l {self.target} -s low,medium,high,critical,unknown -et github -bs 400 -rl 1000"
         logger.debug(f"Command: {nuclei_command}")
 
         # Track vulnerabilities found for progress tracking

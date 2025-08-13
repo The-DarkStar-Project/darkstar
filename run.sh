@@ -6,6 +6,7 @@ show_usage() {
     echo ""
     echo "Options:"
     echo "  --fresh             Perform a fresh installation (removes all containers, volumes, and images)"
+    echo "  --quick             Perform a quick installation (only copies the code without building images)"
     echo "  --help, -h          Show this help message"
     echo ""
     echo "Examples:"
@@ -24,12 +25,17 @@ HIBP_KEY=""
 # Default installation mode - OpenVAS is required for darkstar to function properly
 PROFILE="darkstar"
 FRESH_INSTALL=false
+QUICK_MODE=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --fresh)
             FRESH_INSTALL=true
+            shift
+            ;;
+        --quick)
+            QUICK_MODE=true
             shift
             ;;
         --help|-h)
@@ -102,6 +108,23 @@ perform_fresh_install() {
     echo '[+] Fresh install preparation complete!'
 }
 
+perform_quick_install() {
+    echo '[+] Quick mode: Copying Python code to existing container...'
+    
+    # Check if darkstar container is running
+    if [ "$(docker inspect -f '{{.State.Running}}' darkstar 2>/dev/null)" != "true" ]; then
+        echo '[!] Error: darkstar container is not running. Starting containers first...'
+        docker compose --profile $PROFILE up -d
+        sleep 10
+    fi
+    
+    # Copy Python files to the container
+    echo '[+] Copying Python source files...'
+    docker cp ./darkstar/* darkstar:/app/
+    
+    echo '[+] Quick update complete!'
+}
+
 # Enabling BuildKit for faster builds
 export DOCKER_BUILDKIT=1
 
@@ -110,13 +133,17 @@ if [ "$FRESH_INSTALL" = true ]; then
     perform_fresh_install
 fi
 
-# Setup the docker
-echo "[+] Building the Darkstar docker with profile: $PROFILE"
-docker compose --profile $PROFILE up -d --build
+if [ "$QUICK_MODE" = true ]; then
+    perform_quick_install
+else
+    # Setup the docker
+    echo "[+] Building the Darkstar docker with profile: $PROFILE"
+    docker compose --profile $PROFILE up -d --build
 
-# Wait briefly to ensure containers have time to start properly
-echo '[+] Waiting for containers to initialize...'
-sleep 10
+    # Wait briefly to ensure containers have time to start properly
+    echo '[+] Waiting for containers to initialize...'
+    sleep 10
+fi
 
 # Function to start interactive shell
 start_interactive_shell() {
