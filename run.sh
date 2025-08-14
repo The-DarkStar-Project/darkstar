@@ -120,7 +120,7 @@ perform_quick_install() {
     
     # Copy Python files to the container
     echo '[+] Copying Python source files...'
-    docker cp ./darkstar/* darkstar:/app/
+    docker cp ./darkstar/. darkstar:/app
     
     echo '[+] Quick update complete!'
 }
