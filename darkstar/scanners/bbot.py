@@ -38,6 +38,7 @@ class BBotScanner:
         self.folder = "/app/bbot_output"
         self.foldername = hashlib.md5(os.urandom(10)).hexdigest()
         self.org_name = org_name
+        self.ips_file = f"{self.folder}/{self.foldername}/ips.txt"
 
         # Create a directory for bbot output if not exists
         if not os.path.exists(self.folder):
@@ -116,6 +117,18 @@ class BBotScanner:
             hibp.run()
         else:
             logger.warning("Email file exists but contains no emails")
+    
+    def collect_in_scope_ips(self, df) -> None:
+        # Grab IPs which contain "in-scope" in their Event Tags
+        in_scope_ips = set(df[df["Event Tags"].str.contains("in-scope", na=False)]["IP Address"])
+
+        if in_scope_ips:
+            logger.info(f"Found {len(in_scope_ips)} in-scope IP{'s' if len(in_scope_ips) > 1 else ''} in bbot scan results")
+            with open(self.ips_file, "w") as f:
+                for ip in in_scope_ips:
+                    f.write(f"{ip}\n")
+        else:
+            logger.info("No in-scope IPs found in bbot scan results")
 
     def prep_data(self) -> pd.DataFrame:
         """
@@ -140,6 +153,9 @@ class BBotScanner:
             df = df.where(pd.notnull(df), None)
 
             self.hibpwned()
+
+            logger.info("Collecting in-scope IPs from bbot scan results")
+            self.collect_in_scope_ips(df)
 
             # Check if bbot found any vulns write to vulnerability class and insert to db
             self.vulns_to_db(df)
