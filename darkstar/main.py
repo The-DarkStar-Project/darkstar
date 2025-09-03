@@ -23,6 +23,7 @@ from scanners.nuclei import NucleiScanner, NucleiMode
 from colorama import Fore, Style, init
 from scanners.recon import WordPressDetector
 from scanners.asteroid_scanner import AsteroidScanner
+from scanners.email import MailSecurityScanner
 import asyncio
 import os
 from scanners.portscan import RustScanner, run_rustscan, process_scan_results
@@ -146,6 +147,7 @@ class worker:
             f"{bbot_scanner.folder}/{bbot_scanner.foldername}/subdomains.txt"
         )
         ips_file = f"{bbot_scanner.folder}/{bbot_scanner.foldername}/ips.txt"
+        emails_file = f"{bbot_scanner.folder}/{bbot_scanner.foldername}/emails.txt"
 
         targets = [
             target.strip() for target in self.all_targets.split(",") if target.strip()
@@ -172,11 +174,20 @@ class worker:
                 # If no IPs found, write the IPs from all_targets directly
                 for ip in ips:
                     f.write(f"{ip}\n")
+        
+        logger.info("Running Email Security Scanner")
+
+        with ThreadPoolExecutor() as executor:
+            email_scanner = MailSecurityScanner(org_name=self.org_domain)
+            await asyncio.get_event_loop().run_in_executor(
+                executor, lambda: email_scanner.run(subdomains_file, emails_file)
+            )
 
         return {
             "bbot_scanner": bbot_scanner,
             "subdomains_file": subdomains_file,
             "ips_file": ips_file,
+            "emails_file": emails_file,
         }
 
     async def run_port_scan(self, targets):
@@ -270,7 +281,7 @@ class worker:
             asteroid_scanner = AsteroidScanner(target, self.org_domain)
             await asyncio.get_event_loop().run_in_executor(
                 executor, lambda: asteroid_scanner.run(mode=mode)
-            )
+            )        
 
     async def passive_scan(self):
         await self.run_bbot(mode="passive")
