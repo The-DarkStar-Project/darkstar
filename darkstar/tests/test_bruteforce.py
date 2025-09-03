@@ -5,6 +5,12 @@ import json
 import tempfile
 from pathlib import Path
 from tools.bruteforce.hydrapy import HydraAttack, HydraConfig, AttackResult
+from tools.bruteforce.integration import (
+    process_scan_results_with_hydra,
+    get_hydra_protocol,
+    process_bruteforce_results,
+)
+from colorama import Fore, Style
 
 
 @pytest.fixture
@@ -359,5 +365,816 @@ def test_hydra_config_wordlist_creation(hydra_attack):
         assert content == "admin\nroot\nuser"
 
 
-if __name__ == "__main__":
-    pytest.main([__file__])
+# Tests for integration module
+class TestIntegration:
+    """Test the integration module functions."""
+
+    @pytest.mark.parametrize(
+        "service,expected_protocol",
+        [
+            ("ftp", "ftp"),
+            ("ssh", "ssh"),
+            ("smtp", "smtp"),
+            ("snmp", "snmp"),
+            ("netbios-ssn", "smb"),
+            ("microsoft-ds", "smb"),
+            ("mongodb", "mongodb"),
+            ("mysql", "mysql"),
+            ("postgresql", "postgres"),
+            ("ftpd", "ftp"),
+            ("sshd", "ssh"),
+            ("smtpd", "smtp"),
+            ("snmpd", "snmp"),
+            ("samba", "smb"),
+            ("cifs", "smb"),
+            ("mariadb", "mysql"),
+            ("postgres", "postgres"),
+            ("pgsql", "postgres"),
+            ("http", None),  # Not supported
+            ("https", None),  # Not supported
+            ("", None),  # Empty string
+            (None, None),  # None input
+            ("ftp extra info", "ftp"),  # Service with extra info
+        ],
+    )
+    def test_get_hydra_protocol(self, service, expected_protocol):
+        """Test service to protocol mapping."""
+        result = get_hydra_protocol(service)
+        assert result == expected_protocol
+
+    @pytest.mark.asyncio
+    async def test_process_scan_results_with_hydra_no_services(
+        self, mocker: MockerFixture
+    ):
+        """Test processing scan results with no services found."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+
+        # Empty scan results
+        scan_results = []
+
+        result = await process_scan_results_with_hydra(scan_results)
+
+        assert result == {}
+        mock_logger.info.assert_called_with("No services found for bruteforcing")
+
+    @pytest.mark.asyncio
+    async def test_process_scan_results_with_hydra_no_supported_services(
+        self, mocker: MockerFixture
+    ):
+        """Test processing scan results with no supported services."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+        mock_makedirs = mocker.patch("tools.bruteforce.integration.os.makedirs")
+        mock_hydra_class = mocker.patch("tools.bruteforce.integration.HydraAttack")
+
+        # Mock HydraAttack instance
+        mock_hydra_instance = mocker.Mock()
+        mock_hydra_class.return_value = mock_hydra_instance
+
+        # Scan results with unsupported services
+        scan_results = [
+            {
+                "scan_results": {
+                    "ip_results": {
+                        "192.168.1.1": {
+                            "ports": [
+                                {"port": 80, "service": "http"},
+                                {"port": 443, "service": "https"},
+                            ]
+                        }
+                    }
+                }
+            }
+        ]
+
+        result = await process_scan_results_with_hydra(scan_results)
+
+        assert result == {}
+        mock_logger.info.assert_called_with(
+            "No supported services found for bruteforcing"
+        )
+
+    @pytest.mark.asyncio
+    async def test_process_scan_results_with_hydra_success(self, mocker: MockerFixture):
+        """Test successful processing of scan results with supported services."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+        mock_makedirs = mocker.patch("tools.bruteforce.integration.os.makedirs")
+        mock_hydra_class = mocker.patch("tools.bruteforce.integration.HydraAttack")
+
+        # Mock AttackResult objects
+        mock_attack_result_1 = mocker.Mock()
+        mock_attack_result_1.target = "192.168.1.1"
+        mock_attack_result_1.port = 21
+        mock_attack_result_1.protocol = "ftp"
+        mock_attack_result_1.status = "success"
+        mock_attack_result_1.credentials = [{"username": "admin", "password": "123456"}]
+        mock_attack_result_1.error = None
+
+        mock_attack_result_2 = mocker.Mock()
+        mock_attack_result_2.target = "192.168.1.1"
+        mock_attack_result_2.port = 22
+        mock_attack_result_2.protocol = "ssh"
+        mock_attack_result_2.status = "failed"
+        mock_attack_result_2.credentials = []
+        mock_attack_result_2.error = "No valid credentials found"
+
+        # Mock HydraAttack instance
+        mock_hydra_instance = mocker.Mock()
+        mock_hydra_class.return_value = mock_hydra_instance
+
+        # Mock run_hydra_attack to return our mock results
+        async def mock_run_hydra_attack_side_effect(
+            sem, hydra, ip, protocol, port, timeout
+        ):
+            if protocol == "ftp":
+                return mock_attack_result_1
+            else:
+                return mock_attack_result_2
+
+        mock_run_hydra_attack = mocker.patch(
+            "tools.bruteforce.integration.run_hydra_attack",
+            side_effect=mock_run_hydra_attack_side_effect,
+        )
+
+        # Scan results with supported services
+        scan_results = [
+            {
+                "scan_results": {
+                    "ip_results": {
+                        "192.168.1.1": {
+                            "ports": [
+                                {"port": 21, "service": "ftp"},
+                                {"port": 22, "service": "ssh"},
+                            ]
+                        }
+                    }
+                }
+            }
+        ]
+
+        result = await process_scan_results_with_hydra(
+            scan_results, org_name="test_org"
+        )
+
+        # Verify output directory creation
+        mock_makedirs.assert_called_once_with(
+            "scan_results/test_org/bruteforce", exist_ok=True
+        )
+
+        # Verify HydraAttack was instantiated with correct output directory
+        mock_hydra_class.assert_called_once_with(
+            output_dir="scan_results/test_org/bruteforce"
+        )
+
+        # Verify results structure
+        assert "192.168.1.1" in result
+        assert len(result["192.168.1.1"]) == 2
+
+        # Check first attack result (success)
+        ftp_result = result["192.168.1.1"][0]
+        assert ftp_result["port"] == 21
+        assert ftp_result["protocol"] == "ftp"
+        assert ftp_result["status"] == "success"
+        assert ftp_result["credentials"] == [
+            {"username": "admin", "password": "123456"}
+        ]
+        assert ftp_result["error"] is None
+
+        # Check second attack result (failed)
+        ssh_result = result["192.168.1.1"][1]
+        assert ssh_result["port"] == 22
+        assert ssh_result["protocol"] == "ssh"
+        assert ssh_result["status"] == "failed"
+        assert ssh_result["credentials"] == []
+        assert ssh_result["error"] == "No valid credentials found"
+
+        # Verify logging
+        mock_logger.info.assert_any_call(
+            "Found supported service for bruteforcing: 192.168.1.1:21 - ftp -> ftp"
+        )
+        mock_logger.info.assert_any_call(
+            "Found supported service for bruteforcing: 192.168.1.1:22 - ssh -> ssh"
+        )
+        mock_logger.info.assert_any_call(
+            "Starting 2 Hydra attacks on supported services"
+        )
+
+    @pytest.mark.asyncio
+    async def test_process_scan_results_with_hydra_with_exceptions(
+        self, mocker: MockerFixture
+    ):
+        """Test processing scan results when some attacks raise exceptions."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+        mock_makedirs = mocker.patch("tools.bruteforce.integration.os.makedirs")
+        mock_hydra_class = mocker.patch("tools.bruteforce.integration.HydraAttack")
+
+        # Mock one successful result and one exception
+        mock_attack_result = mocker.Mock()
+        mock_attack_result.target = "192.168.1.1"
+        mock_attack_result.port = 21
+        mock_attack_result.protocol = "ftp"
+        mock_attack_result.status = "success"
+        mock_attack_result.credentials = [{"username": "admin", "password": "123456"}]
+        mock_attack_result.error = None
+
+        test_exception = Exception("Connection timeout")
+
+        # Mock HydraAttack instance
+        mock_hydra_instance = mocker.Mock()
+        mock_hydra_class.return_value = mock_hydra_instance
+
+        # Mock run_hydra_attack to return success for first call, raise exception for second
+        async def mock_run_hydra_attack_side_effect(
+            sem, hydra, ip, protocol, port, timeout
+        ):
+            if protocol == "ftp":
+                return mock_attack_result
+            else:
+                raise test_exception
+
+        mock_run_hydra_attack = mocker.patch(
+            "tools.bruteforce.integration.run_hydra_attack",
+            side_effect=mock_run_hydra_attack_side_effect,
+        )
+
+        # Scan results with two services
+        scan_results = [
+            {
+                "scan_results": {
+                    "ip_results": {
+                        "192.168.1.1": {
+                            "ports": [
+                                {"port": 21, "service": "ftp"},
+                                {"port": 22, "service": "ssh"},
+                            ]
+                        }
+                    }
+                }
+            }
+        ]
+
+        result = await process_scan_results_with_hydra(scan_results)
+
+        # Verify results structure
+        assert "192.168.1.1" in result
+        assert len(result["192.168.1.1"]) == 2
+
+        # Check successful attack result
+        ftp_result = result["192.168.1.1"][0]
+        assert ftp_result["port"] == 21
+        assert ftp_result["protocol"] == "ftp"
+        assert ftp_result["status"] == "success"
+
+        # Check failed attack result (from exception)
+        ssh_result = result["192.168.1.1"][1]
+        assert ssh_result["port"] == 22
+        assert ssh_result["protocol"] == "ssh"
+        assert ssh_result["status"] == "error"
+        assert ssh_result["error"] == "Connection timeout"
+
+        # Verify error logging
+        mock_logger.error.assert_called_once_with(
+            "Error in Hydra attack on 192.168.1.1:22 (ssh): Connection timeout"
+        )
+
+    @pytest.mark.asyncio
+    async def test_process_scan_results_with_hydra_multiple_ips(
+        self, mocker: MockerFixture
+    ):
+        """Test processing scan results with multiple IP addresses."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+        mock_makedirs = mocker.patch("tools.bruteforce.integration.os.makedirs")
+        mock_hydra_class = mocker.patch("tools.bruteforce.integration.HydraAttack")
+
+        # Mock attack results for different IPs
+        mock_result_1 = mocker.Mock()
+        mock_result_1.target = "192.168.1.1"
+        mock_result_1.port = 21
+        mock_result_1.protocol = "ftp"
+        mock_result_1.status = "success"
+        mock_result_1.credentials = [{"username": "admin", "password": "123456"}]
+        mock_result_1.error = None
+
+        mock_result_2 = mocker.Mock()
+        mock_result_2.target = "192.168.1.2"
+        mock_result_2.port = 22
+        mock_result_2.protocol = "ssh"
+        mock_result_2.status = "failed"
+        mock_result_2.credentials = []
+        mock_result_2.error = "Authentication failed"
+
+        # Mock HydraAttack instance
+        mock_hydra_instance = mocker.Mock()
+        mock_hydra_class.return_value = mock_hydra_instance
+
+        # Mock run_hydra_attack to return appropriate results based on IP
+        async def mock_run_hydra_attack_side_effect(
+            sem, hydra, ip, protocol, port, timeout
+        ):
+            if ip == "192.168.1.1":
+                return mock_result_1
+            else:
+                return mock_result_2
+
+        mock_run_hydra_attack = mocker.patch(
+            "tools.bruteforce.integration.run_hydra_attack",
+            side_effect=mock_run_hydra_attack_side_effect,
+        )
+
+        # Scan results with multiple IPs
+        scan_results = [
+            {
+                "scan_results": {
+                    "ip_results": {
+                        "192.168.1.1": {"ports": [{"port": 21, "service": "ftp"}]},
+                        "192.168.1.2": {"ports": [{"port": 22, "service": "ssh"}]},
+                    }
+                }
+            }
+        ]
+
+        result = await process_scan_results_with_hydra(scan_results)
+
+        # Verify both IPs are in results
+        assert "192.168.1.1" in result
+        assert "192.168.1.2" in result
+        assert len(result["192.168.1.1"]) == 1
+        assert len(result["192.168.1.2"]) == 1
+
+        # Check results for first IP
+        assert result["192.168.1.1"][0]["status"] == "success"
+        assert result["192.168.1.1"][0]["protocol"] == "ftp"
+
+        # Check results for second IP
+        assert result["192.168.1.2"][0]["status"] == "failed"
+        assert result["192.168.1.2"][0]["protocol"] == "ssh"
+
+    @pytest.mark.asyncio
+    async def test_process_scan_results_with_hydra_custom_parameters(
+        self, mocker: MockerFixture
+    ):
+        """Test processing scan results with custom concurrent_limit and timeout."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+        mock_makedirs = mocker.patch("tools.bruteforce.integration.os.makedirs")
+        mock_hydra_class = mocker.patch("tools.bruteforce.integration.HydraAttack")
+
+        # Mock successful result
+        mock_attack_result = mocker.Mock()
+        mock_attack_result.target = "192.168.1.1"
+        mock_attack_result.port = 21
+        mock_attack_result.protocol = "ftp"
+        mock_attack_result.status = "success"
+        mock_attack_result.credentials = []
+        mock_attack_result.error = None
+
+        # Mock HydraAttack instance
+        mock_hydra_instance = mocker.Mock()
+        mock_hydra_class.return_value = mock_hydra_instance
+
+        # Mock run_hydra_attack
+        async def mock_run_hydra_attack_side_effect(
+            sem, hydra, ip, protocol, port, timeout
+        ):
+            return mock_attack_result
+
+        mock_run_hydra_attack = mocker.patch(
+            "tools.bruteforce.integration.run_hydra_attack",
+            side_effect=mock_run_hydra_attack_side_effect,
+        )
+
+        # Scan results with one service
+        scan_results = [
+            {
+                "scan_results": {
+                    "ip_results": {
+                        "192.168.1.1": {"ports": [{"port": 21, "service": "ftp"}]}
+                    }
+                }
+            }
+        ]
+
+        # Test with custom parameters
+        result = await process_scan_results_with_hydra(
+            scan_results, concurrent_limit=5, timeout=600, org_name="custom_org"
+        )
+
+        # Verify custom org_name is used in output directory
+        mock_makedirs.assert_called_once_with(
+            "scan_results/custom_org/bruteforce", exist_ok=True
+        )
+        mock_hydra_class.assert_called_once_with(
+            output_dir="scan_results/custom_org/bruteforce"
+        )
+
+        # Verify the attack was launched (we can't easily test semaphore limit and timeout
+        # without more complex mocking, but we can verify the function was called)
+        assert result is not None
+        assert "192.168.1.1" in result
+
+    @pytest.mark.asyncio
+    async def test_process_scan_results_invalid_format(self, mocker: MockerFixture):
+        """Test processing scan results with invalid format."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+
+        # Invalid scan results format
+        scan_results = [
+            "invalid_string",
+            {"invalid": "format"},
+            {"scan_results": {"invalid": "format"}},
+            {"scan_results": {"ip_results": {}}},  # Empty ip_results
+        ]
+
+        result = await process_scan_results_with_hydra(scan_results)
+
+        assert result == {}
+        mock_logger.info.assert_called_with("No services found for bruteforcing")
+
+    @pytest.mark.asyncio
+    async def test_process_scan_results_mixed_services(self, mocker: MockerFixture):
+        """Test processing scan results with mix of supported and unsupported services."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+        mock_makedirs = mocker.patch("tools.bruteforce.integration.os.makedirs")
+        mock_hydra_class = mocker.patch("tools.bruteforce.integration.HydraAttack")
+
+        # Mock successful result for supported services
+        mock_attack_result_1 = mocker.Mock()
+        mock_attack_result_1.target = "192.168.1.1"
+        mock_attack_result_1.port = 21
+        mock_attack_result_1.protocol = "ftp"
+        mock_attack_result_1.status = "success"
+        mock_attack_result_1.credentials = []
+        mock_attack_result_1.error = None
+
+        mock_attack_result_2 = mocker.Mock()
+        mock_attack_result_2.target = "192.168.1.1"
+        mock_attack_result_2.port = 22
+        mock_attack_result_2.protocol = "ssh"
+        mock_attack_result_2.status = "failed"
+        mock_attack_result_2.credentials = []
+        mock_attack_result_2.error = "No credentials found"
+
+        # Mock HydraAttack instance
+        mock_hydra_instance = mocker.Mock()
+        mock_hydra_class.return_value = mock_hydra_instance
+
+        # Mock run_hydra_attack to return appropriate results
+        async def mock_run_hydra_attack_side_effect(
+            sem, hydra, ip, protocol, port, timeout
+        ):
+            if protocol == "ftp":
+                return mock_attack_result_1
+            else:
+                return mock_attack_result_2
+
+        mock_run_hydra_attack = mocker.patch(
+            "tools.bruteforce.integration.run_hydra_attack",
+            side_effect=mock_run_hydra_attack_side_effect,
+        )
+
+        # Scan results with mix of supported and unsupported services
+        scan_results = [
+            {
+                "scan_results": {
+                    "ip_results": {
+                        "192.168.1.1": {
+                            "ports": [
+                                {"port": 21, "service": "ftp"},  # Supported
+                                {"port": 80, "service": "http"},  # Not supported
+                                {"port": 443, "service": "https"},  # Not supported
+                                {"port": 22, "service": "ssh"},  # Supported
+                            ]
+                        }
+                    }
+                }
+            }
+        ]
+
+        result = await process_scan_results_with_hydra(scan_results)
+
+        # Should only log supported services
+        mock_logger.info.assert_any_call(
+            "Found supported service for bruteforcing: 192.168.1.1:21 - ftp -> ftp"
+        )
+        mock_logger.info.assert_any_call(
+            "Found supported service for bruteforcing: 192.168.1.1:22 - ssh -> ssh"
+        )
+
+        # Should have results for both supported services
+        assert result is not None
+        assert "192.168.1.1" in result
+        assert len(result["192.168.1.1"]) == 2
+
+    def test_process_bruteforce_results_empty(self, mocker: MockerFixture):
+        """Test process_bruteforce_results with empty results."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+
+        # Test with None
+        result = process_bruteforce_results(None)
+
+        expected_result = {"credentials_found": False, "credentials_by_host": {}}
+        assert result == expected_result
+        mock_logger.info.assert_any_call(
+            f"{Fore.YELLOW}[!] No bruteforce results available.{Style.RESET_ALL}"
+        )
+
+        # Test with empty dict
+        result = process_bruteforce_results({})
+
+        assert result == expected_result
+        mock_logger.info.assert_any_call(
+            f"{Fore.YELLOW}[!] No bruteforce results available.{Style.RESET_ALL}"
+        )
+
+    def test_process_bruteforce_results_no_credentials_found(
+        self, mocker: MockerFixture
+    ):
+        """Test process_bruteforce_results when no credentials are found."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+
+        # Bruteforce results with failed attacks
+        bruteforce_results = {
+            "192.168.1.1": [
+                {
+                    "port": 21,
+                    "protocol": "ftp",
+                    "status": "failed",
+                    "credentials": [],
+                    "error": "No valid credentials found",
+                },
+                {
+                    "port": 22,
+                    "protocol": "ssh",
+                    "status": "timeout",
+                    "credentials": [],
+                    "error": "Connection timeout",
+                },
+            ]
+        }
+
+        result = process_bruteforce_results(bruteforce_results)
+
+        expected_result = {"credentials_found": False, "credentials_by_host": {}}
+        assert result == expected_result
+
+        # Verify logging
+        mock_logger.info.assert_any_call(
+            f"{Fore.YELLOW}[!] No credentials were found during bruteforce attacks.{Style.RESET_ALL}"
+        )
+        mock_logger.info.assert_any_call(
+            f"{Fore.GREEN}Bruteforce attacks completed on 1 targets"
+        )
+
+    def test_process_bruteforce_results_credentials_found_username_password(
+        self, mocker: MockerFixture
+    ):
+        """Test process_bruteforce_results with successful username/password credentials."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+
+        from tools.bruteforce.integration import process_bruteforce_results
+
+        # Bruteforce results with successful attacks
+        bruteforce_results = {
+            "192.168.1.1": [
+                {
+                    "port": 21,
+                    "protocol": "ftp",
+                    "status": "success",
+                    "credentials": [
+                        {"username": "admin", "password": "123456"},
+                        {"username": "user", "password": "password"},
+                    ],
+                    "error": None,
+                }
+            ],
+            "192.168.1.2": [
+                {
+                    "port": 22,
+                    "protocol": "ssh",
+                    "status": "success",
+                    "credentials": [{"username": "root", "password": "toor"}],
+                    "error": None,
+                }
+            ],
+        }
+
+        result = process_bruteforce_results(bruteforce_results)
+
+        expected_result = {
+            "credentials_found": True,
+            "credentials_by_host": {
+                "192.168.1.1": [
+                    {
+                        "username": "admin",
+                        "password": "123456",
+                        "port": 21,
+                        "protocol": "ftp",
+                    },
+                    {
+                        "username": "user",
+                        "password": "password",
+                        "port": 21,
+                        "protocol": "ftp",
+                    },
+                ],
+                "192.168.1.2": [
+                    {
+                        "username": "root",
+                        "password": "toor",
+                        "port": 22,
+                        "protocol": "ssh",
+                    }
+                ],
+            },
+        }
+        assert result == expected_result
+
+        # Verify logging
+        mock_logger.info.assert_any_call(
+            f"{Fore.GREEN}Found credentials for {Fore.YELLOW}192.168.1.1:21 (ftp):{Style.RESET_ALL}"
+        )
+        mock_logger.info.assert_any_call(
+            f"{Fore.GREEN}    Username: {Fore.CYAN}admin{Fore.GREEN} Password: {Fore.CYAN}123456{Style.RESET_ALL}"
+        )
+        mock_logger.info.assert_any_call(
+            f"{Fore.GREEN}    Username: {Fore.CYAN}user{Fore.GREEN} Password: {Fore.CYAN}password{Style.RESET_ALL}"
+        )
+        mock_logger.info.assert_any_call(
+            f"{Fore.GREEN}Found credentials for {Fore.YELLOW}192.168.1.2:22 (ssh):{Style.RESET_ALL}"
+        )
+        mock_logger.info.assert_any_call(
+            f"{Fore.GREEN}    Username: {Fore.CYAN}root{Fore.GREEN} Password: {Fore.CYAN}toor{Style.RESET_ALL}"
+        )
+        mock_logger.info.assert_any_call(
+            f"{Fore.GREEN}Bruteforce attacks completed on 2 targets"
+        )
+
+    def test_process_bruteforce_results_snmp_community_strings(
+        self, mocker: MockerFixture
+    ):
+        """Test process_bruteforce_results with SNMP community strings."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+
+        from tools.bruteforce.integration import process_bruteforce_results
+
+        # Bruteforce results with SNMP credentials (only password field)
+        bruteforce_results = {
+            "192.168.1.1": [
+                {
+                    "port": 161,
+                    "protocol": "snmp",
+                    "status": "success",
+                    "credentials": [{"password": "public"}, {"password": "private"}],
+                    "error": None,
+                }
+            ]
+        }
+
+        result = process_bruteforce_results(bruteforce_results)
+
+        expected_result = {
+            "credentials_found": True,
+            "credentials_by_host": {
+                "192.168.1.1": [
+                    {"community_string": "public", "port": 161, "protocol": "snmp"},
+                    {"community_string": "private", "port": 161, "protocol": "snmp"},
+                ]
+            },
+        }
+        assert result == expected_result
+
+        # Verify logging
+        mock_logger.info.assert_any_call(
+            f"{Fore.GREEN}Found credentials for {Fore.YELLOW}192.168.1.1:161 (snmp):{Style.RESET_ALL}"
+        )
+        mock_logger.info.assert_any_call(
+            f"{Fore.GREEN}    Community string: {Fore.CYAN}public{Style.RESET_ALL}"
+        )
+        mock_logger.info.assert_any_call(
+            f"{Fore.GREEN}    Community string: {Fore.CYAN}private{Style.RESET_ALL}"
+        )
+
+    def test_process_bruteforce_results_mixed_success_failure(
+        self, mocker: MockerFixture
+    ):
+        """Test process_bruteforce_results with mixed success and failure results."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+
+        from tools.bruteforce.integration import process_bruteforce_results
+
+        # Mixed results with some successes and some failures
+        bruteforce_results = {
+            "192.168.1.1": [
+                {
+                    "port": 21,
+                    "protocol": "ftp",
+                    "status": "success",
+                    "credentials": [{"username": "admin", "password": "123456"}],
+                    "error": None,
+                },
+                {
+                    "port": 22,
+                    "protocol": "ssh",
+                    "status": "failed",
+                    "credentials": [],
+                    "error": "No valid credentials found",
+                },
+            ]
+        }
+
+        result = process_bruteforce_results(bruteforce_results)
+
+        expected_result = {
+            "credentials_found": True,
+            "credentials_by_host": {
+                "192.168.1.1": [
+                    {
+                        "username": "admin",
+                        "password": "123456",
+                        "port": 21,
+                        "protocol": "ftp",
+                    }
+                ]
+            },
+        }
+        assert result == expected_result
+
+        # Should only log successful credentials, not failed attempts
+        mock_logger.info.assert_any_call(
+            f"{Fore.GREEN}Found credentials for {Fore.YELLOW}192.168.1.1:21 (ftp):{Style.RESET_ALL}"
+        )
+
+    def test_process_bruteforce_results_success_but_empty_credentials(
+        self, mocker: MockerFixture
+    ):
+        """Test process_bruteforce_results with success status but empty credentials."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+
+        from tools.bruteforce.integration import process_bruteforce_results
+
+        # Success status but no credentials found
+        bruteforce_results = {
+            "192.168.1.1": [
+                {
+                    "port": 21,
+                    "protocol": "ftp",
+                    "status": "success",
+                    "credentials": [],  # Empty credentials
+                    "error": None,
+                }
+            ]
+        }
+
+        result = process_bruteforce_results(bruteforce_results)
+
+        expected_result = {"credentials_found": False, "credentials_by_host": {}}
+        assert result == expected_result
+
+        # Should log no credentials found since credentials list is empty
+        mock_logger.info.assert_any_call(
+            f"{Fore.YELLOW}[!] No credentials were found during bruteforce attacks.{Style.RESET_ALL}"
+        )
+
+    def test_process_bruteforce_results_malformed_credentials(
+        self, mocker: MockerFixture
+    ):
+        """Test process_bruteforce_results with malformed credential data."""
+        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+
+        from tools.bruteforce.integration import process_bruteforce_results
+
+        # Malformed credentials (missing required fields)
+        bruteforce_results = {
+            "192.168.1.1": [
+                {
+                    "port": 21,
+                    "protocol": "ftp",
+                    "status": "success",
+                    "credentials": [
+                        {"username": "admin"},  # Missing password
+                        {"password": "123456"},  # Missing username
+                        {"other_field": "value"},  # Neither username nor password
+                    ],
+                    "error": None,
+                }
+            ]
+        }
+
+        result = process_bruteforce_results(bruteforce_results)
+
+        # Should process only the password-only credential (SNMP style)
+        expected_result = {
+            "credentials_found": True,
+            "credentials_by_host": {
+                "192.168.1.1": [
+                    {"community_string": "123456", "port": 21, "protocol": "ftp"}
+                ]
+            },
+        }
+        assert result == expected_result
+
+        # Should log the found credential
+        mock_logger.info.assert_any_call(
+            f"{Fore.GREEN}Found credentials for {Fore.YELLOW}192.168.1.1:21 (ftp):{Style.RESET_ALL}"
+        )
+        mock_logger.info.assert_any_call(
+            f"{Fore.GREEN}    Community string: {Fore.CYAN}123456{Style.RESET_ALL}"
+        )

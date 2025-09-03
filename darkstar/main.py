@@ -19,9 +19,11 @@ import argparse
 import pandas as pd
 import warnings
 from scanners.bbot import BBotScanner
-from scanners.nuclei import NucleiScanner, WordPressNucleiScanner
+from scanners.nuclei import NucleiScanner, NucleiMode
 from colorama import Fore, Style, init
 from scanners.recon import WordPressDetector
+from scanners.asteroid_scanner import AsteroidScanner
+from scanners.email import MailSecurityScanner
 import asyncio
 import os
 from scanners.portscan import RustScanner, run_rustscan, process_scan_results
@@ -105,15 +107,24 @@ class worker:
 
     def __init__(
         self,
-        mode: int,
+        mode: int | None,
+        scanner: str | None,
         targets: str,
         org_name: str,
         bruteforce: bool = False,
         bruteforce_timeout: int = 300,
     ):
+        self.targets = targets
+
         self.all_targets = targets
+        # Read from file if it exists
+        if os.path.exists(self.targets):
+            with open(self.targets, "r") as f:
+                self.all_targets = ",".join([line.strip() for line in f])
+
         self.target_df = parse_targets(targets)
         self.mode = mode
+        self.scanner = scanner
         self.org_domain = org_name
         self.bruteforce = bruteforce
         self.bruteforce_timeout = bruteforce_timeout
@@ -122,7 +133,7 @@ class worker:
         self, mode: Literal["passive", "normal", "aggressive", "attack_surface"]
     ):
         logger.info(
-            f"{Fore.CYAN}Starting bbot {mode} scan using CLI targets...{Style.RESET_ALL}"
+            f"{Fore.CYAN}Starting bbot {mode} scan on targets...{Style.RESET_ALL}"
         )
 
         with ThreadPoolExecutor() as executor:
@@ -136,6 +147,7 @@ class worker:
             f"{bbot_scanner.folder}/{bbot_scanner.foldername}/subdomains.txt"
         )
         ips_file = f"{bbot_scanner.folder}/{bbot_scanner.foldername}/ips.txt"
+        emails_file = f"{bbot_scanner.folder}/{bbot_scanner.foldername}/emails.txt"
 
         targets = [
             target.strip() for target in self.all_targets.split(",") if target.strip()
@@ -162,15 +174,24 @@ class worker:
                 # If no IPs found, write the IPs from all_targets directly
                 for ip in ips:
                     f.write(f"{ip}\n")
+        
+        logger.info("Running Email Security Scanner")
+
+        with ThreadPoolExecutor() as executor:
+            email_scanner = MailSecurityScanner(org_name=self.org_domain)
+            await asyncio.get_event_loop().run_in_executor(
+                executor, lambda: email_scanner.run(subdomains_file, emails_file)
+            )
 
         return {
             "bbot_scanner": bbot_scanner,
             "subdomains_file": subdomains_file,
             "ips_file": ips_file,
+            "emails_file": emails_file,
         }
 
     async def run_port_scan(self, targets):
-        logger.info(f"{Fore.CYAN}Starting RustScan on CLI targets...{Style.RESET_ALL}")
+        logger.info(f"{Fore.CYAN}Starting RustScan on targets...{Style.RESET_ALL}")
 
         rustscan_dir = prepare_output_directory(self.org_domain, "rustscanpy")
 
@@ -210,17 +231,17 @@ class worker:
             "bruteforce_processed": bruteforce_processed,
         }
 
-    async def run_nuclei(self, filename):
-        logger.info("Running nuclei scan on discovered subdomains")
+    async def run_nuclei(self, target, mode: NucleiMode = NucleiMode.STANDARD):
+        logger.info("Running Nuclei scan with mode: {mode.value}")
 
         with ThreadPoolExecutor() as executor:
-            nuclei_scanner = NucleiScanner(filename, self.org_domain)
+            nuclei_scanner = NucleiScanner(target, self.org_domain, mode=mode)
             await asyncio.get_event_loop().run_in_executor(executor, nuclei_scanner.run)
 
-    async def detect_wordpress(self, filename):
+    async def detect_wordpress(self, target):
         with ThreadPoolExecutor() as executor:
             wordpress_domains = await asyncio.get_event_loop().run_in_executor(
-                executor, lambda: WordPressDetector().run(filename)
+                executor, lambda: WordPressDetector().run(target)
             )
 
         logger.info(
@@ -229,30 +250,19 @@ class worker:
 
         return wordpress_domains
 
-    async def run_wordpress_nuclei(self, domains):
-        if domains:
-            logger.info(
-                f"Running WordPress-specific nuclei scan on {len(domains.split(',')) if isinstance(domains, str) else len(domains)} detected WordPress sites"
-            )
-
-            with ThreadPoolExecutor() as executor:
-                wp_scanner = WordPressNucleiScanner(domains, self.org_domain)
-                await asyncio.get_event_loop().run_in_executor(executor, wp_scanner.run)
-        else:
-            logger.info(
-                "No WordPress sites provided, skipping WordPress-specific scans"
-            )
-
-    async def detect_wordpress_and_run_nuclei(self, filename):
+    async def detect_wordpress_and_run_nuclei(self, target):
+        logger.info(
+            f"{Fore.CYAN}Detecting WordPress sites and running Nuclei scan...{Style.RESET_ALL}"
+        )
         # Detect WordPress and automatically run WordPress-specific Nuclei
-        wordpress_domains = await self.detect_wordpress(filename)
+        wordpress_domains = await self.detect_wordpress(target)
 
         # Immediately kickoff WordPress Nuclei scan if WordPress sites are detected
         if wordpress_domains:
             logger.info(
                 f"{Fore.CYAN}Immediately running WordPress-specific Nuclei scan on detected sites...{Style.RESET_ALL}"
             )
-            await self.run_wordpress_nuclei(wordpress_domains)
+            await self.run_nuclei(wordpress_domains, mode=NucleiMode.WORDPRESS)
         else:
             logger.info(
                 "No WordPress sites detected, skipping WordPress-specific scans"
@@ -263,6 +273,15 @@ class worker:
 
         openvas_scanner = OpenVASScanner(org_name=self.org_domain)
         await openvas_scanner.scan_targets(targets)
+
+    async def run_asteroid(self, target, mode: Literal["normal", "aggressive"]):
+        logger.info("Running Asteroid scan")
+
+        with ThreadPoolExecutor() as executor:
+            asteroid_scanner = AsteroidScanner(target, self.org_domain)
+            await asyncio.get_event_loop().run_in_executor(
+                executor, lambda: asteroid_scanner.run(mode=mode)
+            )        
 
     async def passive_scan(self):
         await self.run_bbot(mode="passive")
@@ -280,8 +299,13 @@ class worker:
         # Run all tasks in parallel
         bbot_results, port_results, _ = await asyncio.gather(*tasks)
 
-        # Now run wordpress detection and nuclei scan
-        await self.detect_wordpress_and_run_nuclei(bbot_results["subdomains_file"])
+        # Now run wordpress detection and nuclei scan, and Asteroid
+        tasks = [
+            self.detect_wordpress_and_run_nuclei(bbot_results["subdomains_file"]),
+            self.run_nuclei(bbot_results["subdomains_file"], mode=NucleiMode.NETWORK),
+            self.run_asteroid(bbot_results["subdomains_file"], mode="normal"),
+        ]
+        await asyncio.gather(*tasks)
 
     async def aggressive_scan(self):
         all_scan_targets = get_scan_targets(self.target_df)
@@ -296,10 +320,12 @@ class worker:
         # Wait for all to complete
         bbot_results, port_results, _ = await asyncio.gather(*tasks)
 
-        # Now run nucle and wordpress detection and nuclei
+        # Now run nucle and wordpress detection and nuclei and Asteroid
         tasks = [
             self.run_nuclei(bbot_results["subdomains_file"]),
+            self.run_nuclei(bbot_results["subdomains_file"], mode=NucleiMode.NETWORK),
             self.detect_wordpress_and_run_nuclei(bbot_results["subdomains_file"]),
+            self.run_asteroid(bbot_results["subdomains_file"], mode="aggressive"),
         ]
 
         # Wait for all remaining tasks to complete
@@ -358,23 +384,55 @@ class worker:
 
     async def run(self):
         """
-        Execute the scanning process based on the selected mode.
+        Execute the scanning process based on the selected mode or scanner.
 
         Uses asynchronous execution to run independent tasks in parallel.
         """
-        match self.mode:
-            case 1:  # 1 - Passive mode
-                await self.passive_scan()
-            case 2:  # 2 - Normal mode
-                await self.normal_scan()
-            case 3:  # 3 - Aggressive mode
-                await self.aggressive_scan()
-            case 4:  # 4 - Attack Surface Mode
-                await self.attack_surface_scan()
-            case _:  # Invalid mode
-                logger.error(
-                    f"{Fore.RED}[-] Invalid mode {self.mode} specified{Style.RESET_ALL}"
-                )
+        if self.scanner:
+            match self.scanner:
+                case "bbot_passive":
+                    await self.run_bbot(mode="passive")
+                case "bbot_normal":
+                    await self.run_bbot(mode="normal")
+                case "bbot_aggressive":
+                    await self.run_bbot(mode="aggressive")
+                case "bbot_attack_surface":
+                    await self.run_bbot(mode="attack_surface")
+                case "rustscan":
+                    all_scan_targets = get_scan_targets(self.target_df)
+                    await self.run_port_scan(all_scan_targets)
+                case "nuclei":
+                    await self.run_nuclei(self.all_targets)
+                case "nucleinetwork":
+                    await self.run_nuclei(self.all_targets, mode=NucleiMode.NETWORK)
+                case "wordpressnuclei":
+                    await self.detect_wordpress_and_run_nuclei(self.all_targets)
+                case "openvas":
+                    all_scan_targets = get_scan_targets(self.target_df)
+                    await self.run_openvas_scan(all_scan_targets)
+                case "asteroid_normal":
+                    await self.run_asteroid(self.all_targets, mode="normal")
+                case "asteroid_aggressive":
+                    await self.run_asteroid(self.all_targets, mode="aggressive")
+                case _:
+                    logger.error(
+                        f"{Fore.RED}[-] Invalid scanner {self.scanner} specified{Style.RESET_ALL}"
+                    )
+
+        else:
+            match self.mode:
+                case 1:  # 1 - Passive mode
+                    await self.passive_scan()
+                case 2:  # 2 - Normal mode
+                    await self.normal_scan()
+                case 3:  # 3 - Aggressive mode
+                    await self.aggressive_scan()
+                case 4:  # 4 - Attack Surface Mode
+                    await self.attack_surface_scan()
+                case _:  # Invalid mode
+                    logger.error(
+                        f"{Fore.RED}[-] Invalid mode {self.mode} specified{Style.RESET_ALL}"
+                    )
 
 
 def parse_targets(targets_str: str) -> pd.DataFrame:
@@ -408,14 +466,6 @@ def setup_parser():
         help="Fill in the CIDR, IP or domain (without http/https) to scan. Separate multiple targets by comma's. Can also be a file with a list of targets (one per line).",
     )
     parser.add_argument(
-        "-m",
-        "--mode",
-        type=int,
-        required=True,
-        help="Scan intrusiveness: 1. passive, 2. normal, 3. aggressive, 4. attack surface",
-        choices=[1, 2, 3, 4],
-    )
-    parser.add_argument(
         "-d",
         "--domain",
         help="The organisation name necessary for database selection",
@@ -438,6 +488,33 @@ def setup_parser():
         help="envfile location, default is /app/.env",
         default="/app/.env",
         required=False,
+    )
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "-m",
+        "--mode",
+        type=int,
+        help="Scan intrusiveness: 1. passive, 2. normal, 3. aggressive, 4. attack surface",
+        choices=[1, 2, 3, 4],
+    )
+    group.add_argument(
+        "-s",
+        "--scanner",
+        type=str,
+        help="Select a specific scanner to run (e.g., bbot, nuclei, openvas, asteroid). If not specified, all scanners will be run based on the mode.",
+        choices=[
+            "bbot_passive",
+            "bbot_normal",
+            "bbot_aggressive",
+            "bbot_attack_surface",
+            "rustscan",
+            "nuclei",
+            "nucleinetwork",
+            "wordpressnuclei",
+            "openvas",
+            "asteroid_normal",
+            "asteroid_aggressive",
+        ],
     )
     return parser
 
@@ -479,10 +556,6 @@ def main(args=None):
     else:
         args = parser.parse_args(args)
 
-    if os.path.exists(args.target):
-        with open(args.target, "r") as f:
-            args.target = ",".join([line.strip() for line in f])
-
     # Banner
     display_banner(args)
 
@@ -493,12 +566,13 @@ def main(args=None):
         3: f"{Fore.RED}AGGRESSIVE MODE{Style.RESET_ALL} - Full scanning with all active and aggressive modules",
         4: f"{Fore.RED}ATTACK SURFACE MODE{Style.RESET_ALL} - Attack surface mapping with custom modules",
     }
-    logger.info(f"Initializing scan in {mode_info[args.mode]}")
-
+    if args.mode:
+        logger.info(f"Initializing scan in {mode_info[args.mode]}")
     # Run the scanner
 
     scanner = worker(
         mode=args.mode,
+        scanner=args.scanner,
         targets=args.target,
         org_name=args.domain,
         bruteforce=args.bruteforce,

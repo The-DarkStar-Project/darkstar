@@ -274,9 +274,9 @@ class WordPressDetector:
             return True
         return False
 
-    def run(self, filepath):
+    def run(self, target):
         """
-        Process a file of domains and identify WordPress installations.
+        Process a file of domains or list and identify WordPress installations.
 
         Args:
             filepath (str): Path to file with domains (one per line)
@@ -284,14 +284,18 @@ class WordPressDetector:
         Returns:
             str: Comma-separated list of WordPress domains
         """
-        colored_debug(f"Loading domains from {filepath}...", "magenta")
-        try:
-            with open(filepath, "r") as file:
-                domains = [line.strip() for line in file if line.strip()]
-                colored_debug(f"Loaded {len(domains)} domains", "green")
-        except Exception as e:
-            colored_debug(f"Error reading file {filepath}: {e}", "red")
-            return []
+        if os.path.exists(target):
+            try:
+                with open(target, "r") as file:
+                    domains = [line.strip() for line in file if line.strip()]
+                    colored_debug(f"Loaded {len(domains)} domains", "green")
+            except Exception as e:
+                colored_debug(f"Error reading file {target}: {e}", "red")
+                return []
+        else:
+            # If target is not a file, assume it's a comma-separated list
+            domains = [domain.strip() for domain in target.split(",") if domain.strip()]
+            colored_debug(f"Processing {len(domains)} domains from input", "green")
 
         wordpress_domains = []
         total = len(domains)

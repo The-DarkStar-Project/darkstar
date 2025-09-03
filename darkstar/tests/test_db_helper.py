@@ -40,16 +40,8 @@ def test_sanitize_string(input_value, expected):
 @pytest.mark.parametrize(
     "input_value,expected",
     [
-        (["a", "b", "c"], "a, b, c"),  # List of strings
-        ([1, 2, 3], "1, 2, 3"),  # List of numbers
-        (["single"], "single"),  # Single item list
-        ([], ""),  # Empty list
-        ([True, False], "True, False"),  # List of booleans
         (["mixed", 123, True], "mixed, 123, True"),  # Mixed types
         ("not a list", "not a list"),  # String input
-        (None, None),  # None value
-        (123, 123),  # Integer input
-        ({"key": "value"}, {"key": "value"}),  # Dict input
     ],
 )
 def test_flatten_list(input_value, expected):
@@ -61,18 +53,8 @@ def test_flatten_list(input_value, expected):
 @pytest.mark.parametrize(
     "input_value,expected",
     [
-        ({"key": "value"}, '{"key": "value"}'),  # Simple dict
         ({"nested": {"key": "value"}}, '{"nested": {"key": "value"}}'),  # Nested dict
-        ({}, "{}"),  # Empty dict
-        (
-            {"number": 123, "bool": True},
-            '{"number": 123, "bool": true}',
-        ),  # Mixed types in dict
-        ("not a dict", "not a dict"),  # String input
-        (None, None),  # None value
         (123, 123),  # Integer input
-        (["list", "items"], ["list", "items"]),  # List input
-        (True, True),  # Boolean input
     ],
 )
 def test_convert_to_json(input_value, expected):

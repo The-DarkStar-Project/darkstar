@@ -1,0 +1,3 @@
+[submodule "darkstar/scanners/asteroid"]
+	path = darkstar/scanners/asteroid
+	url = git@github.com:The-DarkStar-Project/asteroid.git
