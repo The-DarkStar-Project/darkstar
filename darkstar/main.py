@@ -42,10 +42,12 @@ from typing import Literal
 import ipaddress
 
 # Set up basic logging configuration
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger("main")
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 warnings.filterwarnings("ignore")
 init(autoreset=True)
@@ -489,6 +491,12 @@ def setup_parser():
         default="/app/.env",
         required=False,
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging for debugging purposes",
+    )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "-m",
@@ -555,6 +563,12 @@ def main(args=None):
         args = parser.parse_args()
     else:
         args = parser.parse_args(args)
+
+    # Verbose logging
+    if args.verbose:
+        logger.info("Enabling verbose logging")
+        logger.setLevel(logging.DEBUG)
+        logger.debug("Verbose logging enabled")
 
     # Banner
     display_banner(args)
