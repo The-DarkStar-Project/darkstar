@@ -19,7 +19,7 @@ import argparse
 import pandas as pd
 import warnings
 from scanners.bbot import BBotScanner
-from scanners.nuclei import NucleiScanner, WordPressNucleiScanner
+from scanners.nuclei import NucleiScanner, NucleiMode
 from colorama import Fore, Style, init
 from scanners.recon import WordPressDetector
 from scanners.asteroid_scanner import AsteroidScanner
@@ -220,11 +220,11 @@ class worker:
             "bruteforce_processed": bruteforce_processed,
         }
 
-    async def run_nuclei(self, target):
-        logger.info("Running Nuclei scan")
+    async def run_nuclei(self, target, mode: NucleiMode = NucleiMode.STANDARD):
+        logger.info("Running Nuclei scan with mode: {mode.value}")
 
         with ThreadPoolExecutor() as executor:
-            nuclei_scanner = NucleiScanner(target, self.org_domain)
+            nuclei_scanner = NucleiScanner(target, self.org_domain, mode=mode)
             await asyncio.get_event_loop().run_in_executor(executor, nuclei_scanner.run)
 
     async def detect_wordpress(self, target):
@@ -239,20 +239,6 @@ class worker:
 
         return wordpress_domains
 
-    async def run_wordpress_nuclei(self, domains):
-        if domains:
-            logger.info(
-                f"Running WordPress-specific nuclei scan on {len(domains.split(',')) if isinstance(domains, str) else len(domains)} detected WordPress sites"
-            )
-
-            with ThreadPoolExecutor() as executor:
-                wp_scanner = WordPressNucleiScanner(domains, self.org_domain)
-                await asyncio.get_event_loop().run_in_executor(executor, wp_scanner.run)
-        else:
-            logger.info(
-                "No WordPress sites provided, skipping WordPress-specific scans"
-            )
-
     async def detect_wordpress_and_run_nuclei(self, target):
         logger.info(
             f"{Fore.CYAN}Detecting WordPress sites and running Nuclei scan...{Style.RESET_ALL}"
@@ -265,7 +251,7 @@ class worker:
             logger.info(
                 f"{Fore.CYAN}Immediately running WordPress-specific Nuclei scan on detected sites...{Style.RESET_ALL}"
             )
-            await self.run_wordpress_nuclei(wordpress_domains)
+            await self.run_nuclei(wordpress_domains, mode=NucleiMode.WORDPRESS)
         else:
             logger.info(
                 "No WordPress sites detected, skipping WordPress-specific scans"
@@ -305,6 +291,7 @@ class worker:
         # Now run wordpress detection and nuclei scan, and Asteroid
         tasks = [
             self.detect_wordpress_and_run_nuclei(bbot_results["subdomains_file"]),
+            self.run_nuclei(bbot_results["subdomains_file"], mode=NucleiMode.NETWORK),
             self.run_asteroid(bbot_results["subdomains_file"], mode="normal"),
         ]
         await asyncio.gather(*tasks)
@@ -325,6 +312,7 @@ class worker:
         # Now run nucle and wordpress detection and nuclei and Asteroid
         tasks = [
             self.run_nuclei(bbot_results["subdomains_file"]),
+            self.run_nuclei(bbot_results["subdomains_file"], mode=NucleiMode.NETWORK),
             self.detect_wordpress_and_run_nuclei(bbot_results["subdomains_file"]),
             self.run_asteroid(bbot_results["subdomains_file"], mode="aggressive"),
         ]
@@ -404,6 +392,8 @@ class worker:
                     await self.run_port_scan(all_scan_targets)
                 case "nuclei":
                     await self.run_nuclei(self.all_targets)
+                case "nucleinetwork":
+                    await self.run_nuclei(self.all_targets, mode=NucleiMode.NETWORK)
                 case "wordpressnuclei":
                     await self.detect_wordpress_and_run_nuclei(self.all_targets)
                 case "openvas":
@@ -508,6 +498,7 @@ def setup_parser():
             "bbot_attack_surface",
             "rustscan",
             "nuclei",
+            "nucleinetwork",
             "wordpressnuclei",
             "openvas",
             "asteroid_normal",
@@ -566,7 +557,6 @@ def main(args=None):
     }
     if args.mode:
         logger.info(f"Initializing scan in {mode_info[args.mode]}")
-    logger.info("test!")
     # Run the scanner
 
     scanner = worker(

@@ -7,9 +7,9 @@ from pytest_mock import MockerFixture
 # Add the parent directory to the path to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from core.models.vulnerability import Vulnerability
 from scanners.bbot import BBotScanner
-from scanners.nuclei.standard import NucleiScanner
-from scanners.nuclei.wordpress import WordPressNucleiScanner
+from scanners.nuclei import NucleiScanner, NucleiMode
 from scanners.asteroid_scanner import AsteroidScanner
 
 
@@ -183,7 +183,7 @@ class TestNucleiScanner:
 
     def test_run_calls_parent_for_standard_nuclei(self, mocker: MockerFixture):
         """Test that standard NucleiScanner run method starts a thread."""
-        mock_thread = mocker.patch("scanners.nuclei.base.threading.Thread")
+        mock_thread = mocker.patch("scanners.nuclei.threading.Thread")
 
         scanner = NucleiScanner("subdomains.txt", "test_org")
 
@@ -192,134 +192,57 @@ class TestNucleiScanner:
         mock_thread.assert_called_once()
         mock_thread.return_value.start.assert_called_once()
 
-    @pytest.mark.parametrize(
-        "output_line,expected_url",
-        [
-            ("[test-vuln] https://example.com/path", "https://example.com/path"),
-            ("[test-vuln] http://test.com", "http://test.com"),
-            ("[test-vuln] example.com:443", "example.com"),
-            ("[test-vuln] invalid output", "unknown"),
-        ],
-    )
-    def test_extract_url_from_output(self, output_line, expected_url):
-        """Test URL extraction from Nuclei output."""
+    def test_scan_nuclei(self, mocker: MockerFixture):
+        # Mock subprocess.Popen
+        mock_popen = mocker.patch("scanners.nuclei.subprocess.Popen")
+        
+        # Create mock process with proper stdout behavior
+        mock_process = mocker.Mock()
+        
+        # Mock the JSON output as a string (what readline() would return)
+        json_output = '''{
+  "template": "dast/vulnerabilities/sqli/sqli-error-based.yaml",
+  "template-url": "https://cloud.projectdiscovery.io/public/sqli-error-based",
+  "template-id": "sqli-error-based",
+  "info": {
+    "name": "Error based SQL Injection",
+    "author": ["geeknik", "pdteam"],
+    "tags": ["sqli", "error", "dast"],
+    "description": "Direct SQL Command Injection vulnerability",
+    "severity": "critical"
+  },
+  "type": "http",
+  "host": "testphp.vulnweb.com",
+  "url": "http://testphp.vulnweb.com/search.php?test=query",
+  "severity": "critical"
+}'''
+        
+        # Mock readline to return the JSON output once, then empty string, then continue returning empty strings
+        mock_process.stdout.readline.side_effect = [json_output, '', '', '', '']  # Add more empty strings
+        mock_process.poll.side_effect = [None, 0]  # First call returns None (process running), second returns 0 (finished)
+        
+        mock_popen.return_value = mock_process
+
+        mock_insert = mocker.patch("scanners.nuclei.insert_vulnerability_to_database")
+
         scanner = NucleiScanner("subdomains.txt", "test_org")
-        result = scanner.extract_url_from_output(output_line)
-        assert result == expected_url
+        scanner.scan_nuclei()
 
-    @pytest.mark.parametrize(
-        "output_line,expected_severity",
-        [
-            ("[test-vuln:critical] https://example.com", "critical"),
-            ("[test-vuln:high] https://example.com", "high"),
-            ("[test-vuln:medium] https://example.com", "medium"),
-            ("[test-vuln:low] https://example.com", "low"),
-            ("[test-vuln] https://example.com", "unknown"),
-        ],
-    )
-    def test_extract_severity(self, output_line, expected_severity):
-        """Test severity extraction from Nuclei output."""
-        scanner = NucleiScanner("subdomains.txt", "test_org")
-        result = scanner.extract_severity(output_line)
-        assert result == expected_severity
-
-
-class TestWordPressNucleiScanner:
-    """Test the WordPress-specific Nuclei scanner."""
-
-    def test_nuclei_wordpress_initialization_string(self):
-        """Test initializing the WordPress Nuclei scanner with string domains."""
-        scanner = WordPressNucleiScanner("example.com,test.com", "test_org")
-        assert scanner.domains == "example.com,test.com"
-        assert scanner.org_name == "test_org"
-
-    def test_nuclei_wordpress_initialization_list(self):
-        """Test initializing the WordPress Nuclei scanner with list domains."""
-        scanner = WordPressNucleiScanner(["example.com", "test.com"], "test_org")
-        assert scanner.domains == "example.com,test.com"
-        assert scanner.org_name == "test_org"
-
-    @pytest.mark.parametrize(
-        "input_text,expected_output",
-        [
-            ("\x1b[31mRed text\x1b[0m", "Red text"),
-            ("\x1b[32mGreen text\x1b[0m", "Green text"),
-            ("Normal text", "Normal text"),
-            ("\x1b[31m\x1b[1mBold Red\x1b[0m", "Bold Red"),
-            ("", ""),
-        ],
-    )
-    def test_remove_ansi_codes(self, input_text, expected_output):
-        """Test ANSI code removal from strings."""
-        scanner = WordPressNucleiScanner("example.com", "test_org")
-        clean_text = scanner.remove_ansi_codes(input_text)
-        assert clean_text == expected_output
-
-    @pytest.mark.parametrize(
-        "domains_input,expected_output",
-        [
-            ("example.com,test.com", "example.com,test.com"),
-            ("https://example.com,http://test.com", "example.com,test.com"),
-            ("https://example.com/,http://test.com/", "example.com,test.com"),
-            (["https://example.com", "http://test.com"], "example.com,test.com"),
-            ("", ""),
-        ],
-    )
-    def test_clean_domain_list(self, domains_input, expected_output):
-        """Test domain list cleaning functionality."""
-        scanner = WordPressNucleiScanner("dummy", "test_org")
-        result = scanner._clean_domain_list(domains_input)
-        assert result == expected_output
-
-    def test_clean_domain_list_invalid_input(self):
-        """Test domain list cleaning with invalid input."""
-        scanner = WordPressNucleiScanner("dummy", "test_org")
-        result = scanner._clean_domain_list(123)  # Invalid input type
-        assert result == ""
-
-    def test_run_calls_scan_nuclei_directly(self, mocker: MockerFixture):
-        """Test that WordPress scanner run method calls scan_nuclei directly (no threading)."""
-        scanner = WordPressNucleiScanner("example.com", "test_org")
-
-        # Mock the scan_nuclei method to avoid actual scanning
-        mock_scan = mocker.patch.object(scanner, "scan_nuclei")
-        scanner.run()
-        mock_scan.assert_called_once()
-
-    def test_run_with_empty_domains(self):
-        """Test run method with empty domains."""
-        scanner = WordPressNucleiScanner("", "test_org")
-
-        # Should not raise an exception and should return early
-        scanner.run()
-
-    def test_find_first_path_with_nuclei(self, mocker: MockerFixture):
-        """Test finding nuclei template files."""
-        mock_subprocess_run = mocker.patch("scanners.nuclei.wordpress.subprocess.run")
-
-        scanner = WordPressNucleiScanner("example.com", "test_org")
-
-        # Mock subprocess return
-        mock_result = mocker.Mock()
-        mock_result.stdout = "/path/to/nuclei/template.yaml\n/another/path"
-        mock_subprocess_run.return_value = mock_result
-
-        result = scanner.find_first_path_with_nuclei("template-hash")
-        assert result == "/path/to/nuclei/template.yaml"
-
-    def test_find_first_path_with_nuclei_not_found(self, mocker: MockerFixture):
-        """Test finding nuclei template files when not found."""
-        mock_subprocess_run = mocker.patch("scanners.nuclei.wordpress.subprocess.run")
-
-        scanner = WordPressNucleiScanner("example.com", "test_org")
-
-        # Mock subprocess return with no nuclei paths
-        mock_result = mocker.Mock()
-        mock_result.stdout = "/path/to/other/file.yaml\n/another/path"
-        mock_subprocess_run.return_value = mock_result
-
-        result = scanner.find_first_path_with_nuclei("template-hash")
-        assert result is None
+        mock_insert.assert_called_once()
+        
+        # Verify the vulnerability object passed to insert_vulnerability_to_database
+        # The function is called with keyword arguments: insert_vulnerability_to_database(vuln=..., org_name=...)
+        call_args = mock_insert.call_args
+        vuln = call_args.kwargs['vuln']  # Get vulnerability from keyword arguments
+        org_name = call_args.kwargs['org_name']  # Get org_name from keyword arguments
+        
+        assert vuln.title == "Error based SQL Injection"
+        assert vuln.affected_item == "http://testphp.vulnweb.com/search.php?test=query"
+        assert vuln.tool == "nuclei"
+        assert vuln.confidence == 97
+        assert vuln.severity == "critical"
+        assert vuln.host == "testphp.vulnweb.com"
+        assert org_name == "test_org"
 
 
 class TestAsteroidScanner:
@@ -601,7 +524,7 @@ def sample_nuclei_scanner(mocker: MockerFixture):
 @pytest.fixture
 def sample_wordpress_scanner():
     """Fixture providing a sample WordPressNucleiScanner instance."""
-    return WordPressNucleiScanner("example.com", "test_org")
+    return NucleiScanner("example.com", "test_org", mode=NucleiMode.WORDPRESS)
 
 
 @pytest.fixture
@@ -627,17 +550,6 @@ class TestScannerIntegration:
         assert sample_nuclei_scanner.org_name == "test_org"
         assert sample_wordpress_scanner.org_name == "test_org"
         assert sample_asteroid_scanner.org_name == "test_org"
-
-    def test_ansi_code_removal_consistency(
-        self, sample_nuclei_scanner, sample_wordpress_scanner
-    ):
-        """Test that ANSI code removal works consistently across scanners."""
-        test_string = "\x1b[31mRed text\x1b[0m"
-
-        nuclei_result = sample_nuclei_scanner.remove_ansi_codes(test_string)
-        wordpress_result = sample_wordpress_scanner.remove_ansi_codes(test_string)
-
-        assert nuclei_result == wordpress_result == "Red text"
 
     def test_target_processing_consistency(self, sample_asteroid_scanner):
         """Test that AsteroidScanner processes targets consistently."""
