@@ -252,7 +252,7 @@ services:
     profiles: ["gvm", "darkstar"]
     restart: on-failure
     ports:
-      - "9392:80"
+      - "9392:9392"
     volumes:
       - gvmd_socket_vol:/run/gvmd
     depends_on:
@@ -302,7 +302,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8000:8000"
+      - "7373:7373"
     depends_on:
       mariadb:
         condition: service_healthy

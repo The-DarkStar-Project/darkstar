@@ -1,5 +1,6 @@
 # ========== BUILD STAGE FOR GO/NUCLEI ==========
-FROM golang:1.24.1-bullseye AS go-builder
+FROM golang:1.24-bullseye AS go-builder
+ENV GOTOOLCHAIN=auto
 
 # Install nuclei
 RUN go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
@@ -113,7 +114,6 @@ COPY --from=go-builder /go/bin/gau /usr/local/bin/
 COPY --from=go-builder /go/bin/httpx /usr/local/bin/
 COPY --from=rust-builder /usr/local/cargo/bin/rustscan /usr/local/bin/
 COPY --from=c-builder /usr/local/bin/hydra* /usr/local/bin/
-COPY --from=c-builder /usr/local/bin/xhydra /usr/local/bin/
 
 # Copy all application code in one layer
 COPY ./darkstar /app/
