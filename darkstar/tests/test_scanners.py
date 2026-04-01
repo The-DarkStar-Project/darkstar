@@ -177,7 +177,9 @@ class TestNucleiScanner:
         mocker.patch("os.path.exists", return_value=False)
 
         scanner = NucleiScanner("testphp.vulnweb.com", "test_org")
-        assert scanner.target == "/tmp/targets.txt"
+        # A unique temp file is created instead of the fixed /tmp/targets.txt
+        assert scanner.target.startswith("/tmp/nuclei_targets_")
+        assert scanner._temp_target_file == scanner.target
         assert scanner.org_name == "test_org"
         assert scanner.target_count == 1
 
@@ -381,9 +383,10 @@ class TestAsteroidScanner:
         scanner = AsteroidScanner("https://example.com", "test_org")
         scanner.vulns_to_db()
 
-        # Should call insert_vulnerability_to_database for each vulnerability
+        # Should call insert_vulnerability_to_database for each vulnerability.
+        # Vulnerability objects are now created via from_dict(), not the constructor.
         assert mock_insert.call_count == 2
-        assert mock_vulnerability.call_count == 2
+        assert mock_vulnerability.from_dict.call_count == 2
 
     def test_vulns_to_db_multiple_targets(self, mocker: MockerFixture):
         """Test vulnerability database insertion for multiple targets."""
@@ -405,7 +408,7 @@ class TestAsteroidScanner:
 
         # Should process both targets (2 targets × 1 vuln each = 2 calls)
         assert mock_insert.call_count == 2
-        assert mock_vulnerability.call_count == 2
+        assert mock_vulnerability.from_dict.call_count == 2
 
     def test_normal_scan_mode(self, mocker: MockerFixture):
         """Test running asteroid scanner in normal mode."""

@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Darkstar - Vulnerability Intelligence</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/css/app.css" />
+</head>
+<body data-authenticated="{{ 'true' if logged_in else 'false' }}" data-organization="{{ organization }}">
+    <!-- Login Screen -->
+    <div id="loginScreen" class="login-screen">
+        <div class="login-container">
+            <div class="login-header">
+                <img src="/static/logo_darkstar.png" alt="Darkstar" class="login-logo" />
+                <h1>Darkstar</h1>
+                <p>Vulnerability Intelligence Platform</p>
+            </div>
+
+            <form id="loginForm" class="login-form">
+                <div class="form-group">
+                    <label for="orgInput">Organization</label>
+                    <input id="orgInput" name="organization" type="text" placeholder="Enter your organization" required minlength="3" />
+                </div>
+                <div class="form-group">
+                    <label for="passwordInput">Password</label>
+                    <input id="passwordInput" name="password" type="password" placeholder="Enter password" required minlength="8" />
+                </div>
+                <button type="submit" class="btn-primary btn-lg">Sign In</button>
+                <p id="loginMessage" class="form-message"></p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="mainDashboard" class="main-dashboard hidden">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <img src="/static/logo_darkstar.png" alt="Darkstar" class="header-logo" />
+                <h1>Darkstar</h1>
+            </div>
+            <div class="header-center">
+                <div class="org-info">
+                    <span id="topOrgName">Organization</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <button id="logoutBtn" class="btn-secondary btn-sm">Logout</button>
+            </div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab-button active" data-tab="dashboard">Dashboard</button>
+            <button class="tab-button" data-tab="vulns">Vulnerabilities</button>
+            <button class="tab-button" data-tab="targets">Targets</button>
+            <button class="tab-button" data-tab="surface">Attack Surface</button>
+            <button class="tab-button" data-tab="scan">New Scan</button>
+            <button class="tab-button" data-tab="debug">Debug</button>
+        </nav>
+
+        <!-- Content Area -->
+        <main class="content-area">
+            <!-- Dashboard Tab -->
+            <div id="dashboard-tab" class="tab-panel active">
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-header">Vulnerabilities</div>
+                        <div class="stat-value" id="statTotal">0</div>
+                        <div class="stat-label">Total Found</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">Active Scans</div>
+                        <div class="stat-value" id="statRunning">0</div>
+                        <div class="stat-label">In Progress</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Severity Distribution</div>
+                    <div id="severityList" class="severity-grid"></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Recent Scans</div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Name</th>
+                                    <th>Mode</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                </tr>
+                            </thead>
+                            <tbody id="scanRows"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Vulnerabilities Tab -->
+            <div id="vulns-tab" class="tab-panel">
+                <div class="card">
+                    <div class="card-header">Advanced Filtering</div>
+                    <div class="filter-grid">
+                        <div class="filter-group">
+                            <label>Severity</label>
+                            <select id="filterSeverity" class="filter-select">
+                                <option value="">All Levels</option>
+                                <option value="critical">Critical</option>
+                                <option value="high">High</option>
+                                <option value="medium">Medium</option>
+                                <option value="low">Low</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Host</label>
+                            <select id="filterHost" class="filter-select">
+                                <option value="">All Hosts</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Tool</label>
+                            <select id="filterTool" class="filter-select">
+                                <option value="">All Tools</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Group By</label>
+                            <select id="groupBySelect" class="filter-select">
+                                <option value="none">None</option>
+                                <option value="severity">Severity</option>
+                                <option value="host">Host</option>
+                                <option value="tool">Tool</option>
+                            </select>
+                        </div>
+                        <button id="clearFiltersBtn" class="btn-secondary">Clear</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        Results
+                        <span id="resultCount" class="header-badge">0</span>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Severity</th>
+                                    <th>Title</th>
+                                    <th>Host</th>
+                                    <th>Tool</th>
+                                    <th>CVE</th>
+                                </tr>
+                            </thead>
+                            <tbody id="vulnRows"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination">
+                        <button id="prevPageBtn" class="btn-secondary btn-sm">← Previous</button>
+                        <span id="pageInfo" class="page-info">Page 1</span>
+                        <button id="nextPageBtn" class="btn-secondary btn-sm">Next →</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Targets Tab -->
+            <div id="targets-tab" class="tab-panel">
+                <div class="card">
+                    <div class="card-header">Discovered Targets</div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Host</th>
+                                    <th>Issues</th>
+                                    <th>Max Severity</th>
+                                </tr>
+                            </thead>
+                            <tbody id="targetsRows">
+                                <tr><td colspan="3">No targets discovered yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Attack Surface Tab -->
+            <div id="surface-tab" class="tab-panel">
+                <div class="grid-4">
+                    <div class="metric-card">
+                        <div class="metric-label">Services</div>
+                        <div class="metric-value" id="totalServices">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Critical</div>
+                        <div class="metric-value critical" id="criticalAssets">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Exploitable</div>
+                        <div class="metric-value high" id="exploitableIssues">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Avg CVSS</div>
+                        <div class="metric-value" id="meanCvss">0.0</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Top Vulnerable Services</div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Host</th>
+                                    <th>Tool</th>
+                                    <th>Issues</th>
+                                    <th>Avg CVSS</th>
+                                </tr>
+                            </thead>
+                            <tbody id="topServicesRows">
+                                <tr><td colspan="4">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- New Scan Tab -->
+            <div id="scan-tab" class="tab-panel">
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-header">Launch Scan</div>
+                        <form id="scanForm" class="form-vertical">
+                            <div class="form-group">
+                                <label for="targetsInput">Targets</label>
+                                <textarea id="targetsInput" name="targets" placeholder="example.com, 192.168.1.0/24" rows="3" required></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="scanNameInput">Scan Name</label>
+                                <input id="scanNameInput" name="scan_name" type="text" placeholder="My security scan" />
+                            </div>
+                            <div class="form-group">
+                                <label for="modeInput">Scan Mode</label>
+                                <select id="modeInput" name="mode" class="filter-select">
+                                    <option value="">Select Mode</option>
+                                    <option value="1">Passive</option>
+                                    <option value="2">Normal</option>
+                                    <option value="3">Aggressive</option>
+                                    <option value="4">Attack Surface</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="scannerInput">Individual Scanner (optional)</label>
+                                <select id="scannerInput" name="scanner" class="filter-select">
+                                    <option value="">Select Scanner</option>
+                                    <option value="bbot_passive">bbot_passive</option>
+                                    <option value="bbot_normal">bbot_normal</option>
+                                    <option value="bbot_aggressive">bbot_aggressive</option>
+                                    <option value="bbot_attack_surface">bbot_attack_surface</option>
+                                    <option value="rustscan">rustscan</option>
+                                    <option value="nuclei">nuclei</option>
+                                    <option value="nucleinetwork">nucleinetwork</option>
+                                    <option value="wordpressnuclei">wordpressnuclei</option>
+                                    <option value="openvas">openvas</option>
+                                    <option value="asteroid_normal">asteroid_normal</option>
+                                    <option value="asteroid_aggressive">asteroid_aggressive</option>
+                                </select>
+                            </div>
+                            <p class="form-message" id="scanModeHint">Choose either a mode or an individual scanner.</p>
+                            <div class="form-group">
+                                <label>
+                                    <input id="bruteforceInput" name="bruteforce" type="checkbox" />
+                                    Enable Bruteforce
+                                </label>
+                            </div>
+                            <button type="submit" class="btn-primary">Launch Scan</button>
+                            <p id="scanMessage" class="form-message"></p>
+                        </form>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">Active Scans</div>
+                        <div id="activeScansList" class="scans-list">
+                            <p class="empty-state">No active scans</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Debug Tab -->
+            <div id="debug-tab" class="tab-panel">
+                <div class="card">
+                    <div class="card-header">Scan Debug Output</div>
+                    <div class="debug-controls">
+                        <select id="debugScanSelect" class="filter-select">
+                            <option value="">Select a scan to debug...</option>
+                        </select>
+                        <button id="refreshLogsBtn" class="btn-secondary btn-sm">Refresh</button>
+                        <button id="clearLogsBtn" class="btn-secondary btn-sm">Clear</button>
+                    </div>
+                    <div id="debugOutput" class="debug-output">
+                        <span class="debug-placeholder">Select a scan to view execution logs</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

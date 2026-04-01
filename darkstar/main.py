@@ -18,17 +18,17 @@
 import argparse
 import pandas as pd
 import warnings
-from scanners.bbot import BBotScanner
-from scanners.nuclei import NucleiScanner, NucleiMode
+from .scanners.bbot import BBotScanner
+from .scanners.nuclei import NucleiScanner, NucleiMode
 from colorama import Fore, Style, init
-from scanners.recon import WordPressDetector
-from scanners.asteroid_scanner import AsteroidScanner
-from scanners.email import MailSecurityScanner
+from .scanners.recon import WordPressDetector
+from .scanners.asteroid_scanner import AsteroidScanner
+from .scanners.email import MailSecurityScanner
 import asyncio
 import os
-from scanners.portscan import RustScanner, run_rustscan, process_scan_results
-from tools.bruteforce import process_bruteforce_results
-from core.utils import (
+from .scanners.portscan import RustScanner, run_rustscan, process_scan_results
+from .tools.bruteforce import process_bruteforce_results
+from .core.utils import (
     categorize_targets,
     create_target_dataframe,
     log_target_summary,
@@ -37,7 +37,7 @@ from core.utils import (
 )
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from openvas.openvas_scanner import OpenVASScanner
+from .openvas.openvas_scanner import OpenVASScanner
 from typing import Literal
 import ipaddress
 
@@ -234,7 +234,7 @@ class worker:
         }
 
     async def run_nuclei(self, target, mode: NucleiMode = NucleiMode.STANDARD):
-        logger.info("Running Nuclei scan with mode: {mode.value}")
+        logger.info(f"Running Nuclei scan with mode: {mode.value}")
 
         with ThreadPoolExecutor() as executor:
             nuclei_scanner = NucleiScanner(target, self.org_domain, mode=mode)
@@ -298,16 +298,41 @@ class worker:
             self.run_openvas_scan(all_scan_targets),
         ]
 
-        # Run all tasks in parallel
-        bbot_results, port_results, _ = await asyncio.gather(*tasks)
+        # Run all tasks in parallel, but do not fail entire mode due to one subsystem.
+        first_stage = await asyncio.gather(*tasks, return_exceptions=True)
+        bbot_results, port_results, openvas_result = first_stage
 
-        # Now run wordpress detection and nuclei scan, and Asteroid
+        if isinstance(openvas_result, Exception):
+            logger.warning(f"OpenVAS stage failed and will be skipped: {openvas_result}")
+
+        if isinstance(port_results, Exception):
+            logger.warning(f"Port scan stage failed and will be skipped: {port_results}")
+
+        if isinstance(bbot_results, Exception):
+            raise RuntimeError(f"BBot normal scan failed: {bbot_results}")
+
+        subdomains_file = bbot_results.get("subdomains_file")
+        if not subdomains_file:
+            logger.warning("BBot returned no subdomains file; skipping nuclei and asteroid stages")
+            return
+
+        # Now run standard nuclei, wordpress detection+nuclei, network nuclei, and Asteroid
         tasks = [
-            self.detect_wordpress_and_run_nuclei(bbot_results["subdomains_file"]),
-            self.run_nuclei(bbot_results["subdomains_file"], mode=NucleiMode.NETWORK),
-            self.run_asteroid(bbot_results["subdomains_file"], mode="normal"),
+            self.run_nuclei(subdomains_file),
+            self.detect_wordpress_and_run_nuclei(subdomains_file),
+            self.run_nuclei(subdomains_file, mode=NucleiMode.NETWORK),
+            self.run_asteroid(subdomains_file, mode="normal"),
         ]
-        await asyncio.gather(*tasks)
+        second_stage = await asyncio.gather(*tasks, return_exceptions=True)
+        second_names = [
+            "nuclei-standard",
+            "wordpress+nuclei",
+            "nuclei-network",
+            "asteroid",
+        ]
+        for name, result in zip(second_names, second_stage):
+            if isinstance(result, Exception):
+                logger.warning(f"{name} stage failed and was skipped: {result}")
 
     async def aggressive_scan(self):
         all_scan_targets = get_scan_targets(self.target_df)
@@ -319,19 +344,38 @@ class worker:
             self.run_openvas_scan(all_scan_targets),
         ]
 
-        # Wait for all to complete
-        bbot_results, port_results, _ = await asyncio.gather(*tasks)
+        # Wait for all to complete, but isolate subsystem failures.
+        first_stage = await asyncio.gather(*tasks, return_exceptions=True)
+        bbot_results, port_results, openvas_result = first_stage
+
+        if isinstance(openvas_result, Exception):
+            logger.warning(f"OpenVAS stage failed and will be skipped: {openvas_result}")
+
+        if isinstance(port_results, Exception):
+            logger.warning(f"Port scan stage failed and will be skipped: {port_results}")
+
+        if isinstance(bbot_results, Exception):
+            raise RuntimeError(f"BBot aggressive scan failed: {bbot_results}")
+
+        subdomains_file = bbot_results.get("subdomains_file")
+        if not subdomains_file:
+            logger.warning("BBot returned no subdomains file; skipping nuclei and asteroid stages")
+            return
 
         # Now run nucle and wordpress detection and nuclei and Asteroid
         tasks = [
-            self.run_nuclei(bbot_results["subdomains_file"]),
-            self.run_nuclei(bbot_results["subdomains_file"], mode=NucleiMode.NETWORK),
-            self.detect_wordpress_and_run_nuclei(bbot_results["subdomains_file"]),
-            self.run_asteroid(bbot_results["subdomains_file"], mode="aggressive"),
+            self.run_nuclei(subdomains_file),
+            self.run_nuclei(subdomains_file, mode=NucleiMode.NETWORK),
+            self.detect_wordpress_and_run_nuclei(subdomains_file),
+            self.run_asteroid(subdomains_file, mode="aggressive"),
         ]
 
         # Wait for all remaining tasks to complete
-        await asyncio.gather(*tasks)
+        second_stage = await asyncio.gather(*tasks, return_exceptions=True)
+        second_names = ["nuclei-standard", "nuclei-network", "wordpress+nuclei", "asteroid"]
+        for name, result in zip(second_names, second_stage):
+            if isinstance(result, Exception):
+                logger.warning(f"{name} stage failed and was skipped: {result}")
 
     async def attack_surface_scan(self):
         logger.info(f"{Fore.CYAN}Starting Attack Surface Mode...{Style.RESET_ALL}")
@@ -362,7 +406,8 @@ class worker:
                 ]
 
             if discovered_ips:
-                _, scan_processed, _ = await self.run_port_scan(discovered_ips)
+                port_result = await self.run_port_scan(discovered_ips)
+                scan_processed = port_result.get("scan_processed")
             else:
                 logger.warning(
                     f"{Fore.YELLOW}IP file exists but contains no valid IPs{Style.RESET_ALL}"
@@ -582,8 +627,8 @@ def main(args=None):
     }
     if args.mode:
         logger.info(f"Initializing scan in {mode_info[args.mode]}")
+    
     # Run the scanner
-
     scanner = worker(
         mode=args.mode,
         scanner=args.scanner,

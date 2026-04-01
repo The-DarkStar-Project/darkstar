@@ -252,7 +252,7 @@ services:
     profiles: ["gvm", "darkstar"]
     restart: on-failure
     ports:
-      - "9392:80"
+      - "9392:9392"
     volumes:
       - gvmd_socket_vol:/run/gvmd
     depends_on:
@@ -302,7 +302,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8000:8000"
+      - "7373:7373"
     depends_on:
       mariadb:
         condition: service_healthy
@@ -311,10 +311,38 @@ services:
     volumes:
       - ./darkstar:/app/darkstar
       - ./data:/app/data
+      - ./logo_darkstar.png:/app/logo_darkstar.png:ro
     restart: unless-stopped
     tty: true
     stdin_open: true
     command: tail -f /dev/null
+
+  # Darkstar web dashboard
+  darkstar-web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: darkstar-web
+    profiles: ["core", "gvm", "darkstar"]
+    working_dir: /app
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app:/app/darkstar
+    ports:
+      - "8080:8080"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    networks:
+      - vuln_net
+    volumes:
+      - ./darkstar:/app/darkstar
+      - ./data:/app/data
+      - ./logo_darkstar.png:/app/logo_darkstar.png:ro
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    command: uvicorn darkstar.webapp:app --host 0.0.0.0 --port 8080
 
 volumes:
   mariadb_data:

@@ -5,6 +5,7 @@ This module provides a wrapper for the bbot scanner, allowing for passive and
 aggressive reconnaissance, and processing the results for database insertion.
 """
 
+import ast
 import hashlib
 import logging
 import os
@@ -67,9 +68,9 @@ class BBotScanner:
             if row["Event type"] == "VULNERABILITY" or row["Event type"] == "FINDING":
                 # Get the object and store into the database as a vulnerability
                 try:
-                    item = eval(row["Event data"])
+                    item = ast.literal_eval(row["Event data"])
                     if isinstance(item, str):
-                        item = eval(item)
+                        item = ast.literal_eval(item)
                     severity = (
                         "info"
                         if row["Event type"] == "FINDING"

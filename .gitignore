@@ -2,7 +2,6 @@ venv
 .venv
 .env
 env
-.env.*
 
 __pycache__
 __pycache__/
@@ -25,3 +24,4 @@ notes.md
 */scan_results
 */bbot_output
 
+.claude/

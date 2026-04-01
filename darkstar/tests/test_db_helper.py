@@ -2,7 +2,9 @@ import pytest
 from pytest_mock import MockerFixture
 import pandas as pd
 from core.db_helper import (
+    DatabaseConnectionManager,
     insert_bbot_to_db,
+    get_vulnerabilities_filtered,
     sanitize_string,
     flatten_list,
     convert_to_json,
@@ -336,3 +338,34 @@ def sample_bbot_dataframe():
             "Event Tags": ['["tag1", "tag2"]', '["tag3"]'],
         }
     )
+
+
+def test_get_vulnerabilities_filtered_uses_single_fetchone_for_total(mocker: MockerFixture):
+    """Regression: total count should be read from a single fetchone() call."""
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_db_manager = mocker.patch("core.db_helper.DatabaseConnectionManager")
+    mock_db_manager.return_value.__enter__.return_value = mock_connection
+    mock_connection.cursor.return_value = mock_cursor
+
+    mock_cursor.fetchone.return_value = {"total": 5}
+    mock_cursor.fetchall.return_value = [{"id": 1, "title": "vuln"}]
+
+    items, total = get_vulnerabilities_filtered("org_test", severity="high", limit=10, offset=0)
+
+    assert total == 5
+    assert items == [{"id": 1, "title": "vuln"}]
+    # One fetchone for count query only; rows come from fetchall.
+    assert mock_cursor.fetchone.call_count == 1
+
+
+def test_database_connection_manager_does_not_suppress_exceptions(mocker: MockerFixture):
+    """Regression: __exit__ should not swallow exceptions."""
+    manager = DatabaseConnectionManager.__new__(DatabaseConnectionManager)
+    manager.connection = mocker.Mock()
+    manager.connection.is_connected.return_value = True
+
+    should_suppress = manager.__exit__(ValueError, ValueError("boom"), None)
+
+    assert should_suppress is False
+    manager.connection.close.assert_called_once()

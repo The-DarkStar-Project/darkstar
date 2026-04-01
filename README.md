@@ -1,161 +1,46 @@
-# Darkstar - Advanced Vulnerability Management  
-<img src="logo.png" alt="Darkstar Logo" width="300" height="300">
+# Darkstar
+![Darkstar Logo](./logo_darkstar.png)
 
-### The ultimate **Red Team** and **Blue Team** tool for attack surface mapping and vulnerability management!  
+## Vulnerability Management Solution
+Darkstar is a very extensive Vulnerability Management solution. Which offers a variety of features which currently are being developed.
 
-## 🌟 Features  
-- **Multi-Scanner Integration**: Supports Nuclei, OpenVAS, BBbot, RustScan, and more
-- **Modular Architecture**: Clean, extensible codebase with clear separation of concerns
-- **Database Integration**: MySQL/MariaDB support for vulnerability storage and reporting
-- **Docker Support**: Containerized deployment for easy setup and scaling
-- **CLI Interface**: Intuitive command-line interface for all operations
-- **Comprehensive Reporting**: Detailed vulnerability reports with severity classification
-- **API Integrations**: HaveIBeenPwned, CVE databases, and more
-- **Dashboard insight**: into vulnerabilities 
-- **Attack Surface mapping**: Complete attack surface discovery
-- **Easy deployment**: via Docker  
+## Pre-requirements
+Please install the following tools before using this project:
+- Docker: https://docs.docker.com/get-docker/
+- Docker Compose: https://docs.docker.com/compose/install/
 
----
+## Installation
+Follow these steps to correctly setup the Darkstar infrastructure:
 
-## 📁 New Project Structure
+1. `git clone --recurse-submodules git@github.com:The-DarkStar-Project/darkstar.git`
+2. `cd darkstar`
+3. `chmod +x run.sh && ./run.sh`
 
-```
-darkstar/
-├── src/                           # Main source code
-│   ├── cli/                      # Command-line interface
-│   │   └── main.py              # Main entry point
-│   ├── core/                    # Core utilities and configuration
-│   ├── models/                  # Data models
-│   ├── scanners/               # Scanner implementations
-│   ├── integrations/           # External service integrations
-│   └── tools/                  # Utility tools
-├── docs/                      # Comprehensive documentation
-├── docker/                    # Docker configurations
-└── config/                    # Configuration files
-```
+## Web Dashboard
+Darkstar includes a web dashboard where each organization logs in with its own credentials.
 
-## Requirements  
-Before installing, ensure you have the following tools:  
+- On first login, a dedicated tenant database is created automatically.
+- On later logins, credentials are verified against the stored organization account.
+- You can start scans from the UI and monitor recent findings and scan status.
 
-- [Docker](https://docs.docker.com/get-docker/)  
-- [Docker Compose](https://docs.docker.com/compose/install/)  
-- Python 3.8+ (for manual installation)
+Docker Compose:
 
-## 🚀 Quick Setup with Docker  
+1. Start stack: `docker compose --profile darkstar up -d --build`
+2. Open dashboard: `http://localhost:8080`
 
-1. Clone and setup:
-   ```bash
-   git clone https://github.com/your-org/darkstar.git
-   cd darkstar
-   ```
+## Roadmap
+- Agent based vulnerability scanning
+    - Internal Network Mapping
+- Frontend with dashboard
+- Vulnerability enhancement
+- Orchestration
 
-2. Configure environment:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
+## Supported by:
+We are very proud to be supported by [SIDN](https://www.sidnfonds.nl/) 
 
-3. Grant execution permission and start:  
-   ```bash
-   chmod +x scripts/run.sh
-   ./scripts/run.sh
-   ```
+<img src="./logo_sidn.png" width="300" alt="SIDN Logo">
 
-## 🐳 Using Docker Commands
+## License
+This project is licensed under the GNU GPLv3 License. See the [LICENSE](./LICENSE) file for details.
 
-### Inside the container (NEW STRUCTURE)
-- To run a scan with the new structure:
-```bash
-# Run basic scan
-docker exec -it darkstar python3 src/cli/main.py --target testphp.vulnweb.com --mode normal
-
-# Run aggressive scan with bruteforce
-docker exec -it darkstar python3 src/cli/main.py --target testphp.vulnweb.com --mode aggressive --bruteforce
-
-# Run WordPress-specific scan
-docker exec -it darkstar python3 src/cli/main.py --target wordpress-site.com --scanner wordpress-nuclei
-
-# Get help
-docker exec -it darkstar python3 src/cli/main.py --help
-```
-
-### Legacy Commands (Still Supported)
-- Legacy command structure (for backward compatibility):
-```bash
-docker exec -it darkstar python3 main.py -t testphp.vulnweb.com,44.228.249.3 -m 2 -d test -env .env
-```
-
-## 📖 Usage Examples
-
-### Basic Scanning
-```bash
-# Nuclei scan
-docker exec -it darkstar python3 src/cli/main.py --target example.com --scanner nuclei
-
-# Port scan
-docker exec -it darkstar python3 src/cli/main.py --target example.com --scanner rustscan
-
-# OpenVAS scan
-docker exec -it darkstar python3 src/cli/main.py --target example.com --scanner openvas
-```
-
-### Advanced Scanning
-```bash
-# Multiple targets
-docker exec -it darkstar python3 src/cli/main.py --target "example.com,test.com" --mode aggressive
-
-# Passive reconnaissance
-docker exec -it darkstar python3 src/cli/main.py --target example.com --mode passive
-
-# Attack surface mapping
-docker exec -it darkstar python3 src/cli/main.py --target example.com --mode attack-surface
-```
-
-## 📚 Documentation
-
-- **[User Guide](docs/README.md)**: Complete user documentation
-- **[Configuration Guide](docs/CONFIGURATION.md)**: Setup and configuration
-- **[Deployment Guide](docs/DEPLOYMENT.md)**: Production deployment
-- **[Architecture Guide](ARCHITECTURE.md)**: System design and architecture
-- **[Contributing Guide](CONTRIBUTING.md)**: Development guidelines
-
-## 🛠️ Manual Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/your-org/darkstar.git
-cd darkstar
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your settings
-
-# Run the scanner
-python3 src/cli/main.py --help
-```
-
-## Datasets
-Darkstar leverages high quality threat intelligence sources:
-- [Epss Scores](https://www.first.org/epss/data_stats) – Probabilistic vulnerability prioritization
-- [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) – Known exploited vulnerabilities
-
-## 🔒 Security Tip
-Please change the database password if running in production environment. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for security best practices.
-
-## 🤝 Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## Lead Developers
-- [![LinkedIn](https://i.sstatic.net/gVE0j.png) Joost Grunwald](https://www.linkedin.com/in/joost-grunwald-1a48a31b2)
-- [![LinkedIn](https://i.sstatic.net/gVE0j.png) Patrick Kuin](https://www.linkedin.com/in/patrick-kuin-8a08a81b7)
-
-### License
-This project is licensed under [GNU GPLv3](LICENSE)
+*Disclaimer* This project is still under development and there is no initial release yet so you might encounter bugs. We are working on it! 
