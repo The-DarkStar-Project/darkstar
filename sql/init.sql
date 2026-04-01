@@ -56,3 +56,8 @@ CREATE TABLE IF NOT EXISTS password_leaks (
     email VARCHAR(255) NOT NULL,
     password VARCHAR(255) NOT NULL
 );
+
+-- Grant permissions to allow data_miner to create org databases
+GRANT ALL PRIVILEGES ON `org_%`.* TO 'data_miner'@'%';
+GRANT CREATE, ALTER, DROP ON *.* TO 'data_miner'@'%';
+FLUSH PRIVILEGES;

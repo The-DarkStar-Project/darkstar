@@ -1,6 +1,8 @@
 import requests
 import time
 import os
+import re
+from urllib.parse import urlparse
 
 # Get HIBP API key from environment variable
 HIBP_KEY = os.getenv("HIBP_KEY", "")
@@ -250,6 +252,40 @@ class WordPressDetector:
             colored_debug(f"✗ WordPress not detected on {url}", "yellow")
             return False
 
+    def normalize_domain(self, domain):
+        """
+        Normalize user input into a bare host[:port] value.
+
+        Accepts raw domains, domains with scheme, and full URLs.
+        """
+        raw = (domain or "").strip()
+        if not raw:
+            return ""
+
+        # Strip one or more leading schemes, then parse consistently.
+        raw = re.sub(r"^(?:https?://)+", "", raw, flags=re.IGNORECASE)
+        candidate = f"https://{raw}"
+
+        parsed = urlparse(candidate)
+        host = (parsed.netloc or parsed.path or "").strip().strip("/")
+        if "@" in host:
+            host = host.split("@", 1)[1]
+        if "/" in host:
+            host = host.split("/", 1)[0]
+
+        return host
+
+    def is_reachable(self, url):
+        """
+        Probe whether a URL is reachable.
+        """
+        try:
+            requests.get(url, timeout=self.timeout, allow_redirects=True)
+            return True
+        except requests.RequestException:
+            colored_debug(f"Endpoint unreachable: {url}", "yellow")
+            return False
+
     def check_domain(self, domain):
         """
         Check if a domain is running WordPress using both HTTP and HTTPS.
@@ -260,18 +296,23 @@ class WordPressDetector:
         Returns:
             bool: True if WordPress is detected
         """
-        domain = domain.strip()
-        if not domain:
+        normalized = self.normalize_domain(domain)
+        if not normalized:
+            colored_debug(f"Skipping invalid domain input: {domain}", "yellow")
             return False
 
-        colored_debug(f"Checking domain: {domain}", "cyan")
-        url_https = f"https://{domain}"
-        url_http = f"http://{domain}"
+        colored_debug(f"Checking domain: {normalized}", "cyan")
+        url_https = f"https://{normalized}"
+        url_http = f"http://{normalized}"
 
-        if self.is_wordpress(url_https):
-            return True
-        if self.is_wordpress(url_http):
-            return True
+        # Required behavior: try HTTPS first, fallback to HTTP only if HTTPS is down.
+        if self.is_reachable(url_https):
+            return self.is_wordpress(url_https)
+
+        if self.is_reachable(url_http):
+            return self.is_wordpress(url_http)
+
+        colored_debug(f"Host appears down on both HTTPS and HTTP: {normalized}", "red")
         return False
 
     def run(self, target):
@@ -300,13 +341,16 @@ class WordPressDetector:
         wordpress_domains = []
         total = len(domains)
         for i, domain in enumerate(domains):
+            normalized = self.normalize_domain(domain)
             colored_debug(
                 f"Progress: {i + 1}/{total} domains ({int((i + 1) / total * 100)}%)",
                 "cyan",
             )
             if self.check_domain(domain):
-                wordpress_domains.append(domain)
-                colored_debug(f"Added {domain} to WordPress domains list", "green")
+                wordpress_domains.append(normalized or domain)
+                colored_debug(
+                    f"Added {normalized or domain} to WordPress domains list", "green"
+                )
             # Small delay to prevent overwhelming output
             time.sleep(0.1)
 

@@ -46,18 +46,34 @@ class AsteroidScanner:
 
     def vulns_to_db(self):
         """Insert vulnerabilities from the output JSON files into the database."""
+        inserted = 0
         for t in self.list_of_targets:
             target_name = urlparse(t).netloc
             target_dir = os.path.join(self.output_dir, target_name)
             vulns_file = os.path.join(target_dir, "vulns.json")
 
-            with open(vulns_file) as f:
-                vulns = json.load(f)
+            try:
+                with open(vulns_file) as f:
+                    vulns = json.load(f)
+            except FileNotFoundError:
+                logger.debug(f"Asteroid vulnerabilities file not found for {target_name}: {vulns_file}")
+                continue
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse Asteroid JSON for {target_name}: {e}")
+                continue
+            except Exception as e:
+                logger.error(f"Error reading Asteroid vulnerabilities for {target_name}: {e}")
+                continue
             for vuln in vulns:
-                vuln_obj = Vulnerability(**vuln)
+                try:
+                    vuln_obj = Vulnerability.from_dict(vuln)
+                except Exception as e:
+                    logger.error(f"Skipping malformed Asteroid finding for {target_name}: {e}")
+                    continue
                 insert_vulnerability_to_database(vuln_obj, self.org_name)
+                inserted += 1
         logger.info(
-            "Vulnerabilities found by Asteroid successfully inserted into the database."
+            f"Asteroid vulnerability ingestion finished. Inserted {inserted} records."
         )
 
     def normal(self):

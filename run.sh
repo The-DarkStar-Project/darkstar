@@ -14,6 +14,10 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
+# set -a 
+# source .env 
+# set +a
+
 ROOT_PASSWORD=$(grep ROOT_PASSWORD .env | cut -d '=' -f2)
 DB_HOST=$(grep DB_HOST .env | cut -d '=' -f2)
 DB_NAME=$(grep DB_NAME .env | cut -d '=' -f2)
