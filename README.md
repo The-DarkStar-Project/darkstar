@@ -43,3 +43,4 @@ We are very proud to be supported by [SIDN](https://www.sidnfonds.nl/)
 ## License
 This project is licensed under the GNU GPLv3 License. See the [LICENSE](./LICENSE) file for details.
 
+*Disclaimer* This project is still under development and there is no initial release yet so you might encounter bugs. We are working on it! 
