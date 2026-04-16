@@ -36,9 +36,11 @@ Docker Compose:
 - Orchestration
 
 ## Supported by:
-We are very proud to be supported by [SIDN](https://www.sidnfonds.nl/) 
+We are very proud to be supported by [SIDN](https://www.sidnfonds.nl/) & NLnet. 
 
 <img src="./logo_sidn.png" width="300" alt="SIDN Logo">
+<img src="./logo_nlnet.png" width="300" alt="NLnet Logo">
+
 
 ## License
 This project is licensed under the GNU GPLv3 License. See the [LICENSE](./LICENSE) file for details.
