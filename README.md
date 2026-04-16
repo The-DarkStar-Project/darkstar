@@ -36,7 +36,7 @@ Docker Compose:
 - Orchestration
 
 ## Supported by:
-We are very proud to be supported by [SIDN](https://www.sidnfonds.nl/) & NLnet. 
+We are very proud to be supported by [SIDN](https://www.sidnfonds.nl/) & [NLnet](https://nlnet.nl/). 
 
 <img src="./logo_sidn.png" width="300" alt="SIDN Logo">
 <img src="./logo_nlnet.png" width="300" alt="NLnet Logo">
