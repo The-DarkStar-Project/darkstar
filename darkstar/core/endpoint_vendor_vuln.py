@@ -669,12 +669,368 @@ def _match_redhat(software: list[dict[str, Any]], os_info: dict[str, Any]) -> li
     return findings
 
 
+MSRC_NS = {
+    "prod": "http://www.icasi.org/CVRF/schema/prod/1.1",
+    "vuln": "http://www.icasi.org/CVRF/schema/vuln/1.1",
+}
+
+
+def _msrc_severity(value: str | None) -> str:
+    severity = str(value or "").strip().lower()
+    if severity == "critical":
+        return "critical"
+    if severity in {"important", "high"}:
+        return "high"
+    if severity in {"moderate", "medium"}:
+        return "medium"
+    if severity == "low":
+        return "low"
+    return "info"
+
+
+def _msrc_child_text(element: ET.Element, child_name: str) -> str | None:
+    child = element.find(f"vuln:{child_name}", MSRC_NS)
+    if child is None:
+        return None
+    text = "".join(child.itertext()).strip()
+    return text or None
+
+
+def _msrc_product_ids(element: ET.Element) -> list[str]:
+    return [
+        str(child.text).strip()
+        for child in element.findall("vuln:ProductID", MSRC_NS)
+        if str(child.text or "").strip()
+    ]
+
+
+def _fetch_msrc_updates() -> list[dict[str, Any]]:
+    now = time.time()
+    if _MSRC_UPDATES_CACHE["data"] is not None and now - float(_MSRC_UPDATES_CACHE["loaded_at"]) < _cache_ttl():
+        return _MSRC_UPDATES_CACHE["data"]
+    response = requests.get(MSRC_UPDATES_URL, timeout=30)
+    response.raise_for_status()
+    payload = response.json()
+    rows = payload.get("value") if isinstance(payload, dict) else []
+    rows = rows if isinstance(rows, list) else []
+    _MSRC_UPDATES_CACHE.update({"loaded_at": now, "data": rows})
+    return rows
+
+
+def _parse_msrc_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _msrc_document_ids() -> list[str]:
+    lookback_months = max(1, min(int(os.environ.get("ENDPOINT_MSRC_LOOKBACK_MONTHS", "18")), 36))
+    max_docs = max(1, min(int(os.environ.get("ENDPOINT_MSRC_MAX_DOCS", str(lookback_months))), 36))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_months * 31)
+    try:
+        updates = _fetch_msrc_updates()
+    except Exception as exc:
+        logger.warning("MSRC update index lookup failed: %s", exc)
+        now = datetime.now(timezone.utc)
+        return [now.strftime("%Y-%b")]
+
+    selected: list[tuple[datetime, str]] = []
+    for row in updates:
+        doc_id = str(row.get("ID") or row.get("Alias") or "").strip()
+        if not re.fullmatch(r"\d{4}-[A-Z][a-z]{2}", doc_id):
+            continue
+        release_date = _parse_msrc_date(row.get("InitialReleaseDate")) or _parse_msrc_date(row.get("CurrentReleaseDate"))
+        if not release_date or release_date < cutoff:
+            continue
+        selected.append((release_date, doc_id))
+    selected.sort(reverse=True)
+    return [doc_id for _, doc_id in selected[:max_docs]]
+
+
+def _parse_msrc_document(doc_id: str, xml_text: str) -> list[dict[str, Any]]:
+    root = ET.fromstring(xml_text)
+    products = {
+        str(full.attrib.get("ProductID") or "").strip(): "".join(full.itertext()).strip()
+        for full in root.findall(".//prod:FullProductName", MSRC_NS)
+        if str(full.attrib.get("ProductID") or "").strip()
+    }
+    records: list[dict[str, Any]] = []
+    for vuln in root.findall(".//vuln:Vulnerability", MSRC_NS):
+        cve = _normalize_vuln_identifier(vuln.findtext("vuln:CVE", default="", namespaces=MSRC_NS))
+        if not cve:
+            continue
+        title = _strip_markup(vuln.findtext("vuln:Title", default="", namespaces=MSRC_NS))
+        description = ""
+        tags: list[str] = []
+        for note in vuln.findall("vuln:Notes/vuln:Note", MSRC_NS):
+            note_type = str(note.attrib.get("Type") or note.attrib.get("Title") or "").lower()
+            text = _strip_markup("".join(note.itertext()))
+            if note_type == "description" and not description:
+                description = text
+            elif note_type == "tag" and text:
+                tags.append(text)
+
+        affected_ids: set[str] = set()
+        for status in vuln.findall("vuln:ProductStatuses/vuln:Status", MSRC_NS):
+            if str(status.attrib.get("Type") or "").lower() == "known affected":
+                affected_ids.update(_msrc_product_ids(status))
+        if not affected_ids:
+            continue
+
+        severities: dict[str, str] = {}
+        impacts: dict[str, str] = {}
+        exploit_status = ""
+        for threat in vuln.findall("vuln:Threats/vuln:Threat", MSRC_NS):
+            threat_type = str(threat.attrib.get("Type") or "").lower()
+            description_text = _strip_markup(_msrc_child_text(threat, "Description"))
+            pids = _msrc_product_ids(threat) or list(affected_ids)
+            if threat_type == "severity":
+                for pid in pids:
+                    severities[pid] = description_text
+            elif threat_type == "impact":
+                for pid in pids:
+                    impacts[pid] = description_text
+            elif threat_type == "exploit status" and description_text:
+                exploit_status = description_text
+
+        cvss_by_pid: dict[str, float] = {}
+        for score_set in vuln.findall("vuln:CVSSScoreSets/vuln:ScoreSet", MSRC_NS):
+            score_text = _msrc_child_text(score_set, "BaseScore")
+            try:
+                score = float(score_text) if score_text else None
+            except ValueError:
+                score = None
+            if score is None:
+                continue
+            for pid in _msrc_product_ids(score_set) or list(affected_ids):
+                cvss_by_pid[pid] = score
+
+        remediations: dict[str, list[dict[str, Any]]] = {pid: [] for pid in affected_ids}
+        for remediation in vuln.findall("vuln:Remediations/vuln:Remediation", MSRC_NS):
+            rem_type = str(remediation.attrib.get("Type") or "").strip()
+            if rem_type.lower() not in {"vendor fix", "known issue", "release notes"}:
+                continue
+            pids = [pid for pid in _msrc_product_ids(remediation) if pid in affected_ids]
+            if not pids:
+                continue
+            row = {
+                "type": rem_type,
+                "description": _strip_markup(_msrc_child_text(remediation, "Description")),
+                "url": _msrc_child_text(remediation, "URL"),
+                "fixed_build": _strip_markup(_msrc_child_text(remediation, "FixedBuild")),
+                "subtype": _strip_markup(_msrc_child_text(remediation, "SubType")),
+                "supercedence": _strip_markup(_msrc_child_text(remediation, "Supercedence")),
+                "restart_required": _strip_markup(_msrc_child_text(remediation, "RestartRequired")),
+            }
+            for pid in pids:
+                remediations.setdefault(pid, []).append(row)
+
+        for pid in affected_ids:
+            product_name = products.get(pid)
+            if not product_name:
+                continue
+            records.append({
+                "doc_id": doc_id,
+                "product_id": pid,
+                "product_name": product_name,
+                "cve": cve,
+                "title": title,
+                "summary": description or title or f"{cve} affects {product_name}",
+                "severity": _msrc_severity(severities.get(pid)),
+                "impact": impacts.get(pid),
+                "cvss": cvss_by_pid.get(pid),
+                "exploit_status": exploit_status,
+                "tags": tags,
+                "remediations": remediations.get(pid) or [],
+            })
+    return records
+
+
+def _fetch_msrc_records() -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    now = time.time()
+    for doc_id in _msrc_document_ids():
+        cached = _MSRC_DOC_CACHE.get(doc_id)
+        if cached and now - cached[0] < _cache_ttl():
+            records.extend(cached[1])
+            continue
+        try:
+            response = requests.get(MSRC_CVRF_URL.format(doc_id=doc_id), timeout=60)
+            response.raise_for_status()
+            parsed = _parse_msrc_document(doc_id, response.text)
+            _MSRC_DOC_CACHE[doc_id] = (now, parsed)
+            records.extend(parsed)
+        except Exception as exc:
+            logger.warning("MSRC CVRF lookup failed for %s: %s", doc_id, exc)
+    return records
+
+
+def _msrc_vendor_fixes(record: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        remediation for remediation in record.get("remediations") or []
+        if str(remediation.get("type") or "").lower() == "vendor fix"
+    ]
+
+
+def _msrc_kb_ids(remediations: list[dict[str, Any]]) -> set[str]:
+    kbs: set[str] = set()
+    for remediation in remediations:
+        for field in ("description", "url"):
+            for match in re.findall(r"KB?\s*(\d{5,8})", str(remediation.get(field) or ""), flags=re.IGNORECASE):
+                kbs.add(match)
+    return kbs
+
+
+def _best_fixed_build(remediations: list[dict[str, Any]]) -> str | None:
+    normal_builds = [
+        str(remediation.get("fixed_build") or "")
+        for remediation in remediations
+        if _version_like(remediation.get("fixed_build"))
+        and "hotpatch" not in str(remediation.get("subtype") or "").lower()
+    ]
+    if normal_builds:
+        return _max_version(normal_builds)
+    return _max_version([
+        str(remediation.get("fixed_build") or "")
+        for remediation in remediations
+        if _version_like(remediation.get("fixed_build"))
+    ])
+
+
+def _microsoft_publisher(item: dict[str, Any]) -> bool:
+    vendor = str(item.get("vendor") or "").lower()
+    raw = _load_json_field(item)
+    publisher = str(raw.get("publisher") or raw.get("Publisher") or "").lower()
+    name = str(item.get("name") or "").lower()
+    return "microsoft" in vendor or "microsoft" in publisher or name.startswith(("microsoft ", ".net", "dotnet"))
+
+
+def _msrc_windows_app_match(product_name: str, item: dict[str, Any]) -> bool:
+    product = product_name.lower()
+    name = str(item.get("name") or "").lower()
+    version = str(item.get("version") or "")
+    if not _microsoft_publisher(item):
+        return False
+    if any(marker in product for marker in (" for ios", " for android", " for mac", " on mac")):
+        return False
+    if product.startswith(".net ") and "installed on windows" in product:
+        match = re.search(r"\.net\s+(\d+\.\d+)", product)
+        return bool(match and (".net" in name or "dotnet" in name) and version.startswith(match.group(1)))
+    if "microsoft visual studio" in product:
+        product_match = re.search(r"visual studio\s+(20\d{2})\s+version\s+(\d+(?:\.\d+)?)", product)
+        if not product_match:
+            return False
+        year, product_version = product_match.groups()
+        return "visual studio" in name and year in name and version.startswith(product_version)
+    if product.startswith("microsoft edge"):
+        return "microsoft edge" in name
+    return False
+
+
+def _match_windows_msrc(software: list[dict[str, Any]], os_info: dict[str, Any]) -> list[dict[str, Any]]:
+    if not _is_windows_os(os_info):
+        return []
+    try:
+        records = _fetch_msrc_records()
+    except Exception as exc:
+        logger.warning("MSRC matcher failed: %s", exc)
+        return []
+
+    findings: list[dict[str, Any]] = []
+    os_item = _windows_os_inventory_item(software, os_info)
+    installed_build = _windows_build(os_info)
+    installed_kbs = _installed_windows_kbs(software)
+    for record in records:
+        product_name = str(record.get("product_name") or "")
+        vendor_fixes = _msrc_vendor_fixes(record)
+        fixed_build = _best_fixed_build(vendor_fixes)
+        if os_item and fixed_build and _windows_system_product_match(product_name, os_info):
+            kb_ids = _msrc_kb_ids(vendor_fixes)
+            if installed_kbs.intersection(kb_ids):
+                continue
+            if not installed_build or not _version_lt(installed_build, fixed_build):
+                continue
+            findings.append({
+                "software_key": os_item["software_key"],
+                "cve": record["cve"],
+                "source": "MSRC",
+                "severity": record.get("severity"),
+                "cvss": record.get("cvss"),
+                "summary": record.get("summary"),
+                "fixed_version": fixed_build,
+                "affected_version": installed_build,
+                "purl": os_item.get("purl"),
+                "confidence": 96,
+                "evidence": {
+                    "matcher": "msrc_windows_product_fixed_build",
+                    "doc_id": record.get("doc_id"),
+                    "product_id": record.get("product_id"),
+                    "product_name": product_name,
+                    "installed_build": installed_build,
+                    "fixed_build": fixed_build,
+                    "kb_ids": sorted(kb_ids),
+                    "installed_kb_match": sorted(installed_kbs.intersection(kb_ids)),
+                    "impact": record.get("impact"),
+                    "exploit_status": record.get("exploit_status"),
+                    "tags": record.get("tags") or [],
+                    "api": "MSRC CVRF API",
+                },
+            })
+
+        if not vendor_fixes:
+            continue
+        app_fixed = _best_fixed_build(vendor_fixes)
+        if not app_fixed:
+            continue
+        for item in software or []:
+            if str(item.get("package_type") or "").lower() != "windows_program":
+                continue
+            installed_version = str(item.get("version") or "")
+            if not installed_version or not _version_like(installed_version):
+                continue
+            if not _msrc_windows_app_match(product_name, item):
+                continue
+            if not _version_lt(installed_version, app_fixed):
+                continue
+            findings.append({
+                "software_key": item["software_key"],
+                "cve": record["cve"],
+                "source": "MSRC",
+                "severity": record.get("severity"),
+                "cvss": record.get("cvss"),
+                "summary": record.get("summary"),
+                "fixed_version": app_fixed,
+                "affected_version": installed_version,
+                "purl": item.get("purl"),
+                "confidence": 90,
+                "evidence": {
+                    "matcher": "msrc_windows_app_fixed_build",
+                    "doc_id": record.get("doc_id"),
+                    "product_id": record.get("product_id"),
+                    "product_name": product_name,
+                    "software_name": item.get("name"),
+                    "installed_version": installed_version,
+                    "fixed_build": app_fixed,
+                    "kb_ids": sorted(_msrc_kb_ids(vendor_fixes)),
+                    "impact": record.get("impact"),
+                    "exploit_status": record.get("exploit_status"),
+                    "tags": record.get("tags") or [],
+                    "api": "MSRC CVRF API",
+                },
+            })
+    return findings
+
+
 def match_vendor_vulnerabilities(software: list[dict[str, Any]], os_info: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     os_info = os_info or {}
     findings: list[dict[str, Any]] = []
     findings.extend(_match_debian(software, os_info))
     findings.extend(_match_ubuntu(software, os_info))
     findings.extend(_match_redhat(software, os_info))
+    findings.extend(_match_windows_msrc(software, os_info))
 
     deduped = {}
     for finding in findings:
