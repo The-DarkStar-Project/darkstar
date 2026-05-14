@@ -1,9 +1,11 @@
 import base64
+import hashlib
 
 import pytest
 from fastapi import HTTPException
 
 from darkstar import webapp
+from darkstar.core import db_helper
 
 
 pytestmark = pytest.mark.unit
@@ -72,6 +74,17 @@ def test_totp_verification_accepts_current_and_adjacent_windows(monkeypatch):
     assert webapp._verify_totp(secret, code) is True
     assert webapp._verify_totp(secret, "000000") is False
     assert webapp._verify_totp(None, code) is False
+
+
+def test_api_token_hash_uses_keyed_digest(monkeypatch):
+    monkeypatch.setenv("DARKSTAR_TOKEN_HASH_SECRET", "pepper-a")
+    digest_a = db_helper._hash_api_key("dstar_test_token")
+    monkeypatch.setenv("DARKSTAR_TOKEN_HASH_SECRET", "pepper-b")
+    digest_b = db_helper._hash_api_key("dstar_test_token")
+
+    assert digest_a != hashlib.sha256(b"dstar_test_token").hexdigest()
+    assert digest_a != digest_b
+    assert len(digest_a) == 64
 
 
 def test_endpoint_os_info_from_agent_prefers_agent_columns_over_metadata():

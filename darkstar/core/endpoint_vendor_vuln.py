@@ -158,8 +158,20 @@ def _major_version(os_info: dict[str, Any]) -> str:
 
 
 def _strip_markup(value: str | None) -> str:
-    text = re.sub(r"<[^>]+>", " ", str(value or ""))
-    return re.sub(r"\s+", " ", text).strip()
+    output: list[str] = []
+    in_tag = False
+    for character in str(value or ""):
+        if character == "<":
+            in_tag = True
+            output.append(" ")
+            continue
+        if character == ">":
+            in_tag = False
+            output.append(" ")
+            continue
+        if not in_tag:
+            output.append(character)
+    return " ".join("".join(output).split())
 
 
 def _numeric_version_parts(value: str | None) -> tuple[int, ...]:

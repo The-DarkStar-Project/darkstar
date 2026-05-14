@@ -992,16 +992,16 @@ class TestIntegration:
             f"{Fore.GREEN}Found credentials for {Fore.YELLOW}192.168.1.1:21 (ftp):{Style.RESET_ALL}"
         )
         mock_logger.info.assert_any_call(
-            f"{Fore.GREEN}    Username: {Fore.CYAN}admin{Fore.GREEN} Password: {Fore.CYAN}123456{Style.RESET_ALL}"
+            f"{Fore.GREEN}    Username: {Fore.CYAN}admin{Fore.GREEN} Password: {Fore.CYAN}<redacted>{Style.RESET_ALL}"
         )
         mock_logger.info.assert_any_call(
-            f"{Fore.GREEN}    Username: {Fore.CYAN}user{Fore.GREEN} Password: {Fore.CYAN}password{Style.RESET_ALL}"
+            f"{Fore.GREEN}    Username: {Fore.CYAN}user{Fore.GREEN} Password: {Fore.CYAN}<redacted>{Style.RESET_ALL}"
         )
         mock_logger.info.assert_any_call(
             f"{Fore.GREEN}Found credentials for {Fore.YELLOW}192.168.1.2:22 (ssh):{Style.RESET_ALL}"
         )
         mock_logger.info.assert_any_call(
-            f"{Fore.GREEN}    Username: {Fore.CYAN}root{Fore.GREEN} Password: {Fore.CYAN}toor{Style.RESET_ALL}"
+            f"{Fore.GREEN}    Username: {Fore.CYAN}root{Fore.GREEN} Password: {Fore.CYAN}<redacted>{Style.RESET_ALL}"
         )
         mock_logger.info.assert_any_call(
             f"{Fore.GREEN}Bruteforce attacks completed on 2 targets"
@@ -1046,10 +1046,10 @@ class TestIntegration:
             f"{Fore.GREEN}Found credentials for {Fore.YELLOW}192.168.1.1:161 (snmp):{Style.RESET_ALL}"
         )
         mock_logger.info.assert_any_call(
-            f"{Fore.GREEN}    Community string: {Fore.CYAN}public{Style.RESET_ALL}"
+            f"{Fore.GREEN}    Community string: {Fore.CYAN}<redacted>{Style.RESET_ALL}"
         )
         mock_logger.info.assert_any_call(
-            f"{Fore.GREEN}    Community string: {Fore.CYAN}private{Style.RESET_ALL}"
+            f"{Fore.GREEN}    Community string: {Fore.CYAN}<redacted>{Style.RESET_ALL}"
         )
 
     def test_process_bruteforce_results_mixed_success_failure(
@@ -1176,5 +1176,5 @@ class TestIntegration:
             f"{Fore.GREEN}Found credentials for {Fore.YELLOW}192.168.1.1:21 (ftp):{Style.RESET_ALL}"
         )
         mock_logger.info.assert_any_call(
-            f"{Fore.GREEN}    Community string: {Fore.CYAN}123456{Style.RESET_ALL}"
+            f"{Fore.GREEN}    Community string: {Fore.CYAN}<redacted>{Style.RESET_ALL}"
         )

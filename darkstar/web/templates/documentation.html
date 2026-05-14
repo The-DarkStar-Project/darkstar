@@ -286,7 +286,12 @@ docker compose --profile darkstar up -d --build</code></pre>
   --url http://darkstar-web:8080 \
   --network darkstar_vuln_net \
   --max-parallel-jobs 2</code></pre>
-                <p>Zet de token en worker instellingen in `.env`:</p>
+                <p>
+                    De CLI schrijft de scanner token en worker instellingen naar een beschermd env bestand
+                    (<code>0600</code>) en toont een <code>docker run --env-file ...</code> command.
+                    Kopieer tokens alleen naar de worker host of een secret manager. Voor een lokale Compose
+                    worker zet je dezelfde waarden in <code>.env</code>:
+                </p>
                 <pre><code>DARKSTAR_ORCHESTRATOR_URL='http://darkstar-web:8080'
 DARKSTAR_SCANNER_TOKEN='dscan_...'
 DARKSTAR_SCANNER_NAME='local-scanner'

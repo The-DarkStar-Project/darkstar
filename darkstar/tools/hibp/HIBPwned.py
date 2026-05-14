@@ -17,7 +17,7 @@ PAGE_NOT_FOUND = 404
 # ? Too many calls
 TOO_MANY_CALLS = 429
 
-# If true we scan for password leaks
+# If true we scan for credential leak records
 PASSWORD_SCANNING = True
 
 """
@@ -93,7 +93,7 @@ class HIBPwned:
 
         total_emails = len(self.emails)
         breached_count = 0
-        password_count = 0
+        credential_leak_count = 0
 
         for index, email in enumerate(self.emails):
             email = email.strip()
@@ -139,10 +139,10 @@ class HIBPwned:
                     )
                     break
 
-            # If we are scanning for passwords
+            # If we are scanning for credential leak records.
             if PASSWORD_SCANNING:
                 print(
-                    f"{Fore.BLUE}[*] Checking for password leaks: {email}{Style.RESET_ALL}"
+                    f"{Fore.BLUE}[*] Checking credential leak records: {email}{Style.RESET_ALL}"
                 )
                 attempts = 0
                 while attempts < max_attempts:
@@ -150,30 +150,30 @@ class HIBPwned:
                     # Get the response from the Proxynova API
                     response = api.get_proxynova_request(email)
                     if response.status_code == SUCCES:
-                        passwords = find_breaches.find_passwords(
+                        leak_records = find_breaches.find_passwords(
                             email, response.text.splitlines()
                         )
-                        if passwords:
-                            password_count += len(passwords)
+                        if leak_records:
+                            credential_leak_count += len(leak_records)
                             print(
-                                f"{Fore.RED}[!] Found {len(passwords)} leaked passwords for {email}{Style.RESET_ALL}"
+                                f"{Fore.RED}[!] Found {len(leak_records)} credential leak records for {email}{Style.RESET_ALL}"
                             )
                             # ? Insert to the password_leaks table
-                            insert_password_data(passwords, self.org_name)
+                            insert_password_data(leak_records, self.org_name)
                         else:
                             print(
-                                f"{Fore.GREEN}[✓] No password leaks found for {email}{Style.RESET_ALL}"
+                                f"{Fore.GREEN}[✓] No credential leak records found for {email}{Style.RESET_ALL}"
                             )
                         break
                     elif response.status_code == TOO_MANY_CALLS:
                         x = random.randint(6, 20)
                         print(
-                            f"{Fore.YELLOW}[!] Password API rate limited. Attempt {attempts}/{max_attempts} - Sleeping for {x} seconds{Style.RESET_ALL}"
+                            f"{Fore.YELLOW}[!] Credential leak API rate limited. Attempt {attempts}/{max_attempts} - Sleeping for {x} seconds{Style.RESET_ALL}"
                         )
                         time.sleep(x)
                     else:
                         print(
-                            f"{Fore.RED}[!] Error checking passwords: HTTP {response.status_code}{Style.RESET_ALL}"
+                            f"{Fore.RED}[!] Error checking credential leak records: HTTP {response.status_code}{Style.RESET_ALL}"
                         )
                         break
 
@@ -186,6 +186,6 @@ class HIBPwned:
         )
         if PASSWORD_SCANNING:
             print(
-                f"{Fore.RED}[*] Total password leaks found: {password_count}{Style.RESET_ALL}"
+                f"{Fore.RED}[*] Total credential leak records found: {credential_leak_count}{Style.RESET_ALL}"
             )
         print(f"{Fore.BLUE}{'=' * 50}{Style.RESET_ALL}")

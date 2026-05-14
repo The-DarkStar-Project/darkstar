@@ -1,8 +1,9 @@
+import stat
 import sys
 
 import pytest
 
-from darkstar.scanner_attach import _attach_command
+from darkstar.scanner_attach import _attach_command, _scanner_env, _write_env_file
 from darkstar.scanner_worker import ScannerWorker, _split_capabilities
 
 
@@ -100,7 +101,26 @@ def test_attach_command_includes_network_and_database_env(monkeypatch):
 
     assert "--network darkstar_vuln_net" in command
     assert "--name darkstar-scanner-node-123" in command
-    assert "DARKSTAR_ORCHESTRATOR_URL='http://darkstar.local:8080'" in command
-    assert "DARKSTAR_WORKER_MAX_PARALLEL='2'" in command
+    assert "DARKSTAR_ORCHESTRATOR_URL=http://darkstar.local:8080" in command
+    assert "DARKSTAR_WORKER_MAX_PARALLEL=2" in command
     assert "DB_PASSWORD=''" in command
     assert command.endswith("darkstar:test python3 -m darkstar.scanner_worker")
+
+
+def test_attach_command_can_reference_secret_env_file_without_printing_secrets(tmp_path):
+    node = {"node_id": "node-123", "token": "dscan_secret", "name": "office", "max_parallel_jobs": 2}
+    env_path = tmp_path / "scanner.env"
+
+    written_path = _write_env_file(env_path, _scanner_env(node, "http://darkstar.local:8080/"))
+    command = _attach_command(
+        node,
+        orchestrator_url="http://darkstar.local:8080/",
+        image="darkstar:test",
+        network="darkstar_vuln_net",
+        env_file=written_path,
+    )
+
+    assert f"--env-file {written_path}" in command
+    assert "dscan_secret" not in command
+    assert "DARKSTAR_SCANNER_TOKEN=dscan_secret" in written_path.read_text()
+    assert stat.S_IMODE(written_path.stat().st_mode) == 0o600

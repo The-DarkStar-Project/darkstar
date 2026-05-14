@@ -40,15 +40,17 @@ docker compose exec darkstar-web python3 -m darkstar.scanner_attach create \
   --network darkstar_vuln_net
 ```
 
-The token is shown once. Revoking the scanner node invalidates it.
+The scanner token is written to a `0600` env file and the printed `docker run`
+command references that file with `--env-file`. Do not paste the token into
+logs or tickets. Revoking the scanner node invalidates it.
 
 ## Start A Local Worker
 
+Copy the generated env file values into the worker host's protected `.env`
+or use the printed `docker run --env-file ...` command on the host where the
+scanner container will run.
+
 ```bash
-DARKSTAR_SCANNER_TOKEN='dscan_...' \
-DARKSTAR_ORCHESTRATOR_URL='http://darkstar-web:8080' \
-DARKSTAR_SCANNER_NAME='local-scanner' \
-DARKSTAR_WORKER_MAX_PARALLEL=2 \
 docker compose --profile scanner up -d darkstar-scanner
 ```
 

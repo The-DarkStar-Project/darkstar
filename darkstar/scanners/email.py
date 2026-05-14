@@ -800,11 +800,11 @@ class MailSecurityScanner:
         
         try:
             context = ssl.create_default_context()
-            sock = socket.create_connection((hostname, port), timeout=10)
-            ssock = context.wrap_socket(sock, server_hostname=hostname)
-            
-            # Get certificate info
-            cert = ssock.getpeercert()
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            with socket.create_connection((hostname, port), timeout=10) as sock:
+                with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+                    # Get certificate info
+                    cert = ssock.getpeercert()
             
             # Check if certificate is valid (not expired)
             not_after = datetime.strptime(cert['notAfter'], '%b %d %H:%M:%S %Y %Z')
@@ -814,9 +814,6 @@ class MailSecurityScanner:
                     f'SSL certificate for {hostname} is expired (expired: {cert["notAfter"]})',
                     'Install a valid SSL certificate for the MTA-STS subdomain'
                 )
-            
-            ssock.close()
-            
         except ssl.SSLError as e:
             self.log_vulnerability(
                 self.domain, 'baseline', 'MTA_STS_SSL_ERROR',

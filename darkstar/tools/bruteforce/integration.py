@@ -245,7 +245,7 @@ def process_bruteforce_results(bruteforce_results):
 
                         logger.info(
                             f"{Fore.GREEN}    Username: {Fore.CYAN}{cred['username']}{Fore.GREEN} "
-                            f"Password: {Fore.CYAN}{cred['password']}{Style.RESET_ALL}"
+                            f"Password: {Fore.CYAN}<redacted>{Style.RESET_ALL}"
                         )
                     elif "password" in cred:  # SNMP case
                         credential = {
@@ -256,7 +256,7 @@ def process_bruteforce_results(bruteforce_results):
                         processed_results["credentials_by_host"][ip].append(credential)
 
                         logger.info(
-                            f"{Fore.GREEN}    Community string: {Fore.CYAN}{cred['password']}{Style.RESET_ALL}"
+                            f"{Fore.GREEN}    Community string: {Fore.CYAN}<redacted>{Style.RESET_ALL}"
                         )
 
     if not processed_results["credentials_found"]:

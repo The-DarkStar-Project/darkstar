@@ -11,6 +11,7 @@ import os
 import json
 import re
 import hashlib
+import hmac
 import secrets
 from html import escape
 import pandas as pd
@@ -1489,8 +1490,8 @@ def get_vulnerability_stats(org_name: str) -> dict:
                 scheduled_scans = 0
 
             cursor.close()
-    except Exception as e:
-        logger.warning(f"Error getting stats for org {org_name}: {e}")
+    except Exception:
+        logger.warning("Error getting vulnerability stats for organization")
         # Return empty stats on error - will be retried on next poll
         pass
 
@@ -3061,8 +3062,18 @@ def mark_organization_login(org_db_name: str):
 
 
 def _hash_api_key(api_key: str) -> str:
-    """Hash API tokens before storage."""
-    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+    """Return a keyed digest for API-style bearer tokens before storage."""
+    secret = (
+        os.environ.get("DARKSTAR_TOKEN_HASH_SECRET")
+        or os.environ.get("WEB_SESSION_SECRET")
+        or os.environ.get("DB_PASSWORD")
+        or "darkstar-dev-token-hash-secret"
+    )
+    return hmac.new(
+        secret.encode("utf-8"),
+        api_key.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def create_api_key(org_db_name: str, name: str, role: str = "tenant_admin") -> dict:
@@ -3136,20 +3147,22 @@ def authenticate_api_key(api_key: str) -> dict | None:
         connection.commit()
         cursor.execute(
             """
-            SELECT k.id, k.org_db_name, k.role, o.org_name
+            SELECT k.id, k.org_db_name, k.role, k.key_hash, o.org_name
             FROM api_keys k
             JOIN organizations o ON o.org_db_name = k.org_db_name
-            WHERE k.key_hash = %s AND k.revoked_at IS NULL
+            WHERE (k.key_hash = %s OR k.key_hash = SHA2(%s, 256))
+              AND k.revoked_at IS NULL
             """,
-            (digest,),
+            (digest, api_key),
         )
         row = cursor.fetchone()
         if row:
             cursor.execute(
-                "UPDATE api_keys SET last_used_at = %s WHERE id = %s",
-                (datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), row["id"]),
+                "UPDATE api_keys SET last_used_at = %s, key_hash = %s WHERE id = %s",
+                (datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), digest, row["id"]),
             )
             connection.commit()
+            row.pop("key_hash", None)
         cursor.close()
         return row
 
@@ -3336,17 +3349,26 @@ def delete_endpoint_agent(org_name: str, agent_id: str) -> bool:
 
 def _get_valid_endpoint_enrollment(cursor, token: str) -> dict | None:
     now = _utcnow()
+    digest = _hash_api_key(token)
     cursor.execute(
         """
-        SELECT id, name
+        SELECT id, name, token_hash
         FROM endpoint_enrollment_tokens
-        WHERE token_hash = %s
+        WHERE (token_hash = %s OR token_hash = SHA2(%s, 256))
           AND revoked_at IS NULL
           AND (expires_at IS NULL OR expires_at >= %s)
         """,
-        (_hash_api_key(token), now),
+        (digest, token, now),
     )
-    return cursor.fetchone()
+    row = cursor.fetchone()
+    if row and row.get("token_hash") != digest:
+        cursor.execute(
+            "UPDATE endpoint_enrollment_tokens SET token_hash = %s WHERE id = %s",
+            (digest, row["id"]),
+        )
+    if row:
+        row.pop("token_hash", None)
+    return row
 
 
 def register_endpoint_agent(
@@ -3426,22 +3448,29 @@ def authenticate_endpoint_agent(agent_token: str) -> dict | None:
                 _use_org_database(cursor, org_db)
                 cursor.execute(
                     """
-                    SELECT agent_id, hostname, status
+                    SELECT agent_id, hostname, status, token_hash
                     FROM endpoint_agents
-                    WHERE token_hash = %s
+                    WHERE (token_hash = %s OR token_hash = SHA2(%s, 256))
                       AND revoked_at IS NULL
                       AND status <> 'revoked'
                     """,
-                    (digest,),
+                    (digest, agent_token),
                 )
                 row = cursor.fetchone()
                 if row:
                     cursor.execute(
-                        "UPDATE endpoint_agents SET last_seen_at = %s, status = 'online' WHERE agent_id = %s",
-                        (_utcnow(), row["agent_id"]),
+                        """
+                        UPDATE endpoint_agents
+                        SET last_seen_at = %s,
+                            status = 'online',
+                            token_hash = %s
+                        WHERE agent_id = %s
+                        """,
+                        (_utcnow(), digest, row["agent_id"]),
                     )
                     connection.commit()
                     cursor.close()
+                    row.pop("token_hash", None)
                     row["org_db"] = org_db
                     return row
                 cursor.close()
@@ -4175,15 +4204,23 @@ def authenticate_scanner_node(token: str) -> dict | None:
         connection.commit()
         cursor.execute(
             """
-            SELECT id, node_id, name, capabilities, max_parallel_jobs, status
+            SELECT id, node_id, name, capabilities, max_parallel_jobs, status, token_hash
             FROM scanner_nodes
-            WHERE token_hash = %s AND revoked_at IS NULL
+            WHERE (token_hash = %s OR token_hash = SHA2(%s, 256))
+              AND revoked_at IS NULL
             """,
-            (digest,),
+            (digest, token),
         )
         row = cursor.fetchone()
+        if row and row.get("token_hash") != digest:
+            cursor.execute(
+                "UPDATE scanner_nodes SET token_hash = %s WHERE id = %s",
+                (digest, row["id"]),
+            )
+            connection.commit()
         cursor.close()
     if row:
+        row.pop("token_hash", None)
         row["capabilities"] = _normalize_capabilities(row.get("capabilities"))
     return row
 

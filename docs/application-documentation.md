@@ -246,7 +246,11 @@ docker compose exec darkstar-web python3 -m darkstar.scanner_attach create \
   --max-parallel-jobs 2
 ```
 
-Zet daarna in `.env`:
+De CLI schrijft de scanner token en worker instellingen naar een beschermd env
+bestand (`0600`) en toont een `docker run --env-file ...` command. Kopieer de
+waarden alleen naar de worker host of naar een secret manager; plak tokens niet
+in logs of tickets. Voor een lokale Compose worker zet je dezelfde waarden in
+de lokale `.env`:
 
 ```bash
 DARKSTAR_ORCHESTRATOR_URL='http://darkstar-web:8080'
