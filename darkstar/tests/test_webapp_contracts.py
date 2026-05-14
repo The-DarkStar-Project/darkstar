@@ -87,6 +87,15 @@ def test_api_token_hash_uses_keyed_digest(monkeypatch):
     assert len(digest_a) == 64
 
 
+def test_network_hash_key_is_stable_and_bounded():
+    key_a = db_helper._network_hash_key("seg", " 10.0.0.0/24 ", "ETH0", "10.0.0.2")
+    key_b = db_helper._network_hash_key("seg", "10.0.0.0/24", "eth0", "10.0.0.2")
+
+    assert key_a == key_b
+    assert key_a.startswith("seg_")
+    assert len(key_a) == 36
+
+
 def test_endpoint_os_info_from_agent_prefers_agent_columns_over_metadata():
     agent = {
         "os_platform": "windows",

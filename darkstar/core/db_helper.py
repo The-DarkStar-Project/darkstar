@@ -3694,7 +3694,12 @@ def _json_dumps(value) -> str:
 
 def _network_hash_key(prefix: str, *parts) -> str:
     payload = "|".join(str(part or "").strip().lower() for part in parts)
-    return f"{prefix}_{hashlib.sha1(payload.encode('utf-8')).hexdigest()[:32]}"
+    digest = hashlib.blake2b(
+        payload.encode("utf-8"),
+        digest_size=16,
+        person=b"darkstar-net-key",
+    ).hexdigest()
+    return f"{prefix}_{digest}"
 
 
 def _clean_ip(value: str | None) -> str | None:
