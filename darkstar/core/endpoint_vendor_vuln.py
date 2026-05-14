@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import time
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -849,22 +850,32 @@ def _parse_msrc_document(doc_id: str, xml_text: str) -> list[dict[str, Any]]:
     return records
 
 
-def _fetch_msrc_records() -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
+def _fetch_one_msrc_document(doc_id: str) -> list[dict[str, Any]]:
     now = time.time()
-    for doc_id in _msrc_document_ids():
-        cached = _MSRC_DOC_CACHE.get(doc_id)
-        if cached and now - cached[0] < _cache_ttl():
-            records.extend(cached[1])
-            continue
-        try:
-            response = requests.get(MSRC_CVRF_URL.format(doc_id=doc_id), timeout=60)
-            response.raise_for_status()
-            parsed = _parse_msrc_document(doc_id, response.text)
-            _MSRC_DOC_CACHE[doc_id] = (now, parsed)
-            records.extend(parsed)
-        except Exception as exc:
-            logger.warning("MSRC CVRF lookup failed for %s: %s", doc_id, exc)
+    cached = _MSRC_DOC_CACHE.get(doc_id)
+    if cached and now - cached[0] < _cache_ttl():
+        return cached[1]
+    response = requests.get(MSRC_CVRF_URL.format(doc_id=doc_id), timeout=60)
+    response.raise_for_status()
+    parsed = _parse_msrc_document(doc_id, response.text)
+    _MSRC_DOC_CACHE[doc_id] = (now, parsed)
+    return parsed
+
+
+def _fetch_msrc_records() -> list[dict[str, Any]]:
+    doc_ids = _msrc_document_ids()
+    if not doc_ids:
+        return []
+    records: list[dict[str, Any]] = []
+    workers = max(1, min(int(os.environ.get("ENDPOINT_MSRC_FETCH_WORKERS", "6")), 12))
+    with ThreadPoolExecutor(max_workers=min(workers, len(doc_ids))) as executor:
+        future_map = {executor.submit(_fetch_one_msrc_document, doc_id): doc_id for doc_id in doc_ids}
+        for future in as_completed(future_map):
+            doc_id = future_map[future]
+            try:
+                records.extend(future.result())
+            except Exception as exc:
+                logger.warning("MSRC CVRF lookup failed for %s: %s", doc_id, exc)
     return records
 
 
