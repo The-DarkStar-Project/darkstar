@@ -179,7 +179,13 @@ def _numeric_version_parts(value: str | None) -> tuple[int, ...]:
 
 
 def _version_like(value: str | None) -> bool:
-    return bool(re.fullmatch(r"\d+(?:\.\d+){1,5}", str(value or "").strip()))
+    text = str(value or "").strip()
+    if len(text) > 128:
+        return False
+    parts = text.split(".")
+    if not 2 <= len(parts) <= 6:
+        return False
+    return all(part.isdigit() for part in parts)
 
 
 def _version_lt(left: str | None, right: str | None) -> bool:

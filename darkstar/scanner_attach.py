@@ -71,6 +71,24 @@ def _attach_command(
     )
 
 
+def _env_file_attach_command(
+    node_id: str,
+    image: str,
+    network: str | None,
+    env_file: str | os.PathLike[str],
+) -> str:
+    network_arg = f"--network {shlex.quote(network)} " if network else ""
+    container_name = f"darkstar-scanner-{node_id}"
+    return (
+        "docker run -d "
+        f"--name {shlex.quote(container_name)} "
+        "--restart unless-stopped "
+        f"{network_arg}"
+        f"--env-file {shlex.quote(str(env_file))} "
+        f"{shlex.quote(image)} python3 -m darkstar.scanner_worker"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Create Darkstar scanner attach tokens")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -93,12 +111,7 @@ def main() -> int:
         print(f"Scanner node: {node['node_id']}")
         print(f"Secret env file: {env_path} (mode 0600)")
         print()
-        command_node = {
-            "node_id": node["node_id"],
-            "name": node["name"],
-            "max_parallel_jobs": node["max_parallel_jobs"],
-        }
-        command = _attach_command(command_node, args.url, args.image, args.network, env_file=env_path)
+        command = _env_file_attach_command(node["node_id"], args.image, args.network, env_path)
         print(command)
     return 0
 

@@ -11,7 +11,6 @@ import os
 import json
 import re
 import hashlib
-import hmac
 import secrets
 from html import escape
 import pandas as pd
@@ -3062,18 +3061,19 @@ def mark_organization_login(org_db_name: str):
 
 
 def _hash_api_key(api_key: str) -> str:
-    """Return a keyed digest for API-style bearer tokens before storage."""
+    """Return a slow keyed digest for API-style bearer tokens before storage."""
     secret = (
         os.environ.get("DARKSTAR_TOKEN_HASH_SECRET")
         or os.environ.get("WEB_SESSION_SECRET")
         or os.environ.get("DB_PASSWORD")
         or "darkstar-dev-token-hash-secret"
     )
-    return hmac.new(
-        secret.encode("utf-8"),
+    return hashlib.pbkdf2_hmac(
+        "sha256",
         api_key.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
+        secret.encode("utf-8"),
+        210_000,
+    ).hex()
 
 
 def create_api_key(org_db_name: str, name: str, role: str = "tenant_admin") -> dict:

@@ -63,6 +63,13 @@ def test_cvss3_vector_score_handles_common_high_vector():
     assert _cvss3_vector_score("not-a-vector") is None
 
 
+def test_vendor_version_like_rejects_unbounded_numeric_input():
+    assert vendor._version_like("10.0.22631.4000")
+    assert not vendor._version_like("0" * 129)
+    assert not vendor._version_like("1.2.3.4.5.6.7")
+    assert not vendor._version_like("1.two")
+
+
 def test_windows_build_and_release_detection():
     os_info = {
         "platform": "windows",

@@ -3,7 +3,12 @@ import sys
 
 import pytest
 
-from darkstar.scanner_attach import _attach_command, _scanner_env, _write_env_file
+from darkstar.scanner_attach import (
+    _attach_command,
+    _env_file_attach_command,
+    _scanner_env,
+    _write_env_file,
+)
 from darkstar.scanner_worker import ScannerWorker, _split_capabilities
 
 
@@ -112,9 +117,8 @@ def test_attach_command_can_reference_secret_env_file_without_printing_secrets(t
     env_path = tmp_path / "scanner.env"
 
     written_path = _write_env_file(env_path, _scanner_env(node, "http://darkstar.local:8080/"))
-    command = _attach_command(
-        node,
-        orchestrator_url="http://darkstar.local:8080/",
+    command = _env_file_attach_command(
+        node["node_id"],
         image="darkstar:test",
         network="darkstar_vuln_net",
         env_file=written_path,
@@ -122,5 +126,7 @@ def test_attach_command_can_reference_secret_env_file_without_printing_secrets(t
 
     assert f"--env-file {written_path}" in command
     assert "dscan_secret" not in command
+    assert "DB_PASSWORD" not in command
+    assert "DARKSTAR_SCANNER_TOKEN" not in command
     assert "DARKSTAR_SCANNER_TOKEN=dscan_secret" in written_path.read_text()
     assert stat.S_IMODE(written_path.stat().st_mode) == 0o600
