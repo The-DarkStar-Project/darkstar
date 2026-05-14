@@ -7,9 +7,12 @@ Darkstar orchestrator. It does not implement SIEM/FIM behavior.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+import ipaddress
 import json
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -22,7 +25,10 @@ from urllib.parse import quote
 import requests
 
 
-AGENT_VERSION = "0.1.0"
+AGENT_VERSION = "0.2.0"
+NETWORK_PROBE_VERSION = 1
+CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+DEFAULT_FINGERPRINT_PORTS = [22, 53, 80, 135, 139, 443, 445, 3389, 8080, 8443, 62078]
 
 
 def _parse_source_rpm(value: str | None) -> tuple[str | None, str | None]:
@@ -498,10 +504,345 @@ def _network_ids() -> tuple[list[str], list[str]]:
             ips.append(row["address"])
         if row.get("mac") and row["mac"] not in macs and row["mac"] != "00:00:00:00:00:00":
             macs.append(row["mac"])
+    if not ips:
+        for iface in _local_interfaces():
+            name = str(iface.get("name") or "")
+            if name.startswith(("br-", "docker", "veth", "virbr")):
+                continue
+            ip = iface.get("ip")
+            mac = iface.get("mac")
+            if ip and ip not in ips:
+                ips.append(ip)
+            if mac and mac not in macs and mac != "00:00:00:00:00:00":
+                macs.append(mac)
     return ips, macs
 
 
-def collect_inventory() -> dict[str, Any]:
+def _safe_ip(value: str | None):
+    try:
+        return ipaddress.ip_address(str(value or "").split("%", 1)[0])
+    except ValueError:
+        return None
+
+
+def _is_probe_ip(value: str | None) -> bool:
+    ip = _safe_ip(value)
+    if not ip:
+        return False
+    if ip.version != 4:
+        return False
+    return bool(ip.is_private or ip.is_link_local or ip in CGNAT_NETWORK) and not bool(
+        ip.is_loopback or ip.is_multicast or ip.is_unspecified
+    )
+
+
+def _local_interfaces() -> list[dict[str, Any]]:
+    interfaces: list[dict[str, Any]] = []
+    routes = _local_routes()
+    gateways_by_interface = {
+        str(route.get("interface") or ""): route.get("gateway")
+        for route in routes
+        if route.get("gateway")
+    }
+    data = _run_json_value(["ip", "-j", "addr", "show"], timeout=8) if shutil.which("ip") else None
+    if isinstance(data, list):
+        for iface in data:
+            if not isinstance(iface, dict):
+                continue
+            flags = {str(flag).upper() for flag in iface.get("flags") or []}
+            if "LOOPBACK" in flags or "UP" not in flags:
+                continue
+            name = iface.get("ifname")
+            mac = iface.get("address")
+            for addr in iface.get("addr_info") or []:
+                if addr.get("family") != "inet":
+                    continue
+                ip_text = addr.get("local")
+                ip = _safe_ip(ip_text)
+                if not ip or ip.is_loopback or ip.is_multicast:
+                    continue
+                prefix = int(addr.get("prefixlen") or 32)
+                try:
+                    network = ipaddress.ip_network(f"{ip}/{prefix}", strict=False)
+                    cidr = str(network)
+                except ValueError:
+                    cidr = None
+                interfaces.append({
+                    "name": name,
+                    "ip": str(ip),
+                    "cidr": cidr,
+                    "prefixlen": prefix,
+                    "mac": mac,
+                    "gateway": gateways_by_interface.get(str(name)),
+                    "family": "ipv4",
+                    "scope": addr.get("scope"),
+                    "private": _is_probe_ip(str(ip)),
+                })
+    return interfaces
+
+
+def _local_routes() -> list[dict[str, Any]]:
+    routes: list[dict[str, Any]] = []
+    data = _run_json_value(["ip", "-j", "route", "show"], timeout=8) if shutil.which("ip") else None
+    if isinstance(data, list):
+        for route in data:
+            if not isinstance(route, dict):
+                continue
+            routes.append({
+                "destination": route.get("dst") or "default",
+                "gateway": route.get("gateway"),
+                "interface": route.get("dev"),
+                "protocol": route.get("protocol"),
+                "metric": route.get("metric"),
+            })
+    return routes
+
+
+def _network_for_ip(ip_text: str | None, interfaces: list[dict[str, Any]]) -> str | None:
+    ip = _safe_ip(ip_text)
+    if not ip:
+        return None
+    for iface in interfaces:
+        cidr = iface.get("cidr")
+        if not cidr:
+            continue
+        try:
+            if ip in ipaddress.ip_network(cidr, strict=False):
+                return cidr
+        except ValueError:
+            continue
+    return None
+
+
+def _neighbors(interfaces: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    data = _run_json_value(["ip", "-j", "neigh", "show"], timeout=8) if shutil.which("ip") else None
+    if isinstance(data, list):
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            ip_text = item.get("dst")
+            mac = item.get("lladdr")
+            raw_state = item.get("state")
+            state = " ".join(raw_state) if isinstance(raw_state, list) else raw_state
+            if not _is_probe_ip(ip_text):
+                continue
+            if str(state or "").upper() == "FAILED":
+                continue
+            key = (str(ip_text), str(mac or ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append({
+                "ip": str(ip_text),
+                "mac": mac,
+                "interface": item.get("dev"),
+                "state": state,
+                "source": "arp_neighbor",
+                "network_cidr": _network_for_ip(str(ip_text), interfaces),
+            })
+    elif shutil.which("arp"):
+        arp_line = re.compile(r"\((?P<ip>[^)]+)\)\s+at\s+(?P<mac>[0-9a-fA-F:.-]+)")
+        for line in _command_lines(["arp", "-an"], timeout=8):
+            match = arp_line.search(line)
+            if not match:
+                continue
+            ip_text = match.group("ip")
+            mac = match.group("mac")
+            if not _is_probe_ip(ip_text):
+                continue
+            rows.append({
+                "ip": ip_text,
+                "mac": mac,
+                "source": "arp_cache",
+                "network_cidr": _network_for_ip(ip_text, interfaces),
+            })
+    return rows
+
+
+def _public_ip() -> str | None:
+    try:
+        response = requests.get("https://api.ipify.org?format=json", timeout=4)
+        if response.ok:
+            value = response.json().get("ip")
+            return str(value) if value else None
+    except Exception:
+        return None
+    return None
+
+
+def _tcp_port_open(ip_text: str, port: int, timeout: float = 0.35) -> bool:
+    try:
+        with socket.create_connection((ip_text, int(port)), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def _open_ports_for_target(ip_text: str, ports: list[int]) -> list[int]:
+    open_ports: list[int] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, max(1, len(ports)))) as executor:
+        futures = {executor.submit(_tcp_port_open, ip_text, port): port for port in ports}
+        for future in concurrent.futures.as_completed(futures):
+            port = futures[future]
+            try:
+                if future.result():
+                    open_ports.append(port)
+            except Exception:
+                pass
+    return sorted(open_ports)
+
+
+def _ping_once(ip_text: str) -> tuple[bool, int | None]:
+    if not shutil.which("ping"):
+        return False, None
+    system = platform.system().lower()
+    command = ["ping", "-n", "-c", "1", "-W", "1", ip_text]
+    if system == "darwin":
+        command = ["ping", "-n", "-c", "1", "-W", "1000", ip_text]
+    start = time.time()
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=2, check=False)
+        latency = max(1, int((time.time() - start) * 1000))
+        return result.returncode == 0, latency if result.returncode == 0 else None
+    except Exception:
+        return False, None
+
+
+def _fingerprint_device(target: dict[str, Any]) -> dict[str, Any]:
+    ports = set(int(port) for port in target.get("open_ports") or [])
+    hostname = str(target.get("hostname") or "").lower()
+    ip_text = str(target.get("ip") or "")
+    device_type = "unknown"
+    os_family = None
+    confidence = 35 if ports else 20
+
+    if target.get("peer_agent_id"):
+        device_type = "endpoint"
+        os_family = target.get("os_platform")
+        confidence = 85 if target.get("reachable") else 60
+    elif ports & {135, 139, 445, 3389}:
+        device_type = "endpoint"
+        os_family = "windows"
+        confidence = 80
+    elif 22 in ports:
+        device_type = "server"
+        os_family = "linux/unix"
+        confidence = 65
+    elif 62078 in ports or any(marker in hostname for marker in ["iphone", "ipad", "android"]):
+        device_type = "phone"
+        os_family = "mobile"
+        confidence = 65
+    elif target.get("gateway") or (53 in ports and ports & {80, 443, 8080, 8443}):
+        device_type = "router"
+        os_family = "network"
+        confidence = 70
+    elif ports & {80, 443, 8080, 8443}:
+        device_type = "web_service"
+        confidence = 55
+
+    if ip_text.endswith(".1") and device_type == "unknown":
+        device_type = "router"
+        os_family = "network"
+        confidence = 45
+
+    target["device_type"] = device_type
+    target["os_family"] = os_family
+    target["confidence"] = confidence
+    target["protocols"] = [f"tcp/{port}" for port in sorted(ports)]
+    return target
+
+
+def collect_network_probe(peer_targets: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    interfaces = _local_interfaces()
+    routes = _local_routes()
+    public_ip = _public_ip()
+    neighbors = _neighbors(interfaces)
+    self_ips = {iface.get("ip") for iface in interfaces if iface.get("ip")}
+    max_targets = max(4, min(int(os.environ.get("ENDPOINT_NETWORK_PROBE_MAX_TARGETS", "48")), 256))
+    ports = DEFAULT_FINGERPRINT_PORTS
+
+    targets: dict[str, dict[str, Any]] = {}
+    for neighbor in neighbors:
+        ip_text = neighbor.get("ip")
+        if ip_text and ip_text not in self_ips:
+            targets[ip_text] = dict(neighbor)
+    for iface in interfaces:
+        gateway = iface.get("gateway")
+        if gateway and _is_probe_ip(gateway) and gateway not in self_ips:
+            targets.setdefault(gateway, {
+                "ip": gateway,
+                "source": "default_gateway",
+                "gateway": True,
+                "interface": iface.get("name"),
+                "network_cidr": iface.get("cidr"),
+            })
+    peer_checks: list[dict[str, Any]] = []
+    for peer in peer_targets or []:
+        ip_text = str(peer.get("ip") or "").strip()
+        if not _is_probe_ip(ip_text) or ip_text in self_ips:
+            continue
+        target = targets.setdefault(ip_text, {
+            "ip": ip_text,
+            "source": "endpoint_peer",
+            "network_cidr": _network_for_ip(ip_text, interfaces),
+        })
+        target["peer_agent_id"] = peer.get("agent_id")
+        target["os_platform"] = peer.get("os_platform")
+        target["hostname"] = target.get("hostname") or peer.get("hostname")
+        if target.get("source") != "endpoint_peer":
+            target["source"] = f"{target.get('source') or 'observed'}+endpoint_peer"
+
+    selected_targets = list(targets.values())[:max_targets]
+
+    def probe(item: dict[str, Any]) -> dict[str, Any]:
+        ip_text = str(item.get("ip") or "")
+        open_ports = _open_ports_for_target(ip_text, ports)
+        item["open_ports"] = open_ports
+        item["reachability"] = "open_tcp" if open_ports else str(item.get("state") or "seen")
+        if item.get("peer_agent_id"):
+            ping_ok, latency = _ping_once(ip_text)
+            item["reachable"] = bool(open_ports or ping_ok)
+            item["latency_ms"] = latency
+        return _fingerprint_device(item)
+
+    observations: list[dict[str, Any]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, max(1, len(selected_targets)))) as executor:
+        for item in executor.map(probe, selected_targets):
+            observations.append(item)
+            if item.get("peer_agent_id"):
+                peer_checks.append({
+                    "agent_id": item.get("peer_agent_id"),
+                    "hostname": item.get("hostname"),
+                    "ip": item.get("ip"),
+                    "reachable": bool(item.get("reachable")),
+                    "method": "tcp_connect+icmp_ping",
+                    "latency_ms": item.get("latency_ms"),
+                    "open_ports": item.get("open_ports") or [],
+                })
+
+    return {
+        "version": NETWORK_PROBE_VERSION,
+        "collected_at": datetime_utc_iso(),
+        "public_ip": public_ip,
+        "interfaces": interfaces,
+        "routes": routes,
+        "neighbors": observations,
+        "peer_checks": peer_checks,
+        "limits": {
+            "max_targets": max_targets,
+            "ports": ports,
+            "mode": "neighbor-cache+gateway+endpoint-peers",
+        },
+    }
+
+
+def datetime_utc_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def collect_inventory(peer_targets: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     os_info = _os_info()
     system = platform.system().lower()
     software = []
@@ -515,16 +856,22 @@ def collect_inventory() -> dict[str, Any]:
     software.extend(_python_packages())
     software.extend(_npm_global_packages())
     ips, macs = _network_ids()
+    network_probe = collect_network_probe(peer_targets)
     return {
         "os": os_info,
         "software": software,
         "ip_addresses": ips,
         "mac_addresses": macs,
+        "network_probe": network_probe,
         "metadata": {
             "hostname": os_info.get("hostname") or socket.gethostname(),
             "collector": "darkstar_endpoint_agent",
             "collector_version": AGENT_VERSION,
             "osquery": bool(shutil.which("osqueryi")),
+            "network_probe": {
+                "version": NETWORK_PROBE_VERSION,
+                "mode": "neighbor-cache+gateway+endpoint-peers",
+            },
         },
     }
 
@@ -573,7 +920,7 @@ def send_inventory(base_url: str, agent_token: str, inventory: dict[str, Any]) -
 def run_once(args: argparse.Namespace) -> dict[str, Any]:
     state_file = Path(args.state_file) if args.state_file else _default_state_file()
     state = _load_state(state_file)
-    inventory = collect_inventory()
+    inventory = collect_inventory(state.get("network_probe_targets") or [])
     agent_token = args.agent_token or state.get("agent_token")
     if not agent_token:
         if not args.org or not args.enrollment_token:
@@ -587,7 +934,11 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
             "url": args.url,
         })
         _save_state(state_file, state)
-    return send_inventory(args.url, agent_token, inventory)
+    result = send_inventory(args.url, agent_token, inventory)
+    if isinstance(result, dict) and "network_probe_targets" in result:
+        state["network_probe_targets"] = result.get("network_probe_targets") or []
+        _save_state(state_file, state)
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:

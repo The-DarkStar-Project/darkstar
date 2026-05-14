@@ -59,6 +59,8 @@ from .core.db_helper import (
     get_due_scan_schedules,
     get_bbot_potential_targets,
     get_endpoint_agent,
+    get_endpoint_network_map,
+    get_endpoint_network_probe_targets,
     get_endpoint_overview,
     get_endpoint_vulnerability,
     get_endpoint_vuln_cache_entries,
@@ -371,6 +373,7 @@ class EndpointInventoryRequest(BaseModel):
     ip_addresses: list[str] = Field(default_factory=list)
     mac_addresses: list[str] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
+    network_probe: dict = Field(default_factory=dict)
 
 
 class AuthPolicyRequest(BaseModel):
@@ -1754,6 +1757,13 @@ def endpoint_agent_detail(request: Request, agent_id: str):
     return row
 
 
+@app.get("/api/endpoints/network-map")
+def endpoint_network_map(request: Request):
+    org_db = _get_org_db(request)
+    _require_min_role(request, "viewer")
+    return get_endpoint_network_map(org_db)
+
+
 @app.post("/api/endpoints/agents/{agent_id}/revoke")
 def revoke_endpoint_agent_api(request: Request, agent_id: str):
     org_db = _get_org_db(request)
@@ -1898,6 +1908,7 @@ def endpoint_agent_inventory(request: Request, body: EndpointInventoryRequest):
         ip_addresses=body.ip_addresses,
         mac_addresses=body.mac_addresses,
         metadata=body.metadata,
+        network_probe=body.network_probe,
     )
     software_count = result.get("software_count") or 0
     sync_limit = max(0, int(os.environ.get("ENDPOINT_SYNC_MATCH_SOFTWARE_LIMIT", "500")))
@@ -1929,6 +1940,7 @@ def endpoint_agent_inventory(request: Request, body: EndpointInventoryRequest):
         "matching_status": matching_status,
         "matcher": matcher_stats["matcher"],
         "matcher_stats": matcher_stats,
+        "network_probe_targets": get_endpoint_network_probe_targets(agent["org_db"], agent["agent_id"]),
     }
 
 

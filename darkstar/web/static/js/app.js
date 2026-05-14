@@ -69,6 +69,14 @@ const state = {
         vulnTotal: 0,
     },
     endpointSeverity: {},
+    endpointNetworkMap: {
+        nodes: [],
+        edges: [],
+        summary: {},
+        segments: [],
+        observations: [],
+    },
+    endpointNetworkMapHits: [],
     activeScanId: null,
     ws: null,
     wsPingTimer: null,
@@ -423,6 +431,321 @@ function renderEndpointCharts(overview = {}) {
     const total = severityEntries(severity).reduce((sum, [, count]) => sum + count, 0);
     const totalEl = document.getElementById("endpointChartTotal");
     if (totalEl) totalEl.textContent = `${total} CVEs`;
+}
+
+const networkNodePalette = {
+    agent: "#83d8ff",
+    network: "#5fd0a5",
+    device: "#f49e31",
+    endpoint: "#83d8ff",
+    server: "#b6a6ff",
+    router: "#ffce73",
+    firewall: "#f05154",
+    phone: "#5fd0a5",
+    web_service: "#ffb36b",
+    unknown: "#6f9087",
+};
+
+function networkNodeColor(node) {
+    if (!node) return networkNodePalette.unknown;
+    if (node.type === "device") return networkNodePalette[node.device_type] || networkNodePalette.device;
+    return networkNodePalette[node.type] || networkNodePalette.unknown;
+}
+
+function drawEndpointNetworkMap(map = {}) {
+    const canvas = document.getElementById("endpointNetworkMapCanvas");
+    if (!canvas || !canvas.getContext) return;
+    const nodes = map.nodes || [];
+    const edges = map.edges || [];
+    const networks = nodes.filter(node => node.type === "network").sort((a, b) => String(a.label || "").localeCompare(String(b.label || "")));
+    const agents = nodes.filter(node => node.type === "agent").sort((a, b) => String(a.label || "").localeCompare(String(b.label || "")));
+    const devices = nodes.filter(node => node.type === "device").sort((a, b) => String(a.label || "").localeCompare(String(b.label || "")));
+    const parentWidth = canvas.parentElement?.clientWidth || canvas.getBoundingClientRect().width || canvas.width || 1100;
+    const cssWidth = Math.max(760, Math.round(parentWidth));
+    const deviceStartX = Math.round(cssWidth * 0.62);
+    const deviceCols = Math.max(2, Math.floor((cssWidth - deviceStartX - 34) / 142));
+    const devicesByNetwork = new Map();
+    const agentNetworks = new Map();
+    const displayNetworks = networks.length ? [...networks] : [{ id: "net:unmapped", type: "network", label: "Unmapped" }];
+
+    displayNetworks.forEach(network => devicesByNetwork.set(network.id, []));
+    edges.forEach(edge => {
+        if (String(edge.source || "").startsWith("agent:") && String(edge.target || "").startsWith("net:")) {
+            const list = agentNetworks.get(edge.source) || [];
+            list.push(edge.target);
+            agentNetworks.set(edge.source, list);
+        }
+        if (String(edge.source || "").startsWith("net:") && String(edge.target || "").startsWith("device:")) {
+            const list = devicesByNetwork.get(edge.source) || [];
+            list.push(edge.target);
+            devicesByNetwork.set(edge.source, list);
+        }
+    });
+    const networkIds = new Set(displayNetworks.map(network => network.id));
+    const assignedDevices = new Set(Array.from(devicesByNetwork.values()).flat());
+    const unassignedDevices = devices.filter(device => !assignedDevices.has(device.id));
+    if (unassignedDevices.length) {
+        const unmapped = { id: "net:unmapped", type: "network", label: "Unmapped" };
+        if (!networkIds.has(unmapped.id)) {
+            displayNetworks.push(unmapped);
+            networkIds.add(unmapped.id);
+        }
+        devicesByNetwork.set(unmapped.id, unassignedDevices.map(device => device.id));
+    }
+    const rowHeights = displayNetworks.map(network => {
+        const deviceCount = (devicesByNetwork.get(network.id) || []).length;
+        const agentCount = agents.filter(agent => (agentNetworks.get(agent.id) || []).includes(network.id)).length;
+        return Math.max(118, Math.ceil(deviceCount / deviceCols) * 42 + 70, agentCount * 38 + 70);
+    });
+    const cssHeight = Math.max(520, rowHeights.reduce((sum, height) => sum + height, 0) + 116);
+    canvas.style.height = `${cssHeight}px`;
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.round(cssWidth * ratio);
+    canvas.height = Math.round(cssHeight * ratio);
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+    ctx.fillStyle = "rgba(5, 13, 16, 0.82)";
+    ctx.fillRect(0, 0, cssWidth, cssHeight);
+    ctx.strokeStyle = "rgba(95, 208, 165, 0.08)";
+    ctx.lineWidth = 1;
+    for (let x = 24; x < cssWidth; x += 42) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, cssHeight);
+        ctx.stroke();
+    }
+    for (let y = 24; y < cssHeight; y += 42) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(cssWidth, y);
+        ctx.stroke();
+    }
+
+    if (!nodes.length) {
+        ctx.fillStyle = "rgba(238, 252, 247, 0.58)";
+        ctx.font = "700 14px Inter, system-ui, sans-serif";
+        ctx.fillText("No endpoint network probes reported yet", 24, cssHeight / 2);
+        state.endpointNetworkMapHits = [];
+        return;
+    }
+
+    const positions = {};
+    const agentX = 116;
+    const networkX = Math.round(cssWidth * 0.39);
+    const rowStartY = 82;
+    let currentY = rowStartY;
+
+    ctx.fillStyle = "rgba(168, 199, 189, 0.84)";
+    ctx.font = "800 11px Inter, system-ui, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText("AGENTS", agentX - 72, 36);
+    ctx.fillText("NETWORK SEGMENTS", networkX - 94, 36);
+    ctx.fillText("OBSERVED DEVICES", deviceStartX - 4, 36);
+
+    displayNetworks.forEach((network, index) => {
+        const rowHeight = rowHeights[index];
+        const rowY = currentY;
+        const centerY = rowY + rowHeight / 2;
+        positions[network.id] = { x: networkX, y: centerY, w: 190, h: 50 };
+        ctx.fillStyle = index % 2 === 0 ? "rgba(95, 208, 165, 0.035)" : "rgba(131, 216, 255, 0.025)";
+        ctx.fillRect(18, rowY, cssWidth - 36, rowHeight - 10);
+        ctx.strokeStyle = "rgba(95, 208, 165, 0.10)";
+        ctx.strokeRect(18, rowY, cssWidth - 36, rowHeight - 10);
+        currentY += rowHeight;
+    });
+
+    agents.forEach((agent, index) => {
+        const related = (agentNetworks.get(agent.id) || []).filter(networkId => positions[networkId]);
+        const baseY = related.length
+            ? related.reduce((sum, networkId) => sum + positions[networkId].y, 0) / related.length
+            : rowStartY + 44 + index * 56;
+        positions[agent.id] = {
+            x: agentX + (index % 2) * 36,
+            y: Math.max(72, Math.min(cssHeight - 48, baseY + ((index % 3) - 1) * 18)),
+            w: 152,
+            h: 44,
+        };
+    });
+
+    displayNetworks.forEach((network, networkIndex) => {
+        const ids = devicesByNetwork.get(network.id) || [];
+        const rowTop = positions[network.id].y - rowHeights[networkIndex] / 2;
+        ids.forEach((deviceId, index) => {
+            const node = devices.find(device => device.id === deviceId);
+            if (!node) return;
+            const col = index % deviceCols;
+            const row = Math.floor(index / deviceCols);
+            positions[node.id] = {
+                x: deviceStartX + col * 142 + 60,
+                y: rowTop + 46 + row * 42,
+                w: 126,
+                h: 32,
+            };
+        });
+    });
+
+    edges.forEach(edge => {
+        const source = positions[edge.source];
+        const target = positions[edge.target];
+        if (!source || !target) return;
+        const sourceRight = source.x + (source.w || 0) / 2;
+        const sourceLeft = source.x - (source.w || 0) / 2;
+        const targetRight = target.x + (target.w || 0) / 2;
+        const targetLeft = target.x - (target.w || 0) / 2;
+        const startX = source.x < target.x ? sourceRight : sourceLeft;
+        const endX = source.x < target.x ? targetLeft : targetRight;
+        const curve = Math.max(54, Math.abs(endX - startX) * 0.42);
+        ctx.beginPath();
+        ctx.moveTo(startX, source.y);
+        ctx.bezierCurveTo(startX + curve, source.y, endX - curve, target.y, endX, target.y);
+        ctx.strokeStyle = edge.type === "peer_unreachable"
+            ? "rgba(240, 81, 84, 0.38)"
+            : edge.type === "peer_reachable"
+                ? "rgba(131, 216, 255, 0.58)"
+                : "rgba(95, 208, 165, 0.24)";
+        ctx.lineWidth = edge.type?.startsWith("peer_") ? 2 : 1.4;
+        ctx.stroke();
+    });
+
+    function roundedRect(x, y, width, height, radius) {
+        const r = Math.min(radius, width / 2, height / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + width, y, x + width, y + height, r);
+        ctx.arcTo(x + width, y + height, x, y + height, r);
+        ctx.arcTo(x, y + height, x, y, r);
+        ctx.arcTo(x, y, x + width, y, r);
+        ctx.closePath();
+    }
+
+    function drawSchematicNode(node, pos) {
+        const color = networkNodeColor(node);
+        const x = pos.x - pos.w / 2;
+        const y = pos.y - pos.h / 2;
+        roundedRect(x - 4, y - 4, pos.w + 8, pos.h + 8, 12);
+        ctx.fillStyle = `${color}18`;
+        ctx.fill();
+        roundedRect(x, y, pos.w, pos.h, 9);
+        ctx.fillStyle = "rgba(6, 19, 16, 0.92)";
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, 4, pos.h);
+
+        const label = String(node.label || node.hostname || node.ip_address || node.id);
+        const shortLabel = label.length > 18 ? `${label.slice(0, 15)}...` : label;
+        const subtitle = node.type === "agent"
+            ? String(node.status || "agent")
+            : node.type === "network"
+                ? String(node.cidr || "network")
+                : String(node.device_type || "device");
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#eefcf7";
+        ctx.font = node.type === "network" ? "800 12px Inter, system-ui, sans-serif" : "700 11px Inter, system-ui, sans-serif";
+        ctx.fillText(shortLabel, x + 12, y + pos.h / 2 - 6);
+        ctx.fillStyle = "rgba(168, 199, 189, 0.86)";
+        ctx.font = "700 9px Inter, system-ui, sans-serif";
+        ctx.fillText(subtitle.length > 20 ? `${subtitle.slice(0, 17)}...` : subtitle, x + 12, y + pos.h / 2 + 9);
+    }
+
+    const hits = [];
+    nodes.forEach(node => {
+        const pos = positions[node.id];
+        if (!pos) return;
+        drawSchematicNode(node, pos);
+        hits.push({ node, x: pos.x - pos.w / 2, y: pos.y - pos.h / 2, w: pos.w, h: pos.h });
+    });
+    state.endpointNetworkMapHits = hits;
+}
+
+function renderEndpointNetworkMap(map = {}) {
+    state.endpointNetworkMap = map;
+    const summary = map.summary || {};
+    const totalEl = document.getElementById("endpointNetworkMapTotal");
+    if (totalEl) totalEl.textContent = `${summary.networks || 0} networks`;
+    const summaryEl = document.getElementById("endpointNetworkSummary");
+    if (summaryEl) {
+        summaryEl.innerHTML = [
+            ["Agents", summary.agents || 0],
+            ["Online", summary.online_agents || 0],
+            ["Networks", summary.networks || 0],
+            ["Devices", summary.observed_devices || 0],
+            ["Firewalls", summary.firewall_candidates || 0],
+            ["Peer links", summary.peer_links || 0],
+        ].map(([label, value]) => `
+            <div class="network-summary-item">
+                <span>${escapeHtml(label)}</span>
+                <strong>${escapeHtml(value)}</strong>
+            </div>
+        `).join("");
+    }
+    const segmentRows = document.getElementById("endpointNetworkSegmentRows");
+    if (segmentRows) {
+        segmentRows.innerHTML = (map.segments || []).slice(0, 12).map(segment => `
+            <tr>
+                <td><code>${escapeHtml(segment.cidr || "-")}</code></td>
+                <td>${escapeHtml((segment.agents || []).length)}</td>
+                <td>${escapeHtml((segment.gateways || []).join(", ") || "-")}</td>
+                <td>${escapeHtml(segment.public_ip || "-")}</td>
+                <td>${escapeHtml(segment.device_count || 0)}</td>
+            </tr>
+        `).join("") || '<tr><td colspan="5">No network segments reported yet.</td></tr>';
+    }
+    const deviceRows = document.getElementById("endpointNetworkDeviceRows");
+    if (deviceRows) {
+        deviceRows.innerHTML = (map.observations || []).slice(0, 12).map(device => {
+            const openPorts = parseMaybeJson(device.open_ports, []);
+            return `
+                <tr>
+                    <td>${escapeHtml(device.hostname || device.ip_address || device.mac_address || "-")}</td>
+                    <td>${escapeHtml(device.device_type || "unknown")}</td>
+                    <td>${escapeHtml(Array.isArray(openPorts) ? openPorts.join(", ") : "-")}</td>
+                    <td>${endpointAgentLink(device.agent_id, device.agent_hostname || device.agent_id)}</td>
+                </tr>
+            `;
+        }).join("") || '<tr><td colspan="4">No devices observed yet.</td></tr>';
+    }
+    drawEndpointNetworkMap(map);
+}
+
+function openEndpointNetworkNodeDetail(node) {
+    if (!node) return;
+    const fields = [
+        detailField("Type", node.type || "-"),
+        detailField("Label", node.label || "-"),
+    ];
+    if (node.type === "agent") {
+        fields.push(
+            detailField("Status", statusBadge(node.status || "unknown"), { raw: true }),
+            detailField("OS", node.os || "-"),
+            detailField("IPs", (node.ip_addresses || []).join(", ") || "-"),
+            detailField("Endpoint CVEs", node.risk || 0),
+            detailField("Last Seen", formatDateTime(node.last_seen_at))
+        );
+    } else if (node.type === "network") {
+        fields.push(
+            detailField("CIDR", node.cidr || "-"),
+            detailField("Public IP", node.public_ip || "-")
+        );
+    } else {
+        fields.push(
+            detailField("Device Type", node.device_type || "unknown"),
+            detailField("OS Family", node.os_family || "-"),
+            detailField("IP", node.ip_address || "-"),
+            detailField("MAC", node.mac_address || "-"),
+            detailField("Open Ports", (node.open_ports || []).join(", ") || "-"),
+            detailField("Confidence", node.confidence ? `${node.confidence}%` : "-"),
+            detailField("Seen By", endpointAgentLink(node.agent_id, node.agent_id), { raw: true }),
+            detailField("Last Seen", formatDateTime(node.last_seen_at))
+        );
+    }
+    openDetailDrawer("Network Map", node.label || node.id, `<div class="detail-grid">${fields.join("")}</div>`);
 }
 
 function drawScanActivityCanvas() {
@@ -1622,11 +1945,12 @@ async function loadEndpointsView() {
         if (filters.vulnSearch) vulnParams.set("search", filters.vulnSearch);
         if (filters.vulnSeverity) vulnParams.set("severity", filters.vulnSeverity);
 
-        const [overview, agents, software, vulns, tokens] = await Promise.all([
+        const [overview, agents, software, vulns, networkMap, tokens] = await Promise.all([
             requestJson("/api/endpoints/overview"),
             requestJson(`/api/endpoints/agents?${agentParams}`),
             requestJson(`/api/endpoints/software?${softwareParams}`),
             requestJson(`/api/endpoints/vulnerabilities?${vulnParams}`),
+            requestJson("/api/endpoints/network-map"),
             roleRank(state.role) >= roleRank("tenant_admin") ? requestJson("/api/endpoints/enrollment-tokens") : Promise.resolve({ items: [] }),
         ]);
 
@@ -1637,6 +1961,7 @@ async function loadEndpointsView() {
         document.getElementById("endpointHighTotal").textContent = (sev.critical || 0) + (sev.high || 0);
         state.endpointSeverity = sev;
         renderEndpointCharts(overview);
+        renderEndpointNetworkMap(networkMap);
 
         renderEndpointTokens(tokens.items || []);
         renderEndpointAgents(agents.items || []);
@@ -2451,6 +2776,22 @@ document.getElementById("recurringScanInput").addEventListener("change", (event)
     document.getElementById("recurringOptions").classList.toggle("hidden", !event.target.checked);
 });
 
+document.getElementById("endpointNetworkMapCanvas").addEventListener("click", (event) => {
+    const canvas = event.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const hit = (state.endpointNetworkMapHits || []).find(item => {
+        if (item.w && item.h) {
+            return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
+        }
+        const dx = x - item.x;
+        const dy = y - item.y;
+        return Math.sqrt(dx * dx + dy * dy) <= item.r;
+    });
+    if (hit) openEndpointNetworkNodeDetail(hit.node);
+});
+
 document.addEventListener("click", async (event) => {
     const docsPageBtn = event.target.closest("[data-docs-page]");
     if (docsPageBtn) {
@@ -2670,6 +3011,7 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("resize", () => {
     renderVulnerabilityCharts();
     renderEndpointCharts({ severity: state.endpointSeverity || {} });
+    drawEndpointNetworkMap(state.endpointNetworkMap || {});
     drawScanActivityCanvas();
     drawAttackSurfaceCanvas(state.asmSummary);
 });

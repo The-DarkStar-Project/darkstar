@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/static/css/app.css?v=20260514-docs" />
+    <link rel="stylesheet" href="/static/css/app.css?v=20260514-network-map" />
 </head>
 <body data-authenticated="{{ 'true' if logged_in else 'false' }}" data-organization="{{ organization }}" data-role="{{ role }}">
     <!-- Login Screen -->
@@ -501,6 +501,29 @@
                     <div class="chart-panel">
                         <canvas id="endpointSeverityChart" class="severity-chart" width="720" height="240" aria-label="Endpoint vulnerability severity distribution"></canvas>
                         <div id="endpointSeverityLegend" class="chart-legend"></div>
+                    </div>
+                </div>
+
+                <div class="card network-map-card">
+                    <div class="card-header">
+                        Internal Network Map
+                        <span id="endpointNetworkMapTotal" class="header-badge">0 networks</span>
+                    </div>
+                    <div id="endpointNetworkSummary" class="network-summary-grid"></div>
+                    <canvas id="endpointNetworkMapCanvas" class="network-map-canvas" width="960" height="420" aria-label="Internal endpoint network map"></canvas>
+                    <div class="grid-2">
+                        <div class="table-container">
+                            <table class="data-table no-sort">
+                                <thead><tr><th>Network</th><th>Agents</th><th>Gateway</th><th>Public IP</th><th>Devices</th></tr></thead>
+                                <tbody id="endpointNetworkSegmentRows"><tr><td colspan="5">No network segments reported yet.</td></tr></tbody>
+                            </table>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table no-sort">
+                                <thead><tr><th>Device</th><th>Type</th><th>Ports</th><th>Seen By</th></tr></thead>
+                                <tbody id="endpointNetworkDeviceRows"><tr><td colspan="4">No devices observed yet.</td></tr></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
@@ -1103,6 +1126,6 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=20260514-docs"></script>
+    <script src="/static/js/app.js?v=20260514-network-map"></script>
 </body>
 </html>

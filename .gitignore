@@ -27,5 +27,6 @@ reports/
 home/
 */scan_results
 */bbot_output
+agents/darkstar-windows-agent/dist/
 
 .claude/

@@ -12,6 +12,7 @@ import json
 import re
 import hashlib
 import secrets
+import ipaddress
 from html import escape
 import pandas as pd
 from datetime import datetime, timedelta, timezone
@@ -321,6 +322,79 @@ ORG_SCHEMA_STATEMENTS = [
         INDEX idx_endpoint_vuln_cache_package (package_hash)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS endpoint_network_segments (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        agent_id VARCHAR(64) NOT NULL,
+        segment_key VARCHAR(128) NOT NULL,
+        cidr VARCHAR(128) DEFAULT NULL,
+        interface_name VARCHAR(255) DEFAULT NULL,
+        ip_address VARCHAR(64) DEFAULT NULL,
+        mac_address VARCHAR(64) DEFAULT NULL,
+        gateway VARCHAR(64) DEFAULT NULL,
+        public_ip VARCHAR(64) DEFAULT NULL,
+        raw_json LONGTEXT DEFAULT NULL,
+        present BOOLEAN NOT NULL DEFAULT TRUE,
+        first_seen_at DATETIME NOT NULL,
+        last_seen_at DATETIME NOT NULL,
+        UNIQUE KEY uniq_endpoint_network_segment (agent_id, segment_key),
+        INDEX idx_endpoint_network_segment_agent (agent_id),
+        INDEX idx_endpoint_network_segment_cidr (cidr),
+        INDEX idx_endpoint_network_segment_public_ip (public_ip),
+        INDEX idx_endpoint_network_segment_present (present)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS endpoint_network_observations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        agent_id VARCHAR(64) NOT NULL,
+        observation_key VARCHAR(128) NOT NULL,
+        ip_address VARCHAR(64) DEFAULT NULL,
+        hostname VARCHAR(255) DEFAULT NULL,
+        mac_address VARCHAR(64) DEFAULT NULL,
+        vendor_hint VARCHAR(255) DEFAULT NULL,
+        device_type VARCHAR(64) DEFAULT NULL,
+        os_family VARCHAR(64) DEFAULT NULL,
+        confidence INT DEFAULT NULL,
+        reachability VARCHAR(64) DEFAULT NULL,
+        open_ports TEXT DEFAULT NULL,
+        protocols TEXT DEFAULT NULL,
+        source VARCHAR(64) DEFAULT NULL,
+        network_cidr VARCHAR(128) DEFAULT NULL,
+        interface_name VARCHAR(255) DEFAULT NULL,
+        public_ip VARCHAR(64) DEFAULT NULL,
+        raw_json LONGTEXT DEFAULT NULL,
+        present BOOLEAN NOT NULL DEFAULT TRUE,
+        first_seen_at DATETIME NOT NULL,
+        last_seen_at DATETIME NOT NULL,
+        UNIQUE KEY uniq_endpoint_network_observation (agent_id, observation_key),
+        INDEX idx_endpoint_network_observation_agent (agent_id),
+        INDEX idx_endpoint_network_observation_ip (ip_address),
+        INDEX idx_endpoint_network_observation_cidr (network_cidr),
+        INDEX idx_endpoint_network_observation_type (device_type),
+        INDEX idx_endpoint_network_observation_present (present)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS endpoint_network_peer_checks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        source_agent_id VARCHAR(64) NOT NULL,
+        target_agent_id VARCHAR(64) NOT NULL,
+        target_ip VARCHAR(64) NOT NULL,
+        reachable BOOLEAN NOT NULL DEFAULT FALSE,
+        method VARCHAR(64) DEFAULT NULL,
+        latency_ms INT DEFAULT NULL,
+        open_ports TEXT DEFAULT NULL,
+        raw_json LONGTEXT DEFAULT NULL,
+        present BOOLEAN NOT NULL DEFAULT TRUE,
+        first_seen_at DATETIME NOT NULL,
+        last_seen_at DATETIME NOT NULL,
+        UNIQUE KEY uniq_endpoint_network_peer_check (source_agent_id, target_agent_id, target_ip),
+        INDEX idx_endpoint_network_peer_source (source_agent_id),
+        INDEX idx_endpoint_network_peer_target (target_agent_id),
+        INDEX idx_endpoint_network_peer_present (present)
+    )
+    """,
 ]
 
 ORG_SCHEMA_MIGRATION_STATEMENTS = [
@@ -393,6 +467,12 @@ def _apply_org_schema(cursor):
     for statement in ORG_SCHEMA_STATEMENTS:
         cursor.execute(statement)
     for statement in ORG_SCHEMA_MIGRATION_STATEMENTS:
+        cursor.execute(statement)
+
+
+def _ensure_endpoint_network_schema(cursor):
+    """Create network-mapping tables for existing tenant schemas on demand."""
+    for statement in ORG_SCHEMA_STATEMENTS[-3:]:
         cursor.execute(statement)
 
 
@@ -3335,10 +3415,14 @@ def delete_endpoint_agent(org_name: str, agent_id: str) -> bool:
     with DatabaseConnectionManager() as connection:
         cursor = connection.cursor()
         _use_org_database(cursor, org_name)
+        _ensure_endpoint_network_schema(cursor)
         cursor.execute("SELECT id FROM endpoint_agents WHERE agent_id = %s", (agent_id,))
         if not cursor.fetchone():
             cursor.close()
             return False
+        cursor.execute("DELETE FROM endpoint_network_peer_checks WHERE source_agent_id = %s OR target_agent_id = %s", (agent_id, agent_id))
+        cursor.execute("DELETE FROM endpoint_network_observations WHERE agent_id = %s", (agent_id,))
+        cursor.execute("DELETE FROM endpoint_network_segments WHERE agent_id = %s", (agent_id,))
         cursor.execute("DELETE FROM endpoint_vulnerabilities WHERE agent_id = %s", (agent_id,))
         cursor.execute("DELETE FROM endpoint_software WHERE agent_id = %s", (agent_id,))
         cursor.execute("DELETE FROM endpoint_agents WHERE agent_id = %s", (agent_id,))
@@ -3487,6 +3571,7 @@ def upsert_endpoint_inventory(
     ip_addresses: list[str] | None = None,
     mac_addresses: list[str] | None = None,
     metadata: dict | None = None,
+    network_probe: dict | None = None,
 ) -> dict:
     """Store one full endpoint inventory snapshot."""
     now = _utcnow()
@@ -3498,6 +3583,11 @@ def upsert_endpoint_inventory(
     metadata_payload = dict(metadata or {})
     if os_info:
         metadata_payload.setdefault("os", os_info)
+    reported_agent_version = str(
+        metadata_payload.get("collector_version")
+        or metadata_payload.get("agent_version")
+        or ""
+    ).strip()[:64] or None
     with DatabaseConnectionManager() as connection:
         cursor = connection.cursor(dictionary=True)
         _use_org_database(cursor, org_name)
@@ -3512,6 +3602,7 @@ def upsert_endpoint_inventory(
                 os_build = %s,
                 ip_addresses = %s,
                 mac_addresses = %s,
+                agent_version = COALESCE(%s, agent_version),
                 metadata_json = %s,
                 status = 'online',
                 last_seen_at = %s,
@@ -3527,6 +3618,7 @@ def upsert_endpoint_inventory(
                 (os_info or {}).get("build"),
                 json.dumps(ip_addresses or []),
                 json.dumps(mac_addresses or []),
+                reported_agent_version,
                 json.dumps(metadata_payload),
                 now,
                 now,
@@ -3577,7 +3669,513 @@ def upsert_endpoint_inventory(
             )
         connection.commit()
         cursor.close()
+    if network_probe:
+        upsert_endpoint_network_probe(org_name, agent_id, network_probe)
     return {"software_count": len(normalized_items), "software": normalized_items}
+
+
+CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _json_loads(value, fallback=None):
+    if value is None or value == "":
+        return fallback
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except Exception:
+        return fallback
+
+
+def _json_dumps(value) -> str:
+    return json.dumps(value if value is not None else {}, ensure_ascii=False, default=str)
+
+
+def _network_hash_key(prefix: str, *parts) -> str:
+    payload = "|".join(str(part or "").strip().lower() for part in parts)
+    return f"{prefix}_{hashlib.sha1(payload.encode('utf-8')).hexdigest()[:32]}"
+
+
+def _clean_ip(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return str(ipaddress.ip_address(text.split("%", 1)[0]))
+    except ValueError:
+        return text[:64]
+
+
+def _is_internal_endpoint_ip(value: str | None) -> bool:
+    ip_text = _clean_ip(value)
+    if not ip_text:
+        return False
+    try:
+        ip = ipaddress.ip_address(ip_text)
+    except ValueError:
+        return False
+    if ip.version != 4:
+        return False
+    return bool(
+        ip.is_private
+        or ip in CGNAT_NETWORK
+    ) and not bool(ip.is_loopback or ip.is_multicast or ip.is_unspecified)
+
+
+def _endpoint_peer_ip_priority(value: str | None) -> int:
+    ip_text = _clean_ip(value)
+    try:
+        ip = ipaddress.ip_address(ip_text or "")
+    except ValueError:
+        return 50
+    if ip in CGNAT_NETWORK:
+        return 0
+    if ip.is_private:
+        return 10
+    return 40
+
+
+def _bounded_list(value, limit: int = 32) -> list:
+    if isinstance(value, list):
+        return value[:limit]
+    if value in (None, ""):
+        return []
+    return [value]
+
+
+def _int_or_none(value) -> int | None:
+    try:
+        if value in (None, ""):
+            return None
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _boolish(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "reachable", "open"}
+
+
+def upsert_endpoint_network_probe(org_name: str, agent_id: str, network_probe: dict | None) -> dict:
+    """Store one agent network probe snapshot for internal attack-surface mapping."""
+    if not isinstance(network_probe, dict) or not network_probe:
+        return {"segments": 0, "observations": 0, "peer_checks": 0}
+
+    now = _utcnow()
+    public_ip = _clean_ip(network_probe.get("public_ip"))
+    interfaces = _bounded_list(network_probe.get("interfaces"), 128)
+    neighbors = _bounded_list(network_probe.get("neighbors") or network_probe.get("observations"), 512)
+    peer_checks = _bounded_list(network_probe.get("peer_checks"), 256)
+
+    segments_changed = 0
+    observations_changed = 0
+    peer_checks_changed = 0
+
+    with DatabaseConnectionManager() as connection:
+        cursor = connection.cursor(dictionary=True)
+        _use_org_database(cursor, org_name)
+        _ensure_endpoint_network_schema(cursor)
+
+        cursor.execute("UPDATE endpoint_network_segments SET present = FALSE WHERE agent_id = %s", (agent_id,))
+        cursor.execute("UPDATE endpoint_network_observations SET present = FALSE WHERE agent_id = %s", (agent_id,))
+        cursor.execute("UPDATE endpoint_network_peer_checks SET present = FALSE WHERE source_agent_id = %s", (agent_id,))
+
+        for item in interfaces:
+            if not isinstance(item, dict):
+                continue
+            cidr = str(item.get("cidr") or item.get("network_cidr") or "").strip()[:128] or None
+            ip_address = _clean_ip(item.get("ip") or item.get("ip_address") or item.get("address"))
+            interface_name = str(item.get("name") or item.get("interface") or item.get("interface_name") or "").strip()[:255] or None
+            mac_address = str(item.get("mac") or item.get("mac_address") or "").strip()[:64] or None
+            gateway = _clean_ip(item.get("gateway") or item.get("default_gateway"))
+            if not cidr and not ip_address:
+                continue
+            segment_key = _network_hash_key("seg", cidr, interface_name, ip_address)
+            cursor.execute(
+                """
+                INSERT INTO endpoint_network_segments (
+                    agent_id, segment_key, cidr, interface_name, ip_address,
+                    mac_address, gateway, public_ip, raw_json, present, first_seen_at, last_seen_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    cidr = VALUES(cidr),
+                    interface_name = VALUES(interface_name),
+                    ip_address = VALUES(ip_address),
+                    mac_address = VALUES(mac_address),
+                    gateway = VALUES(gateway),
+                    public_ip = VALUES(public_ip),
+                    raw_json = VALUES(raw_json),
+                    present = TRUE,
+                    last_seen_at = VALUES(last_seen_at)
+                """,
+                (
+                    agent_id,
+                    segment_key,
+                    cidr,
+                    interface_name,
+                    ip_address,
+                    mac_address,
+                    gateway,
+                    public_ip,
+                    _json_dumps(item),
+                    now,
+                    now,
+                ),
+            )
+            segments_changed += 1
+
+        for item in neighbors:
+            if not isinstance(item, dict):
+                continue
+            ip_address = _clean_ip(item.get("ip") or item.get("ip_address") or item.get("address"))
+            mac_address = str(item.get("mac") or item.get("mac_address") or "").strip()[:64] or None
+            hostname = str(item.get("hostname") or item.get("name") or "").strip()[:255] or None
+            network_cidr = str(item.get("network_cidr") or item.get("cidr") or "").strip()[:128] or None
+            interface_name = str(item.get("interface") or item.get("interface_name") or "").strip()[:255] or None
+            source = str(item.get("source") or "neighbor").strip()[:64] or "neighbor"
+            if not ip_address and not mac_address and not hostname:
+                continue
+            observation_key = _network_hash_key("obs", source, ip_address, mac_address, hostname)
+            open_ports = _bounded_list(item.get("open_ports"), 64)
+            protocols = _bounded_list(item.get("protocols"), 64)
+            cursor.execute(
+                """
+                INSERT INTO endpoint_network_observations (
+                    agent_id, observation_key, ip_address, hostname, mac_address,
+                    vendor_hint, device_type, os_family, confidence, reachability,
+                    open_ports, protocols, source, network_cidr, interface_name,
+                    public_ip, raw_json, present, first_seen_at, last_seen_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    ip_address = VALUES(ip_address),
+                    hostname = VALUES(hostname),
+                    mac_address = VALUES(mac_address),
+                    vendor_hint = VALUES(vendor_hint),
+                    device_type = VALUES(device_type),
+                    os_family = VALUES(os_family),
+                    confidence = VALUES(confidence),
+                    reachability = VALUES(reachability),
+                    open_ports = VALUES(open_ports),
+                    protocols = VALUES(protocols),
+                    source = VALUES(source),
+                    network_cidr = VALUES(network_cidr),
+                    interface_name = VALUES(interface_name),
+                    public_ip = VALUES(public_ip),
+                    raw_json = VALUES(raw_json),
+                    present = TRUE,
+                    last_seen_at = VALUES(last_seen_at)
+                """,
+                (
+                    agent_id,
+                    observation_key,
+                    ip_address,
+                    hostname,
+                    mac_address,
+                    str(item.get("vendor_hint") or item.get("vendor") or "").strip()[:255] or None,
+                    str(item.get("device_type") or "unknown").strip()[:64] or "unknown",
+                    str(item.get("os_family") or item.get("os") or "").strip()[:64] or None,
+                    _int_or_none(item.get("confidence")),
+                    str(item.get("reachability") or item.get("state") or "").strip()[:64] or None,
+                    _json_dumps(open_ports),
+                    _json_dumps(protocols),
+                    source,
+                    network_cidr,
+                    interface_name,
+                    public_ip,
+                    _json_dumps(item),
+                    now,
+                    now,
+                ),
+            )
+            observations_changed += 1
+
+        for item in peer_checks:
+            if not isinstance(item, dict):
+                continue
+            target_agent_id = str(item.get("agent_id") or item.get("target_agent_id") or "").strip()[:64]
+            target_ip = _clean_ip(item.get("ip") or item.get("target_ip") or item.get("address"))
+            if not target_agent_id or not target_ip:
+                continue
+            cursor.execute(
+                """
+                INSERT INTO endpoint_network_peer_checks (
+                    source_agent_id, target_agent_id, target_ip, reachable,
+                    method, latency_ms, open_ports, raw_json, present,
+                    first_seen_at, last_seen_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    reachable = VALUES(reachable),
+                    method = VALUES(method),
+                    latency_ms = VALUES(latency_ms),
+                    open_ports = VALUES(open_ports),
+                    raw_json = VALUES(raw_json),
+                    present = TRUE,
+                    last_seen_at = VALUES(last_seen_at)
+                """,
+                (
+                    agent_id,
+                    target_agent_id,
+                    target_ip,
+                    _boolish(item.get("reachable")),
+                    str(item.get("method") or "").strip()[:64] or None,
+                    _int_or_none(item.get("latency_ms")),
+                    _json_dumps(_bounded_list(item.get("open_ports"), 64)),
+                    _json_dumps(item),
+                    now,
+                    now,
+                ),
+            )
+            peer_checks_changed += 1
+
+        connection.commit()
+        cursor.close()
+
+    return {
+        "segments": segments_changed,
+        "observations": observations_changed,
+        "peer_checks": peer_checks_changed,
+    }
+
+
+def get_endpoint_network_probe_targets(org_name: str, agent_id: str, limit: int = 64) -> list[dict]:
+    """Return peer endpoint IPs the agent should lightly test on its next run."""
+    limit = max(1, min(int(limit or 64), 256))
+    targets: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    with DatabaseConnectionManager() as connection:
+        cursor = connection.cursor(dictionary=True)
+        _use_org_database(cursor, org_name)
+        cursor.execute(
+            """
+            SELECT agent_id, hostname, os_platform, ip_addresses
+            FROM endpoint_agents
+            WHERE agent_id <> %s
+              AND revoked_at IS NULL
+              AND status <> 'revoked'
+            ORDER BY last_seen_at DESC
+            LIMIT 500
+            """,
+            (agent_id,),
+        )
+        rows = cursor.fetchall() or []
+        cursor.close()
+    for row in rows:
+        for ip in _json_loads(row.get("ip_addresses"), []) or []:
+            ip_text = _clean_ip(ip)
+            if not _is_internal_endpoint_ip(ip_text):
+                continue
+            key = (row["agent_id"], ip_text)
+            if key in seen:
+                continue
+            seen.add(key)
+            targets.append({
+                "agent_id": row["agent_id"],
+                "hostname": row.get("hostname"),
+                "ip": ip_text,
+                "os_platform": row.get("os_platform"),
+                "source": "endpoint_agent",
+            })
+    targets.sort(key=lambda item: (_endpoint_peer_ip_priority(item.get("ip")), item.get("hostname") or "", item.get("ip") or ""))
+    return targets[:limit]
+
+
+def get_endpoint_network_map(org_name: str) -> dict:
+    """Build a tenant network map from the latest endpoint network probes."""
+    mark_stale_endpoint_agents(org_name)
+    with DatabaseConnectionManager() as connection:
+        cursor = connection.cursor(dictionary=True)
+        _use_org_database(cursor, org_name)
+        _ensure_endpoint_network_schema(cursor)
+        cursor.execute(
+            """
+            SELECT a.id, a.agent_id, a.hostname, a.display_name, a.os_platform,
+                   a.os_name, a.os_version, a.ip_addresses, a.mac_addresses,
+                   a.status, a.last_seen_at, a.last_inventory_at,
+                   COALESCE(v_counts.vulnerability_count, 0) AS vulnerability_count
+            FROM endpoint_agents a
+            LEFT JOIN (
+                SELECT agent_id, COUNT(*) AS vulnerability_count
+                FROM endpoint_vulnerabilities
+                WHERE present = TRUE
+                GROUP BY agent_id
+            ) v_counts ON v_counts.agent_id = a.agent_id
+            ORDER BY a.last_seen_at DESC
+            """
+        )
+        agents = cursor.fetchall() or []
+        cursor.execute(
+            """
+            SELECT s.*, a.hostname
+            FROM endpoint_network_segments s
+            LEFT JOIN endpoint_agents a ON a.agent_id = s.agent_id
+            WHERE s.present = TRUE
+            ORDER BY s.last_seen_at DESC
+            LIMIT 2000
+            """
+        )
+        segments = cursor.fetchall() or []
+        cursor.execute(
+            """
+            SELECT o.*, a.hostname AS agent_hostname
+            FROM endpoint_network_observations o
+            LEFT JOIN endpoint_agents a ON a.agent_id = o.agent_id
+            WHERE o.present = TRUE
+            ORDER BY o.last_seen_at DESC
+            LIMIT 5000
+            """
+        )
+        observations = cursor.fetchall() or []
+        cursor.execute(
+            """
+            SELECT p.*, source.hostname AS source_hostname, target.hostname AS target_hostname
+            FROM endpoint_network_peer_checks p
+            LEFT JOIN endpoint_agents source ON source.agent_id = p.source_agent_id
+            LEFT JOIN endpoint_agents target ON target.agent_id = p.target_agent_id
+            WHERE p.present = TRUE
+            ORDER BY p.last_seen_at DESC
+            LIMIT 2000
+            """
+        )
+        peer_checks = cursor.fetchall() or []
+        cursor.close()
+
+    nodes: dict[str, dict] = {}
+    edges: list[dict] = []
+    segment_rollup: dict[str, dict] = {}
+    public_ip_agents: dict[str, set[str]] = {}
+
+    for agent in agents:
+        node_id = f"agent:{agent['agent_id']}"
+        ips = _json_loads(agent.get("ip_addresses"), []) or []
+        nodes[node_id] = {
+            "id": node_id,
+            "type": "agent",
+            "agent_id": agent["agent_id"],
+            "label": agent.get("hostname") or agent["agent_id"],
+            "hostname": agent.get("hostname"),
+            "status": agent.get("status"),
+            "os": " ".join(part for part in [agent.get("os_name"), agent.get("os_version")] if part),
+            "ip_addresses": ips,
+            "risk": int(agent.get("vulnerability_count") or 0),
+            "last_seen_at": agent.get("last_seen_at"),
+        }
+
+    for segment in segments:
+        public_ip = segment.get("public_ip")
+        if public_ip:
+            public_ip_agents.setdefault(public_ip, set()).add(segment.get("agent_id"))
+        cidr = segment.get("cidr") or "unknown"
+        net_key = f"{cidr}|{public_ip or ''}"
+        node_id = f"net:{_network_hash_key('n', net_key)}"
+        rollup = segment_rollup.setdefault(node_id, {
+            "id": node_id,
+            "cidr": cidr,
+            "public_ip": public_ip,
+            "agents": [],
+            "gateways": set(),
+            "device_count": 0,
+            "firewall_count": 0,
+            "last_seen_at": segment.get("last_seen_at"),
+        })
+        if segment.get("agent_id") not in rollup["agents"]:
+            rollup["agents"].append(segment.get("agent_id"))
+        if segment.get("gateway"):
+            rollup["gateways"].add(segment.get("gateway"))
+        nodes.setdefault(node_id, {
+            "id": node_id,
+            "type": "network",
+            "label": cidr,
+            "cidr": cidr,
+            "public_ip": public_ip,
+        })
+        source_id = f"agent:{segment.get('agent_id')}"
+        if source_id in nodes:
+            edges.append({"source": source_id, "target": node_id, "type": "member", "label": segment.get("interface_name") or ""})
+
+    for observation in observations:
+        ip_address = observation.get("ip_address")
+        device_basis = ip_address or observation.get("mac_address") or observation.get("observation_key")
+        device_id = f"device:{_network_hash_key('d', device_basis)}"
+        raw = _json_loads(observation.get("raw_json"), {}) or {}
+        open_ports = _json_loads(observation.get("open_ports"), []) or []
+        device_type = observation.get("device_type") or "unknown"
+        nodes[device_id] = {
+            "id": device_id,
+            "type": "device",
+            "label": observation.get("hostname") or ip_address or observation.get("mac_address") or "device",
+            "ip_address": ip_address,
+            "hostname": observation.get("hostname"),
+            "mac_address": observation.get("mac_address"),
+            "device_type": device_type,
+            "os_family": observation.get("os_family"),
+            "open_ports": open_ports,
+            "confidence": observation.get("confidence"),
+            "agent_id": observation.get("agent_id"),
+            "last_seen_at": observation.get("last_seen_at"),
+        }
+        network_node_id = None
+        cidr = observation.get("network_cidr")
+        public_ip = observation.get("public_ip")
+        if cidr:
+            observation_net_key = f"{cidr}|{public_ip or ''}"
+            network_node_id = f"net:{_network_hash_key('n', observation_net_key)}"
+        source_id = network_node_id if network_node_id in nodes else f"agent:{observation.get('agent_id')}"
+        if source_id in nodes:
+            edges.append({"source": source_id, "target": device_id, "type": "observed", "label": ",".join(str(port) for port in open_ports[:4])})
+        if network_node_id in segment_rollup:
+            segment_rollup[network_node_id]["device_count"] += 1
+            if device_type in {"firewall", "router", "network_device"}:
+                segment_rollup[network_node_id]["firewall_count"] += 1
+
+    for peer in peer_checks:
+        source_id = f"agent:{peer.get('source_agent_id')}"
+        target_id = f"agent:{peer.get('target_agent_id')}"
+        if source_id in nodes and target_id in nodes:
+            edges.append({
+                "source": source_id,
+                "target": target_id,
+                "type": "peer_reachable" if peer.get("reachable") else "peer_unreachable",
+                "label": peer.get("target_ip"),
+                "reachable": bool(peer.get("reachable")),
+            })
+
+    public_ip_groups = [
+        {
+            "public_ip": public_ip,
+            "agent_count": len(agent_ids),
+            "agents": sorted(agent_ids),
+            "shared": len(agent_ids) > 1,
+        }
+        for public_ip, agent_ids in public_ip_agents.items()
+    ]
+    firewall_candidates = sum(1 for row in observations if (row.get("device_type") or "") in {"firewall", "router", "network_device"})
+    summary = {
+        "agents": len(agents),
+        "online_agents": sum(1 for row in agents if row.get("status") == "online"),
+        "networks": len(segment_rollup),
+        "observed_devices": len(observations),
+        "firewall_candidates": firewall_candidates,
+        "peer_links": sum(1 for row in peer_checks if row.get("reachable")),
+        "public_ip_groups": len(public_ip_groups),
+    }
+    rendered_segments = []
+    for segment in segment_rollup.values():
+        rendered = dict(segment)
+        rendered["gateways"] = sorted(segment["gateways"])
+        rendered_segments.append(rendered)
+
+    return {
+        "summary": summary,
+        "nodes": list(nodes.values()),
+        "edges": edges,
+        "segments": rendered_segments,
+        "observations": observations,
+        "peer_checks": peer_checks,
+        "public_ip_groups": public_ip_groups,
+    }
 
 
 def replace_endpoint_vulnerabilities(org_name: str, agent_id: str, findings: list[dict]) -> int:

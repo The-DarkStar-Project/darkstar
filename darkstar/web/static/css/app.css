@@ -1283,6 +1283,52 @@ tr.vuln-row-unknown  { border-left: 3px solid var(--color-border); }
     font-variant-numeric: tabular-nums;
 }
 
+.network-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.network-summary-item {
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid rgba(95, 208, 165, 0.14);
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.network-summary-item span {
+    display: block;
+    color: var(--cyber-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.network-summary-item strong {
+    display: block;
+    margin-top: 4px;
+    color: var(--cyber-text);
+    font-size: 22px;
+    line-height: 1;
+}
+
+.network-map-card {
+    padding-inline: clamp(16px, 2.2vw, 30px);
+}
+
+.network-map-canvas {
+    display: block;
+    width: 100%;
+    min-height: 540px;
+    margin-bottom: var(--space-lg);
+    border: 1px solid rgba(95, 208, 165, 0.16);
+    border-radius: var(--radius-md);
+    background: rgba(3, 15, 12, 0.42);
+    cursor: crosshair;
+}
+
 .link-button {
     appearance: none;
     border: 0;
@@ -2692,6 +2738,10 @@ textarea::selection {
 
     .severity-chart {
         height: 230px;
+    }
+
+    .network-map-canvas {
+        min-height: 360px;
     }
 
     .detail-panel {
