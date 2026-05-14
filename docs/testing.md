@@ -9,8 +9,8 @@ herhaalbare evidence in de Sec/DevOps pipeline.
 | Laag | Doel | Command |
 | --- | --- | --- |
 | Unit tests | Pure functies, scanner parsers, scanpayload-validatie, endpoint matching en worker command building | `python -m pytest -m "not smoke and not playwright"` |
-| Smoke tests | Snelle webapp-controle van documentatie, static assets, OpenAPI en auth boundary | `python -m pytest -m smoke` |
-| Playwright tests | Browsercontrole van de standalone documentatiepagina op desktop en mobiel | `RUN_PLAYWRIGHT=1 python -m pytest -m playwright` |
+| Smoke tests | Snelle webapp-controle van documentatie, static assets, OpenAPI, auth boundaries en API-contracten voor scans, ASM, schedules en notificaties | `python -m pytest -m smoke` |
+| Playwright tests | Browsercontrole van documentatie en normale applicatieflows met gemockte API's | `RUN_PLAYWRIGHT=1 python -m pytest -m playwright` |
 | CI tests | Unit, smoke en Playwright in GitHub Actions | `.github/workflows/tests.yml` |
 
 ## Dependencies installeren
@@ -57,7 +57,8 @@ python3 -m pytest -m "not playwright" --cov=darkstar --cov-report=term-missing
 ## Smoke tests draaien
 
 Smoke tests gebruiken FastAPI `TestClient` en starten geen echte scanner tools.
-Ze controleren dat belangrijke webapp-routes nog renderen of correct afschermen.
+Ze controleren dat belangrijke webapp-routes nog renderen, correct afschermen en
+de juiste contracten met de backend helpers gebruiken.
 
 ```bash
 python3 -m pytest -m smoke
@@ -71,6 +72,11 @@ De smoke tests controleren onder andere:
 - `/api/me` zonder login
 - afscherming van een beschermde API route
 - aanwezigheid van relevante OpenAPI routes
+- vulnerability filtering, detailweergave en groepering
+- attack-surface en BBot-subdomain target endpoints
+- scan queueing naar scanner workers, zonder scanner binaries te starten
+- schedule create/update/delete/run-contracten
+- notificatie-instellingen en testnotificatie-route
 
 ## Playwright tests draaien
 
@@ -78,6 +84,11 @@ Playwright tests starten een tijdelijke Uvicorn server op een vrije lokale poort
 en openen de applicatie met Chromium. Ze draaien alleen wanneer
 `RUN_PLAYWRIGHT=1` is gezet, zodat reguliere unit runs geen browser hoeven te
 starten.
+
+De applicatieflows mocken de API-responses in de browser. Daardoor kan de test
+vulnerabilities bekijken, targets selecteren, scanpayloads submitten en
+notificatie-instellingen opslaan zonder echte targets te scannen of externe
+scanner tools te starten.
 
 ```bash
 RUN_PLAYWRIGHT=1 python3 -m pytest -m playwright
@@ -88,6 +99,9 @@ De browsertests maken screenshots als artifact:
 ```text
 test-results/playwright/documentation-desktop.png
 test-results/playwright/documentation-mobile.png
+test-results/playwright/dashboard-workflow.png
+test-results/playwright/attack-surface-workflow.png
+test-results/playwright/settings-notifications-workflow.png
 ```
 
 Gebruik deze screenshots bij visuele regressies of wanneer layoutproblemen in
@@ -131,6 +145,8 @@ Artifacts:
   alleen een happy path.
 - Nieuwe frontend/documentatiepagina's krijgen een Playwright test wanneer
   layout, navigatie of responsive gedrag belangrijk is.
+- Playwright mag scanacties testen door API-payloads te mocken en te asserten,
+  maar mag geen langdurige of echte scanner-run starten.
 - Tests mogen geen echte targets scannen en geen secrets vereisen.
 - Netwerkafhankelijke services zoals OSV, MSRC, OpenVAS, ZAP en scanner binaries
   worden in unit tests gemockt.

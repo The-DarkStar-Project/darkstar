@@ -81,9 +81,11 @@ Darkstar heeft een gelaagde testopzet voor ontwikkelaars en CI/CD:
 - unit tests voor validatie, parsing, endpoint matching, scanner workers en
   scanner output normalisatie;
 - smoke tests voor belangrijke webapp routes, documentatie, static assets,
-  OpenAPI en auth boundaries;
-- Playwright browsertests voor de standalone documentatiepagina op desktop en
-  mobiel;
+  OpenAPI, auth boundaries en API-contracten voor vulnerabilities, ASM, scans,
+  schedules en notificaties;
+- Playwright browsertests voor de standalone documentatiepagina en normale
+  applicatieflows zoals vulnerabilities bekijken, targets selecteren,
+  scanpayloads aanmaken en notificaties configureren;
 - GitHub Actions workflow voor unit/smoke en Playwright checks.
 
 Installeer lokale testdependencies:
@@ -111,7 +113,9 @@ python3 -m playwright install chromium
 RUN_PLAYWRIGHT=1 python3 -m pytest -m playwright
 ```
 
-Playwright schrijft screenshots naar `test-results/playwright/`. De volledige
+Playwright mockt scan-API's in de browser. De tests verifieren dus de UI-flow en
+payloads, maar starten geen echte scanner tools en scannen geen targets.
+Screenshots worden opgeslagen in `test-results/playwright/`. De volledige
 testinghandleiding staat in [Testing](./testing.md).
 
 ## Aan de slag

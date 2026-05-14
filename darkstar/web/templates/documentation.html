@@ -449,7 +449,8 @@ SMTP_TLS='true'</code></pre>
                 <h2>Testing en testautomatisering</h2>
                 <p>
                     Darkstar gebruikt een gelaagde testaanpak: snelle unit tests voor pure logica, smoke tests voor
-                    belangrijke webapp-contracten en Playwright tests voor browsergedrag en responsive documentatie.
+                    belangrijke webapp-contracten en Playwright tests voor browsergedrag, responsive documentatie en
+                    normale applicatieflows.
                     De GitHub Actions workflow draait unit/smoke en Playwright als aparte jobs.
                 </p>
                 <div class="info-grid">
@@ -459,11 +460,11 @@ SMTP_TLS='true'</code></pre>
                     </div>
                     <div>
                         <h3>Smoke tests</h3>
-                        <p>Controleren `/documentation`, static assets, OpenAPI en basale auth boundaries zonder echte scanner tools te starten.</p>
+                        <p>Controleren `/documentation`, static assets, OpenAPI, auth boundaries en API-contracten voor vulnerabilities, ASM, scans, schedules en notificaties.</p>
                     </div>
                     <div>
                         <h3>Playwright</h3>
-                        <p>Start een tijdelijke Uvicorn server en test de documentatiepagina in Chromium op desktop en mobiel.</p>
+                        <p>Start een tijdelijke Uvicorn server en test documentatie plus applicatieflows in Chromium. Scanacties worden gemockt en starten geen echte scanners.</p>
                     </div>
                 </div>
                 <h3>Dependencies installeren</h3>
