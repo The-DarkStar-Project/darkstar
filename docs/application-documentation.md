@@ -281,6 +281,45 @@ Darkstar matcht software tegen bekende vulnerabilities.
 4. Controleer of de agent online komt.
 5. Controleer software inventory en endpoint vulnerabilities.
 
+### Debian/Linux agent
+
+Voor Debian en Ubuntu hosts gebruikt Darkstar de Python endpoint agent via een
+systemd installer:
+
+```bash
+curl -fsSLo /tmp/darkstar-endpoint-install.sh \
+  https://raw.githubusercontent.com/The-DarkStar-Project/darkstar/main/agents/darkstar-debian-agent/install.sh
+sudo bash /tmp/darkstar-endpoint-install.sh \
+  --url "https://darkstar.example" \
+  --org "org_example" \
+  --enrollment-token "<endpoint enrollment token>"
+```
+
+De installer maakt een `darkstar-endpoint-agent` service, een protected env
+file in `/etc/darkstar/endpoint-agent.env` en state in
+`/var/lib/darkstar-endpoint/agent.json`. De agent verzamelt Debian packages,
+optionele osquery data, Python/npm packages, IP/MAC metadata en interne
+netwerkobservaties voor de endpoint network map.
+
+Beheer:
+
+```bash
+sudo systemctl status darkstar-endpoint-agent
+sudo systemctl restart darkstar-endpoint-agent
+sudo journalctl -u darkstar-endpoint-agent -f
+sudo darkstar-endpoint-agent --once
+sudo darkstar-endpoint-agent --print-inventory
+```
+
+Behandel `/etc/darkstar/endpoint-agent.env` en
+`/var/lib/darkstar-endpoint/agent.json` als secrets.
+
+### Windows agent
+
+De native Windows agent staat in `agents/darkstar-windows-agent/` en wordt als
+Windows Service geinstalleerd. Gebruik deze voor Windows fleets waar een single
+binary handiger is dan Python.
+
 ### Beheer
 
 Tenant admins kunnen:

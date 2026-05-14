@@ -28,5 +28,8 @@ home/
 */scan_results
 */bbot_output
 agents/darkstar-windows-agent/dist/
+agents/darkstar-debian-agent/build/
+agents/darkstar-debian-agent/dist/
+agents/darkstar-debian-agent/*.deb
 
 .claude/

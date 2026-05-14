@@ -1,0 +1,25 @@
+[Unit]
+Description=Darkstar Endpoint Agent
+Documentation=https://github.com/The-DarkStar-Project/darkstar
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=darkstar-endpoint
+Group=darkstar-endpoint
+EnvironmentFile=/etc/darkstar/endpoint-agent.env
+WorkingDirectory=/opt/darkstar/endpoint-agent
+ExecStart=/usr/local/bin/darkstar-endpoint-agent
+Restart=always
+RestartSec=30
+StateDirectory=darkstar-endpoint
+LogsDirectory=darkstar-endpoint
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/darkstar-endpoint /var/log/darkstar-endpoint
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ENV_FILE="${DARKSTAR_ENDPOINT_ENV_FILE:-/etc/darkstar/endpoint-agent.env}"
+if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    # shellcheck source=/etc/darkstar/endpoint-agent.env
+    source "$ENV_FILE"
+    set +a
+fi
+
+PYTHON_BIN="${DARKSTAR_AGENT_PYTHON:-/opt/darkstar/endpoint-agent/venv/bin/python}"
+MODULE_DIR="${DARKSTAR_AGENT_MODULE_DIR:-/opt/darkstar/endpoint-agent}"
+STATE_FILE="${DARKSTAR_STATE_FILE:-/var/lib/darkstar-endpoint/agent.json}"
+INTERVAL="${DARKSTAR_INTERVAL_SECONDS:-3600}"
+
+cmd=("$PYTHON_BIN" "-m" "darkstar.endpoint_agent")
+
+if [[ " $* " != *" --print-inventory "* ]]; then
+    if [[ -z "${DARKSTAR_URL:-}" ]]; then
+        echo "DARKSTAR_URL is required in $ENV_FILE" >&2
+        exit 2
+    fi
+    cmd+=(--url "$DARKSTAR_URL" --state-file "$STATE_FILE" --interval "$INTERVAL")
+    if [[ -n "${DARKSTAR_ORG:-}" ]]; then
+        cmd+=(--org "$DARKSTAR_ORG")
+    fi
+    if [[ -n "${DARKSTAR_ENROLLMENT_TOKEN:-}" ]]; then
+        cmd+=(--enrollment-token "$DARKSTAR_ENROLLMENT_TOKEN")
+    fi
+    if [[ -n "${DARKSTAR_AGENT_TOKEN:-}" ]]; then
+        cmd+=(--agent-token "$DARKSTAR_AGENT_TOKEN")
+    fi
+fi
+
+export PYTHONPATH="$MODULE_DIR${PYTHONPATH:+:$PYTHONPATH}"
+exec "${cmd[@]}" "$@"

@@ -210,3 +210,15 @@ def test_scanner_attach_command_uses_public_url_and_expected_env(monkeypatch):
     assert "DARKSTAR_SCANNER_TOKEN='dscan_test'" in command
     assert "DB_PASSWORD=''" in command
     assert command.endswith("darkstar:test python3 -m darkstar.scanner_worker")
+
+
+def test_endpoint_install_command_uses_debian_agent_installer(monkeypatch):
+    monkeypatch.setenv("DARKSTAR_PUBLIC_URL", "https://darkstar.example/")
+
+    command = webapp._endpoint_install_command("org_demo", "test-token", request=None)
+
+    assert "agents/darkstar-debian-agent/install.sh" in command
+    assert "sudo bash /tmp/darkstar-endpoint-install.sh" in command
+    assert "--url https://darkstar.example/" in command
+    assert "--org org_demo" in command
+    assert "--enrollment-token test-token" in command

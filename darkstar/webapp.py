@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import signal
+import shlex
 import subprocess
 import sys
 import threading
@@ -625,13 +626,20 @@ def _endpoint_install_command(org_db: str, token: str, request: Request | None =
     if not base_url and request is not None:
         base_url = str(request.base_url).rstrip("/")
     base_url = base_url or "http://darkstar.local:8080"
-    return (
-        "python3 -m darkstar.endpoint_agent "
-        f"--url '{base_url}' "
-        f"--org '{org_db}' "
-        f"--enrollment-token '{token}' "
-        "--interval 3600"
+    install_url = os.environ.get(
+        "DARKSTAR_DEBIAN_AGENT_INSTALL_URL",
+        "https://raw.githubusercontent.com/The-DarkStar-Project/darkstar/main/agents/darkstar-debian-agent/install.sh",
     )
+    return "\n".join([
+        f"curl -fsSLo /tmp/darkstar-endpoint-install.sh {shlex.quote(install_url)}",
+        (
+            "sudo bash /tmp/darkstar-endpoint-install.sh "
+            f"--url {shlex.quote(base_url)} "
+            f"--org {shlex.quote(org_db)} "
+            f"--enrollment-token {shlex.quote(token)} "
+            "--interval 3600"
+        ),
+    ])
 
 
 def _endpoint_os_info_from_agent(agent: dict | None) -> dict:
