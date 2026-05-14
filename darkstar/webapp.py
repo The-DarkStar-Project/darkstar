@@ -688,11 +688,17 @@ def _match_endpoint_vulnerabilities(
     """Match endpoint inventory with tenant-local package/version cache."""
     findings = []
     matcher_stats = {"matcher": "osv_purl_exact_version_cached+vendor", "candidates": 0, "cache_hits": 0, "cache_misses": 0}
+    vendor_matching_enabled = os.environ.get("ENDPOINT_VENDOR_MATCHING", "true").lower() not in {"0", "false", "no"}
     if os.environ.get("ENDPOINT_OSV_MATCHING", "true").lower() not in {"0", "false", "no"}:
         candidates = []
         representatives: dict[str, dict] = {}
         queries: dict[str, dict] = {}
+        skipped_vendor_os_packages = 0
         for item in software or []:
+            package_type = str(item.get("package_type") or item.get("ecosystem") or "").lower()
+            if vendor_matching_enabled and package_type in {"deb", "rpm", "windows_os", "windows_kb", "windows_program"}:
+                skipped_vendor_os_packages += 1
+                continue
             key = osv_package_key(item)
             if not key:
                 continue
@@ -702,6 +708,7 @@ def _match_endpoint_vulnerabilities(
             queries[cache_id] = key
 
         matcher_stats["candidates"] = len(candidates)
+        matcher_stats["skipped_vendor_os_packages"] = skipped_vendor_os_packages
         if candidates:
             cached = get_endpoint_vuln_cache_entries(org_db, list(queries.values()))
             missing_ids = [cache_id for cache_id in representatives if cache_id not in cached]
@@ -728,7 +735,7 @@ def _match_endpoint_vulnerabilities(
             })
 
     vendor_findings = []
-    if os.environ.get("ENDPOINT_VENDOR_MATCHING", "true").lower() not in {"0", "false", "no"}:
+    if vendor_matching_enabled:
         vendor_findings = match_vendor_vulnerabilities(software or [], os_info or {})
         findings.extend(vendor_findings)
 
@@ -736,6 +743,28 @@ def _match_endpoint_vulnerabilities(
     matcher_stats["vendor_findings"] = len(vendor_findings)
     matcher_stats["findings_after_dedupe"] = len(findings)
     return findings, matcher_stats
+
+
+def _refresh_endpoint_vulnerabilities(org_db: str, agent_id: str, software: list[dict], os_info: dict | None = None) -> dict:
+    findings, matcher_stats = _match_endpoint_vulnerabilities(org_db, software or [], os_info=os_info or {})
+    finding_count = replace_endpoint_vulnerabilities(org_db, agent_id, findings)
+    return {"vulnerability_count": finding_count, "matcher_stats": matcher_stats}
+
+
+def _refresh_endpoint_vulnerabilities_async(org_db: str, agent_id: str, software: list[dict], os_info: dict | None = None) -> None:
+    def worker():
+        try:
+            result = _refresh_endpoint_vulnerabilities(org_db, agent_id, software, os_info=os_info)
+            logger.info(
+                "Endpoint vulnerability matching completed for %s/%s: %s findings",
+                org_db,
+                agent_id,
+                result.get("vulnerability_count"),
+            )
+        except Exception:
+            logger.exception("Endpoint vulnerability matching failed for %s/%s", org_db, agent_id)
+
+    threading.Thread(target=worker, name=f"endpoint-vuln-{agent_id}", daemon=True).start()
 
 
 def _require_min_role(request: Request, min_role: str):
@@ -1805,12 +1834,14 @@ def recalculate_endpoint_vulnerabilities_api(request: Request):
                 if offset >= int(page.get("total") or 0) or not items:
                     break
             agent_detail = get_endpoint_agent(org_db, agent_id) or agent
-            findings, matcher_stats = _match_endpoint_vulnerabilities(
+            refresh_result = _refresh_endpoint_vulnerabilities(
                 org_db,
+                agent_id,
                 software,
                 os_info=_endpoint_os_info_from_agent(agent_detail),
             )
-            vulnerability_total += replace_endpoint_vulnerabilities(org_db, agent_id, findings)
+            matcher_stats = refresh_result["matcher_stats"]
+            vulnerability_total += int(refresh_result.get("vulnerability_count") or 0)
             software_total += len(software)
             cache_hits += int(matcher_stats.get("cache_hits") or 0)
             cache_misses += int(matcher_stats.get("cache_misses") or 0)
@@ -1868,17 +1899,34 @@ def endpoint_agent_inventory(request: Request, body: EndpointInventoryRequest):
         mac_addresses=body.mac_addresses,
         metadata=body.metadata,
     )
-    findings, matcher_stats = _match_endpoint_vulnerabilities(
-        agent["org_db"],
-        result.get("software") or [],
-        os_info=body.os,
-    )
-    finding_count = replace_endpoint_vulnerabilities(agent["org_db"], agent["agent_id"], findings)
+    software_count = result.get("software_count") or 0
+    sync_limit = max(0, int(os.environ.get("ENDPOINT_SYNC_MATCH_SOFTWARE_LIMIT", "500")))
+    if software_count <= sync_limit:
+        refresh_result = _refresh_endpoint_vulnerabilities(
+            agent["org_db"],
+            agent["agent_id"],
+            result.get("software") or [],
+            os_info=body.os,
+        )
+        finding_count = refresh_result["vulnerability_count"]
+        matcher_stats = refresh_result["matcher_stats"]
+        matching_status = "completed"
+    else:
+        _refresh_endpoint_vulnerabilities_async(
+            agent["org_db"],
+            agent["agent_id"],
+            result.get("software") or [],
+            os_info=body.os,
+        )
+        finding_count = None
+        matcher_stats = {"matcher": "osv_purl_exact_version_cached+vendor", "queued": True}
+        matching_status = "queued"
     return {
         "ok": True,
         "agent_id": agent["agent_id"],
-        "software_count": result.get("software_count") or 0,
+        "software_count": software_count,
         "vulnerability_count": finding_count,
+        "matching_status": matching_status,
         "matcher": matcher_stats["matcher"],
         "matcher_stats": matcher_stats,
     }

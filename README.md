@@ -34,6 +34,28 @@ Docker Compose:
 - [Application documentation](./docs/application-documentation.md) and the web page at `/documentation`
 - [Security testing and Sec/DevOps pipeline](./docs/security-testing-pipeline.md)
 - [Distributed scanner workers](./docs/distributed-scanners.md)
+- [Testing guide](./docs/testing.md)
+
+## Testing
+
+Install development test dependencies:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+```
+
+Run unit and smoke tests:
+
+```bash
+python3 -m pytest -m "not playwright"
+```
+
+Run browser tests:
+
+```bash
+python3 -m playwright install chromium
+RUN_PLAYWRIGHT=1 python3 -m pytest -m playwright
+```
 
 ## Roadmap
 - Agent based vulnerability scanning

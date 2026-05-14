@@ -200,6 +200,8 @@ class TestNucleiScanner:
     def test_scan_nuclei(self, mocker: MockerFixture):
         # Mock subprocess.Popen
         mock_popen = mocker.patch("scanners.nuclei.subprocess.Popen")
+        mocker.patch("scanners.nuclei.subprocess.run")
+        mocker.patch("scanners.nuclei.os.path.isdir", return_value=True)
         
         # Create mock process with proper stdout behavior
         mock_process = mocker.Mock()
@@ -225,6 +227,8 @@ class TestNucleiScanner:
         # Mock readline to return the JSON output once, then empty string, then continue returning empty strings
         mock_process.stdout.readline.side_effect = [json_output, '', '', '', '']  # Add more empty strings
         mock_process.poll.side_effect = [None, 0]  # First call returns None (process running), second returns 0 (finished)
+        mock_process.stderr.read.return_value = ""
+        mock_process.wait.return_value = 0
         
         mock_popen.return_value = mock_process
 
@@ -447,7 +451,7 @@ class TestAsteroidScanner:
         mock_asteroid_class.assert_called_once_with(
             target="example.com",
             output_dir="/app/asteroid_output",
-            specific_modules="all",
+            specific_modules="katana,feroxbuster,gau,arjun,directorylisting,sensitivefiles,trufflehog,extensioninspector,vulnscan,retirejs,nuclei,fileupload",
             rerun=True,
             module_args={"forms": True, "search_vulns_api_key": "test_api_key"},
         )

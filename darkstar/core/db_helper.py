@@ -3776,13 +3776,22 @@ def list_endpoint_agents(
                    a.ip_addresses, a.mac_addresses, a.agent_version, a.status,
                    a.token_prefix, a.enrollment_token_id, a.metadata_json,
                    a.revoked_at, a.first_seen_at, a.last_seen_at, a.last_inventory_at,
-                   COUNT(DISTINCT CASE WHEN s.present = TRUE THEN s.id END) AS software_count,
-                   COUNT(DISTINCT CASE WHEN v.present = TRUE THEN v.id END) AS vulnerability_count
+                   COALESCE(s_counts.software_count, 0) AS software_count,
+                   COALESCE(v_counts.vulnerability_count, 0) AS vulnerability_count
             FROM endpoint_agents a
-            LEFT JOIN endpoint_software s ON s.agent_id = a.agent_id
-            LEFT JOIN endpoint_vulnerabilities v ON v.agent_id = a.agent_id
+            LEFT JOIN (
+                SELECT agent_id, COUNT(*) AS software_count
+                FROM endpoint_software
+                WHERE present = TRUE
+                GROUP BY agent_id
+            ) s_counts ON s_counts.agent_id = a.agent_id
+            LEFT JOIN (
+                SELECT agent_id, COUNT(*) AS vulnerability_count
+                FROM endpoint_vulnerabilities
+                WHERE present = TRUE
+                GROUP BY agent_id
+            ) v_counts ON v_counts.agent_id = a.agent_id
             WHERE {where}
-            GROUP BY a.id
             ORDER BY a.last_seen_at DESC
             LIMIT %s OFFSET %s
             """

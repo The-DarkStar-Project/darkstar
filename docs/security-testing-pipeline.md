@@ -31,8 +31,22 @@ evidence.
 Gebruik lokaal minimaal:
 
 ```bash
-pytest
-python -m compileall darkstar
+python3 -m pip install -r requirements-dev.txt
+python3 -m pytest -m "not playwright"
+python3 - <<'PY'
+from pathlib import Path
+for root in (Path("darkstar"), Path("openvas_api")):
+    for path in root.rglob("*.py"):
+        if "__pycache__" not in path.parts:
+            compile(path.read_text(), str(path), "exec")
+PY
+```
+
+Voor browsercontrole van de documentatie en responsive layout:
+
+```bash
+python3 -m playwright install chromium
+RUN_PLAYWRIGHT=1 python3 -m pytest -m playwright
 ```
 
 Wanneer de tools beschikbaar zijn:
@@ -46,6 +60,9 @@ trivy config .
 
 Deze commands zijn voorbeelden. De uiteindelijke pipeline moet aansluiten bij de
 tooling die in de runner beschikbaar is.
+
+Zie [Testing](./testing.md) voor markers, Playwright screenshots, CI artifacts
+en troubleshooting.
 
 ## Darkstar in CI/CD
 

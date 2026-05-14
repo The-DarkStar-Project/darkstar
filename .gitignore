@@ -7,6 +7,8 @@ __pycache__
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+test-results/
+playwright-report/
 
 search_epss
 
@@ -21,6 +23,8 @@ notes.md
 *.dat
 *.log
 *.out
+reports/
+home/
 */scan_results
 */bbot_output
 

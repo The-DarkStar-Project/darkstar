@@ -18,6 +18,7 @@
         <nav class="top-links" aria-label="Top navigation">
             <a href="#responsible-use">Verantwoord gebruik</a>
             <a href="#tools">Tools & licenties</a>
+            <a href="#testing">Testing</a>
             <a href="#internal-scanners">Interne scanners</a>
             <a href="#authentication">MFA & SSO</a>
             <a href="/">Dashboard</a>
@@ -40,6 +41,7 @@
             <a href="#notifications">Notificaties</a>
             <a href="#api">API en exports</a>
             <a href="#pipeline">Sec/DevOps pipeline</a>
+            <a href="#testing">Testing</a>
             <a href="#runbook">Runbook</a>
             <a href="#troubleshooting">Troubleshooting</a>
         </aside>
@@ -441,6 +443,42 @@ SMTP_TLS='true'</code></pre>
                     <li>DAST draait standaard tegen staging, niet tegen productie zonder akkoord.</li>
                     <li>API keys worden periodiek geroteerd.</li>
                 </ul>
+            </section>
+
+            <section id="testing" class="doc-section">
+                <h2>Testing en testautomatisering</h2>
+                <p>
+                    Darkstar gebruikt een gelaagde testaanpak: snelle unit tests voor pure logica, smoke tests voor
+                    belangrijke webapp-contracten en Playwright tests voor browsergedrag en responsive documentatie.
+                    De GitHub Actions workflow draait unit/smoke en Playwright als aparte jobs.
+                </p>
+                <div class="info-grid">
+                    <div>
+                        <h3>Unit tests</h3>
+                        <p>Valideren scanpayloads, MFA/TOTP helpers, endpoint matching, scanner workers en scanner output parsing.</p>
+                    </div>
+                    <div>
+                        <h3>Smoke tests</h3>
+                        <p>Controleren `/documentation`, static assets, OpenAPI en basale auth boundaries zonder echte scanner tools te starten.</p>
+                    </div>
+                    <div>
+                        <h3>Playwright</h3>
+                        <p>Start een tijdelijke Uvicorn server en test de documentatiepagina in Chromium op desktop en mobiel.</p>
+                    </div>
+                </div>
+                <h3>Dependencies installeren</h3>
+                <pre><code>python3 -m pip install -r requirements-dev.txt</code></pre>
+                <h3>Unit en smoke tests draaien</h3>
+                <pre><code>python3 -m pytest -m "not playwright"</code></pre>
+                <h3>Alleen smoke tests draaien</h3>
+                <pre><code>python3 -m pytest -m smoke</code></pre>
+                <h3>Playwright tests draaien</h3>
+                <pre><code>python3 -m playwright install chromium
+RUN_PLAYWRIGHT=1 python3 -m pytest -m playwright</code></pre>
+                <p>
+                    Playwright screenshots worden opgeslagen in <code>test-results/playwright/</code>. De volledige
+                    testdocumentatie staat in <code>docs/testing.md</code>.
+                </p>
             </section>
 
             <section id="runbook" class="doc-section">

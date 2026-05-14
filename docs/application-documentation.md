@@ -74,6 +74,46 @@ Vulnerability Disclosure proces.
 | `tenant_admin` | Tenantinstellingen, gebruikers, API keys, endpoint tokens en scanner nodes beheren. |
 | `platform_admin` | Platformbreed tenant-overzicht en beheer. |
 
+## Testing en kwaliteitscontrole
+
+Darkstar heeft een gelaagde testopzet voor ontwikkelaars en CI/CD:
+
+- unit tests voor validatie, parsing, endpoint matching, scanner workers en
+  scanner output normalisatie;
+- smoke tests voor belangrijke webapp routes, documentatie, static assets,
+  OpenAPI en auth boundaries;
+- Playwright browsertests voor de standalone documentatiepagina op desktop en
+  mobiel;
+- GitHub Actions workflow voor unit/smoke en Playwright checks.
+
+Installeer lokale testdependencies:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+```
+
+Run unit en smoke tests:
+
+```bash
+python3 -m pytest -m "not playwright"
+```
+
+Run alleen smoke tests:
+
+```bash
+python3 -m pytest -m smoke
+```
+
+Run Playwright tests:
+
+```bash
+python3 -m playwright install chromium
+RUN_PLAYWRIGHT=1 python3 -m pytest -m playwright
+```
+
+Playwright schrijft screenshots naar `test-results/playwright/`. De volledige
+testinghandleiding staat in [Testing](./testing.md).
+
 ## Aan de slag
 
 1. Log in met een organisatieaccount of via SSO.

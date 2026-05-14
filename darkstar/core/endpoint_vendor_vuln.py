@@ -38,10 +38,13 @@ MSRC_UPDATES_URL = "https://api.msrc.microsoft.com/cvrf/v3.0/updates"
 MSRC_CVRF_URL = "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/{doc_id}"
 
 _DEBIAN_CACHE: dict[str, Any] = {"loaded_at": 0.0, "data": None}
+_DPKG_COMPARE_CACHE: dict[tuple[str, str], bool] = {}
 _REDHAT_LIST_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _REDHAT_DETAIL_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _MSRC_UPDATES_CACHE: dict[str, Any] = {"loaded_at": 0.0, "data": None}
 _MSRC_DOC_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+_APT_PKG: Any | None = None
+_APT_PKG_INIT_ATTEMPTED = False
 
 
 def _cache_ttl() -> int:
@@ -337,6 +340,23 @@ def _installed_windows_kbs(software: list[dict[str, Any]]) -> set[str]:
 def _dpkg_lt(installed: str, fixed: str) -> bool:
     if not installed or not fixed:
         return False
+    cache_key = (installed, fixed)
+    if cache_key in _DPKG_COMPARE_CACHE:
+        return _DPKG_COMPARE_CACHE[cache_key]
+    global _APT_PKG, _APT_PKG_INIT_ATTEMPTED
+    if not _APT_PKG_INIT_ATTEMPTED:
+        _APT_PKG_INIT_ATTEMPTED = True
+        try:
+            import apt_pkg  # type: ignore
+
+            apt_pkg.init_system()
+            _APT_PKG = apt_pkg
+        except Exception:
+            _APT_PKG = None
+    if _APT_PKG is not None:
+        result = _APT_PKG.version_compare(installed, fixed) < 0
+        _DPKG_COMPARE_CACHE[cache_key] = result
+        return result
     dpkg = shutil.which("dpkg")
     if dpkg:
         try:
@@ -346,10 +366,14 @@ def _dpkg_lt(installed: str, fixed: str) -> bool:
                 timeout=5,
                 check=False,
             )
-            return result.returncode == 0
+            comparison = result.returncode == 0
+            _DPKG_COMPARE_CACHE[cache_key] = comparison
+            return comparison
         except Exception:
             pass
-    return installed < fixed
+    comparison = installed < fixed
+    _DPKG_COMPARE_CACHE[cache_key] = comparison
+    return comparison
 
 
 def _fetch_debian_tracker() -> dict[str, Any]:
