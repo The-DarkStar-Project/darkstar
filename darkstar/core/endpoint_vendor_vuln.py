@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import hashlib
 import shutil
 import subprocess
 import time
@@ -150,6 +151,186 @@ def _major_version(os_info: dict[str, Any]) -> str:
     version = str(os_info.get("version") or os_info.get("VERSION_ID") or "").strip()
     match = re.search(r"\d+", version)
     return match.group(0) if match else ""
+
+
+def _strip_markup(value: str | None) -> str:
+    text = re.sub(r"<[^>]+>", " ", str(value or ""))
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _numeric_version_parts(value: str | None) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.findall(r"\d+", str(value or "")))
+
+
+def _version_like(value: str | None) -> bool:
+    return bool(re.fullmatch(r"\d+(?:\.\d+){1,5}", str(value or "").strip()))
+
+
+def _version_lt(left: str | None, right: str | None) -> bool:
+    left_parts = _numeric_version_parts(left)
+    right_parts = _numeric_version_parts(right)
+    if not left_parts or not right_parts:
+        return False
+    width = max(len(left_parts), len(right_parts))
+    left_parts = left_parts + (0,) * (width - len(left_parts))
+    right_parts = right_parts + (0,) * (width - len(right_parts))
+    return left_parts < right_parts
+
+
+def _max_version(values: list[str]) -> str | None:
+    clean = [value for value in values if _version_like(value)]
+    if not clean:
+        return None
+    return max(clean, key=lambda value: _numeric_version_parts(value))
+
+
+def _is_windows_os(os_info: dict[str, Any]) -> bool:
+    platform_name = _platform(os_info)
+    name = str(os_info.get("name") or os_info.get("product_name") or "").lower()
+    return platform_name.startswith("win") or "windows" in name
+
+
+def _windows_build(os_info: dict[str, Any]) -> str | None:
+    build = (
+        os_info.get("build")
+        or os_info.get("os_build")
+        or os_info.get("build_number")
+        or os_info.get("CurrentBuildNumber")
+    )
+    ubr = os_info.get("ubr") or os_info.get("UBR")
+    if not build:
+        return None
+    text = str(build).strip()
+    if text.count(".") >= 2:
+        return text
+    parts = ["10", "0", text]
+    if ubr not in (None, ""):
+        parts.append(str(ubr).strip())
+    return ".".join(parts)
+
+
+def _windows_build_number(os_info: dict[str, Any]) -> int | None:
+    build = _windows_build(os_info)
+    parts = _numeric_version_parts(build)
+    return parts[2] if len(parts) >= 3 else None
+
+
+def _windows_release_from_build(os_info: dict[str, Any]) -> str:
+    explicit = str(os_info.get("display_version") or os_info.get("release_id") or os_info.get("version") or "").upper()
+    match = re.search(r"\b\d{2}H[12]\b", explicit)
+    if match:
+        return match.group(0)
+    build = _windows_build_number(os_info)
+    return {
+        14393: "1607",
+        17763: "1809",
+        19044: "21H2",
+        19045: "22H2",
+        20348: "2022",
+        22000: "21H2",
+        22621: "22H2",
+        22631: "23H2",
+        26100: "24H2",
+    }.get(build, "")
+
+
+def _windows_arch_matches(product_name: str, os_info: dict[str, Any]) -> bool:
+    product = product_name.lower()
+    arch = str(os_info.get("arch") or os_info.get("architecture") or "").lower()
+    if "arm64" in product:
+        return "arm64" in arch or "aarch64" in arch
+    if "x64-based" in product or "64-bit" in product:
+        return arch in {"amd64", "x86_64", "x64", "64-bit"} or "64" in arch
+    if "32-bit" in product or "x86-based" in product:
+        return arch in {"x86", "i386", "i686", "32-bit"} or "86" in arch
+    return True
+
+
+def _windows_name_matches(product_name: str, os_info: dict[str, Any]) -> bool:
+    product = product_name.lower()
+    os_name = str(os_info.get("name") or os_info.get("product_name") or "").lower()
+    build = _windows_build_number(os_info)
+    release = _windows_release_from_build(os_info).upper()
+    is_server = "server" in os_name or str(os_info.get("installation_type") or "").lower() in {"server", "server core"}
+    product_is_server = "windows server" in product
+    if product_is_server != is_server:
+        return False
+    if "server core installation" in product:
+        if "core" not in str(os_info.get("installation_type") or os_name).lower():
+            return False
+    elif is_server and "core" in str(os_info.get("installation_type") or os_name).lower():
+        return False
+    if product_is_server:
+        server_builds = {
+            "2012 r2": 9600,
+            "2016": 14393,
+            "2019": 17763,
+            "2022": 20348,
+            "2025": 26100,
+        }
+        for label, expected_build in server_builds.items():
+            if label in product:
+                return label in os_name or build == expected_build or release == label.upper()
+        return "windows server" in os_name
+    if "windows 11" in product:
+        if "windows 11" not in os_name and not (build and build >= 22000):
+            return False
+    elif "windows 10" in product:
+        if "windows 10" not in os_name and not (build and 10240 <= build < 22000):
+            return False
+    else:
+        return False
+    version_match = re.search(r"version\s+([0-9]{2}h[12])", product, flags=re.IGNORECASE)
+    if version_match and release != version_match.group(1).upper():
+        return False
+    return True
+
+
+def _windows_system_product_match(product_name: str, os_info: dict[str, Any]) -> bool:
+    product = product_name.strip()
+    lowered = product.lower()
+    if any(marker in lowered for marker in (" for ios", " for android", " for mac", " on mac")):
+        return False
+    if lowered.startswith("windows "):
+        return _windows_arch_matches(product, os_info) and _windows_name_matches(product, os_info)
+    if lowered.startswith("microsoft .net framework") and " on windows " in lowered:
+        _, _, windows_part = product.partition(" on ")
+        return _windows_arch_matches(windows_part, os_info) and _windows_name_matches(windows_part, os_info)
+    return False
+
+
+def _windows_os_inventory_item(software: list[dict[str, Any]], os_info: dict[str, Any]) -> dict[str, Any] | None:
+    for item in software or []:
+        if str(item.get("package_type") or "").lower() == "windows_os":
+            return item
+    if not _is_windows_os(os_info):
+        return None
+    build = _windows_build(os_info) or str(os_info.get("version") or "")
+    if not build:
+        return None
+    key_seed = f"windows_os:{os_info.get('name')}:{build}:{os_info.get('arch')}"
+    return {
+        "software_key": hashlib.sha256(key_seed.lower().encode("utf-8")).hexdigest()[:40],
+        "name": os_info.get("name") or "Microsoft Windows",
+        "version": build,
+        "vendor": "Microsoft",
+        "ecosystem": "windows_os",
+        "package_type": "windows_os",
+        "purl": None,
+    }
+
+
+def _installed_windows_kbs(software: list[dict[str, Any]]) -> set[str]:
+    kbs: set[str] = set()
+    for item in software or []:
+        if str(item.get("package_type") or "").lower() != "windows_kb":
+            continue
+        raw = _load_json_field(item)
+        values = [item.get("name"), item.get("version"), raw.get("hotfix_id"), raw.get("caption")]
+        for value in values:
+            for match in re.findall(r"KB\s*(\d{5,8})", str(value or ""), flags=re.IGNORECASE):
+                kbs.add(match)
+    return kbs
 
 
 def _dpkg_lt(installed: str, fixed: str) -> bool:
