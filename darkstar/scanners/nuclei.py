@@ -16,6 +16,7 @@ from core.db_helper import insert_vulnerability_to_database
 from core.models.vulnerability import Vulnerability
 
 logger = logging.getLogger(__name__)
+NUCLEI_TEMPLATES_DIR = os.getenv("NUCLEI_TEMPLATES_DIR", "/root/nuclei-templates")
 
 class NucleiMode(enum.Enum):
     STANDARD = "standard"
@@ -84,12 +85,19 @@ class NucleiScanner:
         except Exception as exc:
             logger.warning(f"Skipping template update due to error: {exc}")
 
+        templates_dir = NUCLEI_TEMPLATES_DIR if os.path.isdir(NUCLEI_TEMPLATES_DIR) else None
+        if not templates_dir:
+            logger.warning("Nuclei templates directory not found; skipping Nuclei scan")
+            return
+
         match self.mode:
             case NucleiMode.STANDARD:
                 nuclei_command = [
                     "nuclei",
                     "-l",
                     self.target,
+                    "-t",
+                    templates_dir,
                     "-s",
                     "low,medium,high,critical,unknown",
                     "-et",
@@ -107,6 +115,8 @@ class NucleiScanner:
                     "nuclei",
                     "-l",
                     self.target,
+                    "-t",
+                    templates_dir,
                     "-s",
                     "low,medium,high,critical,unknown",
                     "-tags",
@@ -120,6 +130,10 @@ class NucleiScanner:
                     "-j",
                 ]
             case NucleiMode.NETWORK:
+                network_templates = os.path.join(templates_dir, "network")
+                if not os.path.isdir(network_templates):
+                    logger.warning("Nuclei network templates directory not found; skipping network mode")
+                    return
                 nuclei_command = [
                     "nuclei",
                     "-l",
@@ -127,7 +141,7 @@ class NucleiScanner:
                     "-s",
                     "low,medium,high,critical,unknown",
                     "-t",
-                    "network",
+                    network_templates,
                     "-bs",
                     "100",
                     "-rl",

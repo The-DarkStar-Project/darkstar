@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 from core.db_helper import insert_vulnerability_to_database
 from core.models.vulnerability import Vulnerability
+from core.utils import normalize_domain_target, registrable_domain
 
 logger = logging.getLogger("main")
 
@@ -188,7 +189,9 @@ class MailSecurityScanner:
         }
 
     def log_vulnerability(self, domain: str, severity: str, code: str, description: str, recommendation: str):
-        """Log a vulnerability with details and Dutch translation if available"""   
+        """Log a vulnerability with details and Dutch translation if available"""
+        if (severity or "").lower() == "baseline":
+            severity = "info"
         vulnerability = Vulnerability(
             title=code,
             affected_item=domain,
@@ -892,34 +895,29 @@ class MailSecurityScanner:
                 'Set max_age to a valid number of seconds'
             )
     
-    def run(self, subdomains_file: str, emails_file: str):
+    def run(self, domains_file: str, emails_file: str):
         domains_to_scan = []
         email_file_domains = set()  # Track domains from emails.txt
+        target_root_domains = set()
         
-        # Try to read domains from subdomains file
-        if os.path.exists(subdomains_file):
+        # Read explicitly scoped root domains. Do not scan every BBOT subdomain:
+        # SPF, DMARC, BIMI and MTA-STS are domain-level mail controls, and
+        # scanning every discovered host creates false-positive noise.
+        if os.path.exists(domains_file):
             try:
-                with open(subdomains_file, 'r') as f:
+                with open(domains_file, 'r') as f:
                     for line in f:
-                        domain = line.strip()
+                        domain = registrable_domain(line.strip())
                         if domain and not domain.startswith('#'):
-                            # Clean domain name (remove protocol, ports, etc.)
-                            if '://' in domain:
-                                domain = domain.split('://')[1]
-                            if ':' in domain:
-                                domain = domain.split(':')[0]
-                            if '/' in domain:
-                                domain = domain.split('/')[0]
-                            
-                            # Skip localhost domains for email security (keep this filter)
-                            if domain and '.' in domain and 'localhost' not in domain.lower():
-                                domains_to_scan.append(domain.lower())
+                            domains_to_scan.append(domain)
+                            target_root_domains.add(domain)
                 
-                logger.info(f"[*] [Email Security Thread] Found {len(domains_to_scan)} domains from subdomains file")
+                logger.info(f"[*] [Email Security Thread] Found {len(domains_to_scan)} root target domains")
             except Exception as e:
-                logger.error(f"[!] [Email Security Thread] Error reading subdomains file: {e}")
+                logger.error(f"[!] [Email Security Thread] Error reading email domains file: {e}")
         
-        # Also try to extract domains from emails.txt file
+        # Also extract in-scope root domains from emails.txt. External domains
+        # found in repositories/pages are intentionally ignored.
         if os.path.exists(emails_file):
             try:
                 email_domains = []
@@ -929,15 +927,16 @@ class MailSecurityScanner:
                         if email and '@' in email and not email.startswith('#'):
                             try:
                                 # Extract domain from email address
-                                domain = email.split('@')[1].lower()
+                                domain = normalize_domain_target(email.split('@')[1].lower())
                                 # Additional cleaning for email domains
                                 if '>' in domain:  # Handle cases like "user@domain.com>"
                                     domain = domain.split('>')[0]
                                 if '<' in domain:  # Handle cases like "user@<domain.com"
                                     domain = domain.split('<')[-1]
-                                    
-                                # Skip localhost domains for email security and validate
-                                if domain and '.' in domain and len(domain) > 3 and 'localhost' not in domain.lower():
+
+                                domain = registrable_domain(domain)
+                                # Only add email domains inside the target root scope.
+                                if domain and (not target_root_domains or domain in target_root_domains):
                                     email_domains.append(domain)
                                     email_file_domains.add(domain)  # Track this domain came from emails.txt
                             except (IndexError, AttributeError):
@@ -950,7 +949,7 @@ class MailSecurityScanner:
                     if domain not in domains_to_scan:
                         domains_to_scan.append(domain)
                 
-                logger.info(f"[*] [Email Security Thread] Found {len(unique_email_domains)} additional domains from emails file")
+                logger.info(f"[*] [Email Security Thread] Found {len(unique_email_domains)} in-scope root domains from emails file")
             except Exception as e:
                 logger.warning(f"[!] [Email Security Thread] Error reading emails file: {e}")
         
@@ -958,12 +957,12 @@ class MailSecurityScanner:
         domains_to_scan = list(dict.fromkeys(domains_to_scan))
         
         # Summary of domain sources
-        if os.path.exists(subdomains_file) and os.path.exists(emails_file):
-            logger.info("[*] [Email Security Thread] Domain sources: subdomains.txt + emails.txt")
-        elif os.path.exists(subdomains_file):
-            logger.info("[*] [Email Security Thread] Domain sources: subdomains.txt only")
+        if os.path.exists(domains_file) and os.path.exists(emails_file):
+            logger.info("[*] [Email Security Thread] Domain sources: root target domains + in-scope emails.txt")
+        elif os.path.exists(domains_file):
+            logger.info("[*] [Email Security Thread] Domain sources: root target domains only")
         elif os.path.exists(emails_file):
-            logger.info("[*] [Email Security Thread] Domain sources: emails.txt only")
+            logger.info("[*] [Email Security Thread] Domain sources: in-scope emails.txt only")
         
         logger.info(f"[*] [Email Security Thread] Total unique domains to check: {len(domains_to_scan)}")
         
@@ -1018,4 +1017,3 @@ class MailSecurityScanner:
         logger.info(f"[*] [Email Security Thread] Successfully scanned: {successful_scans}, Skipped: {skipped_scans}, Failed: {failed_scans}")
             
     
-

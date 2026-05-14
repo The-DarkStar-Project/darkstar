@@ -7,28 +7,48 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/static/css/app.css" />
+    <link rel="stylesheet" href="/static/css/app.css?v=20260514-docs" />
 </head>
-<body data-authenticated="{{ 'true' if logged_in else 'false' }}" data-organization="{{ organization }}">
+<body data-authenticated="{{ 'true' if logged_in else 'false' }}" data-organization="{{ organization }}" data-role="{{ role }}">
     <!-- Login Screen -->
     <div id="loginScreen" class="login-screen">
         <div class="login-container">
             <div class="login-header">
-                <img src="/static/logo_darkstar.png" alt="Darkstar" class="login-logo" />
+                <img src="/static/logo_darkstar.png" alt="" aria-hidden="true" class="login-logo" />
                 <h1>Darkstar</h1>
                 <p>Vulnerability Intelligence Platform</p>
             </div>
 
             <form id="loginForm" class="login-form">
                 <div class="form-group">
-                    <label for="orgInput">Organization</label>
-                    <input id="orgInput" name="organization" type="text" placeholder="Enter your organization" required minlength="3" />
+                    <label for="emailInput">Email</label>
+                    <input id="emailInput" name="email" type="email" placeholder="security@example.com" required />
                 </div>
                 <div class="form-group">
                     <label for="passwordInput">Password</label>
                     <input id="passwordInput" name="password" type="password" placeholder="Enter password" required minlength="8" />
                 </div>
+                <div id="orgChoiceGroup" class="form-group hidden">
+                    <label for="orgChoiceInput">Organisatie</label>
+                    <select id="orgChoiceInput" class="filter-select"></select>
+                    <button type="button" id="selectOrgBtn" class="btn-secondary btn-lg">Open organisatie</button>
+                </div>
+                <div id="mfaSetupLoginPanel" class="secret-panel hidden">
+                    <p class="form-message">MFA is verplicht. Voeg deze secret toe aan je authenticator en bevestig met een code.</p>
+                    <img id="mfaLoginQrImage" class="mfa-qr hidden" alt="MFA QR code" />
+                    <code id="mfaLoginSecretOutput"></code>
+                    <textarea id="mfaLoginOtpAuthOutput" rows="3" readonly></textarea>
+                </div>
+                <div id="mfaLoginGroup" class="form-group hidden">
+                    <label for="mfaCodeInput">MFA code</label>
+                    <input id="mfaCodeInput" name="mfa_code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" />
+                </div>
                 <button type="submit" class="btn-primary btn-lg">Sign In</button>
+                <div class="form-group">
+                    <label for="ssoOrgInput">SSO organisatie</label>
+                    <input id="ssoOrgInput" name="sso_organization" type="text" placeholder="Organisatie voor SSO login" />
+                </div>
+                <button type="button" id="ssoLoginBtn" class="btn-secondary btn-lg">Sign in with SSO</button>
                 <p id="loginMessage" class="form-message"></p>
             </form>
         </div>
@@ -39,15 +59,23 @@
         <!-- Header -->
         <header class="header">
             <div class="header-left">
-                <img src="/static/logo_darkstar.png" alt="Darkstar" class="header-logo" />
+                <img src="/static/logo_darkstar.png" alt="" aria-hidden="true" class="header-logo" />
                 <h1>Darkstar</h1>
             </div>
             <div class="header-center">
-                <div class="org-info">
-                    <span id="topOrgName">Organization</span>
+                <div class="org-info cyber-status-pill">
+                    <span>Live attack-surface radar</span>
                 </div>
             </div>
             <div class="header-right">
+                <div id="tenantSwitchGroup" class="header-chip hidden">
+                    <span class="chip-label">Tenant</span>
+                    <select id="tenantSwitchSelect" class="header-select"></select>
+                </div>
+                <div class="header-chip">
+                    <span class="chip-label">Role</span>
+                    <span id="topRoleName">viewer</span>
+                </div>
                 <button id="logoutBtn" class="btn-secondary btn-sm">Logout</button>
             </div>
         </header>
@@ -56,32 +84,55 @@
         <nav class="tab-nav">
             <button class="tab-button active" data-tab="dashboard">Dashboard</button>
             <button class="tab-button" data-tab="vulns">Vulnerabilities</button>
-            <button class="tab-button" data-tab="targets">Targets</button>
             <button class="tab-button" data-tab="surface">Attack Surface</button>
-            <button class="tab-button" data-tab="scan">New Scan</button>
+            <button class="tab-button" data-tab="endpoints">Endpoints</button>
+            <button class="tab-button" data-tab="scan">Scan Center</button>
+            <button class="tab-button" data-tab="settings">Settings</button>
+            <button class="tab-button" data-tab="m365">Cloud Security</button>
+            <a class="documentation-link" href="/documentation" target="_blank" rel="noopener">Documentation</a>
+            <button class="tab-button admin-only hidden" data-tab="oversight">Oversight</button>
             <button class="tab-button" data-tab="debug">Debug</button>
+            <button id="hostTabButton" class="tab-button hidden" data-tab="host">Host</button>
         </nav>
 
         <!-- Content Area -->
         <main class="content-area">
             <!-- Dashboard Tab -->
             <div id="dashboard-tab" class="tab-panel active">
+                <section class="dashboard-hero">
+                    <div>
+                        <p class="eyebrow">Darkstar command center</p>
+                        <h2>Vulnerability intelligence, attack surface management</h2>
+                    </div>
+                    <div class="hero-actions">
+                        <button class="btn-primary" type="button" data-tab-shortcut="scan">Start scan</button>
+                        <button class="btn-secondary" type="button" data-tab-shortcut="surface">Attack surface</button>
+                    </div>
+                </section>
+
                 <div class="grid-2">
-                    <div class="card">
+                    <div class="card dashboard-vuln-card">
                         <div class="card-header">Vulnerabilities</div>
-                        <div class="stat-value" id="statTotal">0</div>
-                        <div class="stat-label">Total Found</div>
+                        <div class="dashboard-vuln-widget">
+                            <div>
+                                <div class="stat-value" id="statTotal">0</div>
+                                <div class="stat-label">Total Found</div>
+                            </div>
+                            <canvas id="dashboardVulnChart" class="mini-chart" width="260" height="140" aria-label="Vulnerability severity chart"></canvas>
+                        </div>
+                        <div id="dashboardVulnLegend" class="chart-legend compact"></div>
                     </div>
                     <div class="card">
                         <div class="card-header">Active Scans</div>
-                        <div class="stat-value" id="statRunning">0</div>
-                        <div class="stat-label">In Progress</div>
+                        <div class="scan-activity-widget">
+                            <canvas id="dashboardScanChart" class="mini-chart" width="260" height="140" aria-label="Scan activity chart"></canvas>
+                            <div class="scan-activity-stats">
+                                <div><strong id="statScanTotal">0</strong><span>Scans</span></div>
+                                <div><strong id="statRunning">0</strong><span>Active</span></div>
+                                <div><strong id="statScheduled">0</strong><span>Scheduled</span></div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">Severity Distribution</div>
-                    <div id="severityList" class="severity-grid"></div>
                 </div>
 
                 <div class="card">
@@ -95,6 +146,7 @@
                                     <th>Mode</th>
                                     <th>Status</th>
                                     <th>Created</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="scanRows"></tbody>
@@ -105,6 +157,17 @@
 
             <!-- Vulnerabilities Tab -->
             <div id="vulns-tab" class="tab-panel">
+                <div class="card vulnerability-overview-card">
+                    <div class="card-header">
+                        Vulnerability Overview
+                        <span id="vulnChartTotal" class="header-badge">0 findings</span>
+                    </div>
+                    <div class="chart-panel">
+                        <canvas id="vulnSeverityChart" class="severity-chart" width="720" height="260" aria-label="Vulnerability severity distribution"></canvas>
+                        <div id="vulnSeverityLegend" class="chart-legend"></div>
+                    </div>
+                </div>
+
                 <div class="card">
                     <div class="card-header">Advanced Filtering</div>
                     <div class="filter-grid">
@@ -133,10 +196,13 @@
                         <div class="filter-group">
                             <label>Group By</label>
                             <select id="groupBySelect" class="filter-select">
-                                <option value="none">None</option>
+                                <option value="none">Deduplicated</option>
+                                <option value="raw">Raw findings</option>
                                 <option value="severity">Severity</option>
                                 <option value="host">Host</option>
                                 <option value="tool">Tool</option>
+                                <option value="asset">Asset</option>
+                                <option value="vulnerability">Vulnerability</option>
                             </select>
                         </div>
                         <button id="clearFiltersBtn" class="btn-secondary">Clear</button>
@@ -146,18 +212,25 @@
                 <div class="card">
                     <div class="card-header">
                         Results
-                        <span id="resultCount" class="header-badge">0</span>
+	                        <span>
+	                            <a class="btn-secondary btn-sm" href="/api/exports/vulnerabilities.csv">CSV</a>
+	                            <a id="xlsxExportBtn" class="btn-secondary btn-sm" href="/api/exports/vulnerabilities.xlsx">XLSX</a>
+	                            <a id="htmlReportExportBtn" class="btn-secondary btn-sm" href="/api/exports/vulnerabilities.html" target="_blank" rel="noopener">HTML Report</a>
+	                            <span id="resultCount" class="header-badge">0</span>
+	                        </span>
                     </div>
                     <div class="table-container">
                         <table class="data-table">
                             <thead>
                                 <tr>
                                     <th>ID</th>
+                                    <th>Score</th>
                                     <th>Severity</th>
                                     <th>Title</th>
                                     <th>Host</th>
                                     <th>Tool</th>
                                     <th>CVE</th>
+                                    <th>Exploit</th>
                                 </tr>
                             </thead>
                             <tbody id="vulnRows"></tbody>
@@ -172,21 +245,31 @@
                 </div>
             </div>
 
-            <!-- Targets Tab -->
-            <div id="targets-tab" class="tab-panel">
+            <!-- Host Detail Tab -->
+            <div id="host-tab" class="tab-panel">
+                <div class="card host-detail-card">
+                    <div class="card-header">
+                        <span id="hostDetailTitle">Host</span>
+                        <button type="button" class="btn-secondary btn-sm" data-tab-shortcut="vulns">Back to vulnerabilities</button>
+                    </div>
+                    <div id="hostDetailSummary" class="host-summary-grid"></div>
+                </div>
                 <div class="card">
-                    <div class="card-header">Discovered Targets</div>
+                    <div class="card-header">Host Vulnerabilities</div>
                     <div class="table-container">
-                        <table class="data-table">
+                        <table class="data-table wide-table">
                             <thead>
                                 <tr>
-                                    <th>Host</th>
-                                    <th>Issues</th>
-                                    <th>Max Severity</th>
+                                    <th>Score</th>
+                                    <th>Severity</th>
+                                    <th>Title</th>
+                                    <th>Tool</th>
+                                    <th>CVE</th>
+                                    <th>Exploit</th>
                                 </tr>
                             </thead>
-                            <tbody id="targetsRows">
-                                <tr><td colspan="3">No targets discovered yet.</td></tr>
+                            <tbody id="hostVulnRows">
+                                <tr><td colspan="6">Select a host.</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -197,44 +280,348 @@
             <div id="surface-tab" class="tab-panel">
                 <div class="grid-4">
                     <div class="metric-card">
-                        <div class="metric-label">Services</div>
-                        <div class="metric-value" id="totalServices">0</div>
+                        <div class="metric-label">Assets</div>
+                        <div class="metric-value" id="asmAssetCount">0</div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-label">Critical</div>
-                        <div class="metric-value critical" id="criticalAssets">0</div>
+                        <div class="metric-label">Open Ports</div>
+                        <div class="metric-value" id="asmOpenPorts">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Critical Assets</div>
+                        <div class="metric-value critical" id="asmCriticalAssets">0</div>
                     </div>
                     <div class="metric-card">
                         <div class="metric-label">Exploitable</div>
-                        <div class="metric-value high" id="exploitableIssues">0</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Avg CVSS</div>
-                        <div class="metric-value" id="meanCvss">0.0</div>
+                        <div class="metric-value high" id="asmExploitableAssets">0</div>
                     </div>
                 </div>
 
                 <div class="card">
-                    <div class="card-header">Top Vulnerable Services</div>
+                    <div class="card-header">
+                        External Attack Surface
+                        <span>
+                            <button type="button" id="showSubdomainsBtn" class="btn-secondary btn-sm">Subdomains</button>
+                            <a id="asmCsvExportBtn" class="btn-secondary btn-sm" href="/api/exports/attack-surface.csv">CSV</a>
+                            <a id="asmXlsxExportBtn" class="btn-secondary btn-sm" href="/api/exports/attack-surface.xlsx">XLSX</a>
+                            <a id="asmHtmlExportBtn" class="btn-secondary btn-sm" href="/api/exports/attack-surface.html" target="_blank" rel="noopener">HTML Report</a>
+                        </span>
+                    </div>
+	                    <div class="chart-panel asm-chart-panel">
+	                        <canvas id="asmExposureChart" class="mini-chart" width="520" height="160" aria-label="Attack surface exposure chart"></canvas>
+	                        <div id="asmExposureLegend" class="chart-legend"></div>
+	                    </div>
+	                    <div class="filter-grid">
+                        <div class="filter-group">
+                            <label for="asmSearchInput">Search assets</label>
+                            <input id="asmSearchInput" type="text" placeholder="host, IP, service, source" />
+                        </div>
+                        <button type="button" id="asmSearchBtn" class="btn-secondary">Filter</button>
+                    </div>
                     <div class="table-container">
-                        <table class="data-table">
+                        <table class="data-table wide-table">
                             <thead>
                                 <tr>
-                                    <th>Host</th>
-                                    <th>Tool</th>
+                                    <th>Asset</th>
+                                    <th>IPs</th>
+                                    <th>Open Ports / Services</th>
                                     <th>Issues</th>
-                                    <th>Avg CVSS</th>
+                                    <th>Max Severity</th>
+                                    <th>Sources</th>
+                                    <th>Tags</th>
                                 </tr>
                             </thead>
-                            <tbody id="topServicesRows">
-                                <tr><td colspan="4">Loading...</td></tr>
+                            <tbody id="attackSurfaceRows">
+                                <tr><td colspan="7">Loading...</td></tr>
                             </tbody>
                         </table>
+                    </div>
+                    <div class="pagination">
+                        <button id="asmPrevBtn" class="btn-secondary btn-sm">Previous</button>
+                        <span id="asmPageInfo" class="page-info">Page 1</span>
+                        <button id="asmNextBtn" class="btn-secondary btn-sm">Next</button>
+                    </div>
+                </div>
+
+                <div id="bbotSubdomainsCard" class="card">
+                    <div class="card-header">
+                        Found Subdomains
+                        <span>
+                            <button type="button" id="scanSelectedSubdomainsBtn" class="btn-secondary btn-sm">Scan selected</button>
+                            <button type="button" id="scanAllSubdomainsBtn" class="btn-secondary btn-sm">Scan all subdomains</button>
+                        </span>
+                    </div>
+                    <div class="filter-grid">
+                        <div class="filter-group">
+                            <label for="bbotParentDomainInput">Parent domain</label>
+                            <input id="bbotParentDomainInput" type="text" placeholder="ufsc.br" list="bbotParentDomainOptions" />
+                            <datalist id="bbotParentDomainOptions"></datalist>
+                        </div>
+                        <div class="filter-group">
+                            <label for="bbotSubdomainSearchInput">Search subdomains</label>
+                            <input id="bbotSubdomainSearchInput" type="text" placeholder="subdomain, URL, IP, tag" />
+                        </div>
+                        <div class="filter-group">
+                            <label for="bbotSubdomainScanTypeInput">Scan as</label>
+                            <select id="bbotSubdomainScanTypeInput" class="filter-select">
+                                <option value="mode:2">Normal scan</option>
+                                <option value="mode:3">Aggressive scan</option>
+                                <option value="scanner:nuclei">Nuclei standard</option>
+                                <option value="scanner:zap">OWASP ZAP</option>
+                                <option value="scanner:dalfox">Dalfox XSS</option>
+                            </select>
+                        </div>
+                        <button type="button" id="bbotSubdomainSearchBtn" class="btn-secondary">Filter</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table wide-table">
+                            <thead>
+                                <tr>
+                                    <th><input id="subdomainSelectAllInput" type="checkbox" aria-label="Select all BBot subdomains" /></th>
+                                    <th>Subdomain</th>
+                                    <th>Parent</th>
+                                    <th>URLs</th>
+                                    <th>IPs</th>
+                                    <th>Sources</th>
+                                    <th>Tags</th>
+                                    <th>Last Seen</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bbotSubdomainRows">
+                                <tr><td colspan="9">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination">
+                        <button id="bbotSubdomainPrevBtn" class="btn-secondary btn-sm">Previous</button>
+                        <span id="bbotSubdomainPageInfo" class="page-info">Page 1</span>
+                        <button id="bbotSubdomainNextBtn" class="btn-secondary btn-sm">Next</button>
+                    </div>
+                    <p id="bbotSubdomainMessage" class="form-message"></p>
+                </div>
+            </div>
+
+            <!-- Scoring Tab -->
+            <div id="scoring-tab" class="tab-panel">
+                <div class="grid-4">
+                    <div class="metric-card">
+                        <div class="metric-label">Average Priority</div>
+                        <div class="metric-value" id="avgPriority">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Max Priority</div>
+                        <div class="metric-value high" id="maxPriority">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">KEV</div>
+                        <div class="metric-value critical" id="kevCount">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Exploitable</div>
+                        <div class="metric-value high" id="exploitCount">0</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">Assets</div>
+                    <div class="filter-grid">
+                        <div class="filter-group">
+                            <label for="scoringAssetSearchInput">Asset filter</label>
+                            <input id="scoringAssetSearchInput" type="text" placeholder="host or IP" />
+                        </div>
+                        <button type="button" id="scoringAssetFilterBtn" class="btn-secondary">Filter Assets</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table wide-table">
+                            <thead>
+                                <tr><th>Host</th><th>Findings</th><th>Critical</th><th>High</th><th>Exploitable</th><th>Avg Score</th><th>Max Score</th></tr>
+                            </thead>
+                            <tbody id="scoringAssetRows"></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination">
+                        <button id="scoringAssetPrevBtn" class="btn-secondary btn-sm">Previous</button>
+                        <span id="scoringAssetPageInfo" class="page-info">Page 1</span>
+                        <button id="scoringAssetNextBtn" class="btn-secondary btn-sm">Next</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        Vulnerabilities
+                        <button id="recalculateScoresBtn" class="btn-secondary btn-sm">Recalculate</button>
+                    </div>
+                    <div class="filter-grid">
+                        <div class="filter-group">
+                            <label for="scoringSeverityInput">Severity</label>
+                            <select id="scoringSeverityInput" class="filter-select">
+                                <option value="">All severities</option>
+                                <option value="critical">Critical</option>
+                                <option value="high">High</option>
+                                <option value="medium">Medium</option>
+                                <option value="low">Low</option>
+                                <option value="baseline">Baseline</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="scoringHostInput">Host</label>
+                            <input id="scoringHostInput" type="text" placeholder="host filter" />
+                        </div>
+                        <button type="button" id="scoringVulnFilterBtn" class="btn-secondary">Filter Vulns</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table wide-table">
+                            <thead>
+                                <tr><th>Score</th><th>Severity</th><th>Title</th><th>Host</th><th>CVE</th><th>Exploit</th><th>Reason</th></tr>
+                            </thead>
+                            <tbody id="scoringVulnRows"></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination">
+                        <button id="scoringVulnPrevBtn" class="btn-secondary btn-sm">Previous</button>
+                        <span id="scoringVulnPageInfo" class="page-info">Page 1</span>
+                        <button id="scoringVulnNextBtn" class="btn-secondary btn-sm">Next</button>
                     </div>
                 </div>
             </div>
 
-            <!-- New Scan Tab -->
+            <!-- Endpoints Tab -->
+            <div id="endpoints-tab" class="tab-panel">
+                <div class="grid-4">
+                    <div class="metric-card"><div class="metric-label">Agents</div><div class="metric-value" id="endpointAgentTotal">0</div></div>
+                    <div class="metric-card"><div class="metric-label">Online</div><div class="metric-value" id="endpointOnlineTotal">0</div></div>
+                    <div class="metric-card"><div class="metric-label">Software</div><div class="metric-value" id="endpointSoftwareTotal">0</div></div>
+                    <div class="metric-card"><div class="metric-label">High/Critical</div><div class="metric-value critical" id="endpointHighTotal">0</div></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        Endpoint Exposure
+                        <span id="endpointChartTotal" class="header-badge">0 CVEs</span>
+                    </div>
+                    <div class="chart-panel">
+                        <canvas id="endpointSeverityChart" class="severity-chart" width="720" height="240" aria-label="Endpoint vulnerability severity distribution"></canvas>
+                        <div id="endpointSeverityLegend" class="chart-legend"></div>
+                    </div>
+                </div>
+
+                <div class="card tenant-admin-only hidden">
+                    <div class="card-header">Endpoint Enrollment</div>
+                    <div class="filter-grid">
+                        <div class="form-group">
+                            <label for="endpointTokenNameInput">Name</label>
+                            <input id="endpointTokenNameInput" type="text" placeholder="Windows rollout, server fleet" />
+                        </div>
+                        <div class="form-group">
+                            <label for="endpointTokenDaysInput">Expires after days</label>
+                            <input id="endpointTokenDaysInput" type="number" min="1" max="3650" value="30" />
+                        </div>
+                        <button type="button" id="createEndpointTokenBtn" class="btn-primary">Create Enrollment Key</button>
+                    </div>
+                    <div id="endpointInstallPanel" class="secret-panel hidden">
+                        <p class="form-message">Run this on the endpoint after installing Python dependencies and osquery. The token is shown once.</p>
+                        <textarea id="endpointInstallOutput" rows="4" readonly></textarea>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead><tr><th>Name</th><th>Prefix</th><th>Expires</th><th>Last Used</th><th>Created</th><th>Actions</th></tr></thead>
+                            <tbody id="endpointTokenRows"></tbody>
+                        </table>
+                    </div>
+                    <p id="endpointTokenMessage" class="form-message"></p>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Endpoint Agents</div>
+                    <div class="filter-grid compact-grid">
+                        <div class="form-group">
+                            <label for="endpointAgentSearchInput">Search agents</label>
+                            <input id="endpointAgentSearchInput" type="text" placeholder="host, OS, IP, agent id" />
+                        </div>
+                        <div class="form-group">
+                            <label for="endpointAgentStatusInput">Status</label>
+                            <select id="endpointAgentStatusInput" class="filter-select">
+                                <option value="">All</option>
+                                <option value="online">Online</option>
+                                <option value="offline">Offline</option>
+                                <option value="revoked">Revoked</option>
+                            </select>
+                        </div>
+                        <button type="button" id="endpointAgentSearchBtn" class="btn-secondary">Apply</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table wide-table">
+                            <thead><tr><th>Host</th><th>OS</th><th>Status</th><th>Software</th><th>CVEs</th><th>Last Inventory</th><th>Last Seen</th><th>Actions</th></tr></thead>
+                            <tbody id="endpointAgentRows"></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination">
+                        <button id="endpointAgentPrevBtn" class="btn-secondary btn-sm">Previous</button>
+                        <span id="endpointAgentPageInfo" class="page-info">Page 1</span>
+                        <button id="endpointAgentNextBtn" class="btn-secondary btn-sm">Next</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Software Inventory</div>
+                    <div class="filter-grid compact-grid">
+                        <div class="form-group">
+                            <label for="endpointSoftwareSearchInput">Search</label>
+                            <input id="endpointSoftwareSearchInput" type="text" placeholder="openssl, chrome, python..." />
+                        </div>
+                        <button type="button" id="endpointSoftwareSearchBtn" class="btn-secondary">Search</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table wide-table">
+                            <thead><tr><th>Agent</th><th>Name</th><th>Version</th><th>Vendor</th><th>Ecosystem</th><th>PURL / Evidence ID</th><th>Last Seen</th></tr></thead>
+                            <tbody id="endpointSoftwareRows"></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination">
+                        <button id="endpointSoftwarePrevBtn" class="btn-secondary btn-sm">Previous</button>
+                        <span id="endpointSoftwarePageInfo" class="page-info">Page 1</span>
+                        <button id="endpointSoftwareNextBtn" class="btn-secondary btn-sm">Next</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        Endpoint Vulnerabilities
+                        <button type="button" id="recalculateEndpointVulnsBtn" class="btn-secondary btn-sm">Recalculate CVEs</button>
+                    </div>
+                    <div class="filter-grid compact-grid">
+                        <div class="form-group">
+                            <label for="endpointVulnSearchInput">Search</label>
+                            <input id="endpointVulnSearchInput" type="text" placeholder="CVE, package, host" />
+                        </div>
+                        <div class="form-group">
+                            <label for="endpointVulnSeverityInput">Severity</label>
+                            <select id="endpointVulnSeverityInput" class="filter-select">
+                                <option value="">All</option>
+                                <option value="critical">Critical</option>
+                                <option value="high">High</option>
+                                <option value="medium">Medium</option>
+                                <option value="low">Low</option>
+                                <option value="info">Info</option>
+                            </select>
+                        </div>
+                        <button type="button" id="endpointVulnSearchBtn" class="btn-secondary">Apply</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table wide-table">
+                            <thead><tr><th>Severity</th><th>CVE</th><th>Host</th><th>Software</th><th>Version</th><th>Matcher</th><th>Confidence</th><th>Summary</th></tr></thead>
+                            <tbody id="endpointVulnRows"></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination">
+                        <button id="endpointVulnPrevBtn" class="btn-secondary btn-sm">Previous</button>
+                        <span id="endpointVulnPageInfo" class="page-info">Page 1</span>
+                        <button id="endpointVulnNextBtn" class="btn-secondary btn-sm">Next</button>
+                    </div>
+                    <p id="endpointVulnMessage" class="form-message"></p>
+                </div>
+            </div>
+
+            <!-- Scan Center Tab -->
             <div id="scan-tab" class="tab-panel">
                 <div class="grid-2">
                     <div class="card">
@@ -261,26 +648,97 @@
                             <div class="form-group">
                                 <label for="scannerInput">Individual Scanner (optional)</label>
                                 <select id="scannerInput" name="scanner" class="filter-select">
-                                    <option value="">Select Scanner</option>
-                                    <option value="bbot_passive">bbot_passive</option>
-                                    <option value="bbot_normal">bbot_normal</option>
-                                    <option value="bbot_aggressive">bbot_aggressive</option>
-                                    <option value="bbot_attack_surface">bbot_attack_surface</option>
-                                    <option value="rustscan">rustscan</option>
-                                    <option value="nuclei">nuclei</option>
-                                    <option value="nucleinetwork">nucleinetwork</option>
-                                    <option value="wordpressnuclei">wordpressnuclei</option>
-                                    <option value="openvas">openvas</option>
-                                    <option value="asteroid_normal">asteroid_normal</option>
-                                    <option value="asteroid_aggressive">asteroid_aggressive</option>
+                                    <option value="">Kies scanner</option>
+                                    <optgroup label="Recon / Discovery">
+                                        <option value="bbot_passive">BBot – passief</option>
+                                        <option value="bbot_normal">BBot – normaal</option>
+                                        <option value="bbot_aggressive">BBot – agressief</option>
+                                        <option value="bbot_attack_surface">BBot – attack surface</option>
+                                        <option value="rustscan">RustScan – poortscan</option>
+                                    </optgroup>
+                                    <optgroup label="Web DAST">
+                                        <option value="nikto">Nikto – web server check</option>
+                                        <option value="wapiti">Wapiti – web DAST</option>
+                                        <option value="zap">OWASP ZAP – passieve baseline</option>
+                                        <option value="dalfox">Dalfox – XSS scanner</option>
+                                    </optgroup>
+                                    <optgroup label="TLS / Netwerk">
+                                        <option value="testssl">testssl.sh – TLS/SSL audit</option>
+                                        <option value="openvas">OpenVAS – netwerk vuln scan</option>
+                                    </optgroup>
+                                    <optgroup label="Nuclei templates">
+                                        <option value="nuclei">Nuclei – standaard</option>
+                                        <option value="nucleinetwork">Nuclei – netwerk templates</option>
+                                        <option value="wordpressnuclei">Nuclei – WordPress</option>
+                                    </optgroup>
+                                    <optgroup label="Asteroid modules">
+                                        <option value="asteroid_normal">Asteroid – normaal</option>
+                                        <option value="asteroid_aggressive">Asteroid – agressief</option>
+                                        <option value="retirejs">RetireJS – kwetsbare JS libs</option>
+                                        <option value="vulnscan">Vulnscan – custom templates</option>
+                                    </optgroup>
                                 </select>
                             </div>
                             <p class="form-message" id="scanModeHint">Choose either a mode or an individual scanner.</p>
+                            <div class="form-group">
+                                <label for="applianceInput">Scanner appliance</label>
+                                <select id="applianceInput" name="preferred_node_id" class="filter-select">
+                                    <option value="">Auto - any available appliance</option>
+                                </select>
+                                <small class="field-hint">Auto lets Darkstar pick any online scanner. Choose an appliance to run from that network location.</small>
+                            </div>
                             <div class="form-group">
                                 <label>
                                     <input id="bruteforceInput" name="bruteforce" type="checkbox" />
                                     Enable Bruteforce
                                 </label>
+                            </div>
+                            <div class="form-group">
+                                <label>
+                                    <input id="recurringScanInput" type="checkbox" />
+                                    Recurring scan
+                                </label>
+                            </div>
+                            <div id="recurringOptions" class="secret-panel hidden">
+                                <div class="filter-grid compact-grid">
+                                    <div class="form-group">
+                                        <label for="scheduleIntervalAmountInput">Every</label>
+                                        <input id="scheduleIntervalAmountInput" type="number" min="1" value="1" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="scheduleIntervalUnitInput">Interval</label>
+                                        <select id="scheduleIntervalUnitInput" class="filter-select">
+                                            <option value="days">Days</option>
+                                            <option value="hours">Hours</option>
+                                            <option value="weeks">Weeks</option>
+                                            <option value="months">Months</option>
+                                            <option value="years">Years</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="filter-grid compact-grid">
+                                    <div class="form-group">
+                                        <label for="scheduleStartInput">Start date (optional)</label>
+                                        <div class="date-picker-field">
+                                            <input id="scheduleStartInput" type="date" />
+                                            <button type="button" class="icon-button date-picker-btn" data-date-target="scheduleStartInput" aria-label="Open start date picker">
+                                                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 2v3M17 2v3M4 9h16M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/></svg>
+                                            </button>
+                                        </div>
+                                        <small class="field-hint">Leave empty to start after the first interval.</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="scheduleEndInput">End date (optional)</label>
+                                        <div class="date-picker-field">
+                                            <input id="scheduleEndInput" type="date" />
+                                            <button type="button" class="icon-button date-picker-btn" data-date-target="scheduleEndInput" aria-label="Open end date picker">
+                                                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 2v3M17 2v3M4 9h16M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/></svg>
+                                            </button>
+                                        </div>
+                                        <small class="field-hint">Leave empty to keep this schedule recurring.</small>
+                                    </div>
+                                </div>
+                                <p class="form-message">Start and end dates are optional. Darkstar only skips an identical scheduled scan while the same scanner and targets are already active.</p>
                             </div>
                             <button type="submit" class="btn-primary">Launch Scan</button>
                             <p id="scanMessage" class="form-message"></p>
@@ -292,6 +750,323 @@
                         <div id="activeScansList" class="scans-list">
                             <p class="empty-state">No active scans</p>
                         </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Scheduled Scans</div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr><th>Name</th><th>Mode</th><th>Appliance</th><th>Interval</th><th>Start</th><th>End</th><th>Next Run</th><th>Status</th><th>Actions</th></tr>
+                            </thead>
+                            <tbody id="scheduleRows"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div id="settings-tab" class="tab-panel">
+                <div class="card tenant-admin-only hidden settings-users-card">
+                    <div class="card-header">Users & Roles</div>
+                    <div class="filter-grid">
+                        <div class="form-group">
+                            <label for="adminUserEmailInput">Email</label>
+                            <input id="adminUserEmailInput" type="email" placeholder="analist@example.com" />
+                        </div>
+                        <div class="form-group">
+                            <label for="adminUserPasswordInput">Password</label>
+                            <input id="adminUserPasswordInput" type="password" minlength="8" autocomplete="new-password" placeholder="Required for new users or reset" title="Minimum 8 characters with uppercase, lowercase, number and special character." />
+                        </div>
+                        <div class="form-group">
+                            <label for="adminUserNameInput">Name</label>
+                            <input id="adminUserNameInput" type="text" placeholder="Security Analyst" />
+                        </div>
+                        <div class="form-group">
+                            <label for="adminUserOrgInput">Organization</label>
+                            <select id="adminUserOrgInput" class="filter-select"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="adminUserRoleInput">Role</label>
+                            <select id="adminUserRoleInput" class="filter-select">
+                                <option value="viewer">Viewer (read-only)</option>
+                                <option value="security_analyst">Security analyst</option>
+                                <option value="tenant_admin">Tenant admin</option>
+                                <option value="platform_admin">Platform admin</option>
+                            </select>
+                        </div>
+                        <button type="button" id="saveAdminUserBtn" class="btn-primary">Save User</button>
+                        <button type="button" id="clearAdminUserBtn" class="btn-secondary">New User</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table wide-table">
+                            <thead>
+                                <tr><th>Email</th><th>Name</th><th>MFA</th><th>Memberships</th><th>Last Login</th><th>Actions</th></tr>
+                            </thead>
+                            <tbody id="adminUserRows"></tbody>
+                        </table>
+                    </div>
+                    <p id="adminUserMessage" class="form-message"></p>
+                </div>
+
+                <div class="card admin-only hidden">
+                    <div class="card-header">Distributed Scanners</div>
+                    <div class="filter-grid">
+                        <div class="form-group">
+                            <label for="scannerNodeNameInput">Scanner name</label>
+                            <input id="scannerNodeNameInput" type="text" placeholder="edge-office, local-scanner" />
+                        </div>
+                        <div class="form-group">
+                            <label for="scannerParallelInput">Parallel jobs</label>
+                            <input id="scannerParallelInput" type="number" min="1" max="32" value="1" />
+                        </div>
+                        <button type="button" id="createScannerNodeBtn" class="btn-primary">Create Attach Key</button>
+                    </div>
+                    <div id="scannerAttachPanel" class="secret-panel hidden">
+                        <p class="form-message">Run this command on the scanner host. The token is shown once.</p>
+                        <textarea id="scannerAttachOutput" rows="5" readonly></textarea>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr><th>Name</th><th>Status</th><th>Scanner Access</th><th>Running</th><th>Last Seen</th><th>Actions</th></tr>
+                            </thead>
+                            <tbody id="scannerNodeRows"></tbody>
+                        </table>
+                    </div>
+                    <p id="scannerNodeMessage" class="form-message"></p>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Email Notifications</div>
+                    <form id="notificationForm" class="form-vertical">
+                        <div class="form-group">
+                            <label>
+                                <input id="notificationEnabledInput" type="checkbox" />
+                                Enable email notifications
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="recipientEmailInput">Recipients</label>
+                            <div class="inline-input-action">
+                                <input id="recipientEmailInput" type="email" placeholder="security@example.com" />
+                                <button type="button" id="addRecipientBtn" class="btn-secondary">Add recipient</button>
+                            </div>
+                            <input id="notificationRecipientsInput" type="hidden" />
+                            <div id="recipientList" class="recipient-list"></div>
+                        </div>
+                        <div class="form-group">
+                            <label for="notificationSeverityInput">Minimum Severity</label>
+                            <select id="notificationSeverityInput" class="filter-select">
+                                <option value="critical">Critical</option>
+                                <option value="high">High</option>
+                                <option value="medium">Medium</option>
+                                <option value="low">Low</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label><input id="notifySuccessInput" type="checkbox" /> Notify on completed scans</label>
+                            <label><input id="notifyFailureInput" type="checkbox" /> Notify on failed/stopped scans</label>
+                        </div>
+                        <button type="submit" class="btn-primary">Save Notifications</button>
+                        <button type="button" id="testNotificationBtn" class="btn-secondary">Send Test</button>
+                        <p id="notificationMessage" class="form-message"></p>
+                    </form>
+                </div>
+
+                <!-- Security Settings -->
+                <div class="card auth-settings-card">
+                    <div class="card-header">Authentication</div>
+                    <div class="auth-status-grid">
+                        <div class="auth-status-item"><div class="metric-label">MFA</div><div class="metric-value" id="mfaStatus">Off</div></div>
+                        <div class="auth-status-item"><div class="metric-label">SSO</div><div class="metric-value" id="ssoStatus">Off</div></div>
+                        <div class="auth-status-item"><div class="metric-label">MFA required</div><div class="metric-value" id="mfaRequiredStatus">No</div></div>
+                        <div class="auth-status-item"><div class="metric-label">SSO required</div><div class="metric-value" id="ssoRequiredStatus">No</div></div>
+                    </div>
+                    <div class="auth-actions">
+                        <button type="button" id="setupMfaBtn" class="btn-primary">Setup MFA</button>
+                        <button type="button" id="setupSsoBtn" class="btn-secondary">Setup SSO</button>
+                        <button type="button" id="disableMfaBtn" class="btn-secondary">Disable MFA</button>
+                    </div>
+
+                    <div id="mfaSetupPanel" class="secret-panel hidden">
+                        <p class="form-message">Scan the QR code or add the secret manually. Confirm with a 6-digit authenticator code.</p>
+                        <img id="mfaQrImage" class="mfa-qr hidden" alt="MFA QR code" />
+                        <code id="mfaSecretOutput"></code>
+                        <textarea id="mfaOtpAuthOutput" rows="3" readonly></textarea>
+                        <div class="form-group">
+                            <label for="mfaEnableCodeInput">Authenticator code</label>
+                            <input id="mfaEnableCodeInput" type="text" inputmode="numeric" placeholder="123456" />
+                        </div>
+                        <button type="button" id="enableMfaBtn" class="btn-primary">Enable MFA</button>
+                    </div>
+                    <p id="mfaSettingsMessage" class="form-message"></p>
+
+                    <div id="ssoSetupPanel" class="secret-panel hidden">
+                        <form id="ssoSettingsForm" class="form-vertical">
+                            <div class="form-group">
+                                <label><input id="ssoEnabledInput" type="checkbox" /> Enable SSO</label>
+                            </div>
+                            <div class="filter-grid">
+                                <div class="form-group">
+                                    <label for="ssoIssuerInput">Issuer URL</label>
+                                    <input id="ssoIssuerInput" type="url" placeholder="https://login.microsoftonline.com/{tenant}/v2.0" />
+                                </div>
+                                <div class="form-group">
+                                    <label for="ssoClientInput">Client ID</label>
+                                    <input id="ssoClientInput" type="text" placeholder="OIDC application client ID" />
+                                </div>
+                                <div class="form-group">
+                                    <label for="ssoSecretInput">Client Secret</label>
+                                    <input id="ssoSecretInput" type="password" placeholder="Leave ******** unchanged to keep existing secret" />
+                                </div>
+                                <div class="form-group">
+                                    <label for="ssoDomainInput">Allowed Email Domain</label>
+                                    <input id="ssoDomainInput" type="text" placeholder="example.com" />
+                                </div>
+                            </div>
+                            <p class="form-message">Redirect URI: <code>/api/auth/sso/callback</code>. Set <code>SSO_REDIRECT_URI</code> when the public URL is different.</p>
+                            <button type="submit" class="btn-primary">Save SSO</button>
+                            <p id="ssoSettingsMessage" class="form-message"></p>
+                        </form>
+                    </div>
+
+                    <div class="auth-enforcement">
+                        <div class="auth-enforcement-grid">
+                            <label class="toggle-row">
+                                <input id="orgMfaRequiredInput" type="checkbox" />
+                                <span>Require MFA for this organization</span>
+                            </label>
+                            <label class="toggle-row">
+                                <input id="orgSsoRequiredInput" type="checkbox" />
+                                <span>Require SSO for this organization</span>
+                            </label>
+                            <label class="toggle-row admin-only hidden">
+                                <input id="platformMfaRequiredInput" type="checkbox" />
+                                <span>Require MFA platform-wide</span>
+                            </label>
+                        </div>
+                        <div class="auth-actions">
+                            <button type="button" id="saveOrgMfaPolicyBtn" class="btn-primary">Save Enforcement</button>
+                            <button type="button" id="savePlatformMfaPolicyBtn" class="btn-secondary admin-only hidden">Save Platform MFA</button>
+                        </div>
+                        <p id="authPolicyMessage" class="form-message"></p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">REST API Keys</div>
+                    <div class="filter-grid">
+                        <div class="form-group">
+                            <label for="apiKeyNameInput">Key name</label>
+                            <input id="apiKeyNameInput" type="text" placeholder="CI pipeline, reporting bot, integration" />
+                        </div>
+                        <div class="form-group">
+                                <label for="apiKeyRoleInput">Role</label>
+                            <select id="apiKeyRoleInput" class="filter-select">
+                                <option value="viewer">Viewer (read-only)</option>
+                                <option value="security_analyst" selected>Security analyst</option>
+                                <option value="tenant_admin">Tenant admin</option>
+                            </select>
+                        </div>
+                        <button type="button" id="createApiKeyBtn" class="btn-primary">Create API Key</button>
+                    </div>
+                    <div id="apiKeyCreatedPanel" class="secret-panel hidden">
+                        <p class="form-message">Kopieer deze key nu. Hij wordt daarna niet opnieuw getoond.</p>
+                        <code id="apiKeyCreatedOutput"></code>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr><th>Name</th><th>Prefix</th><th>Role</th><th>Last Used</th><th>Created</th><th>Actions</th></tr>
+                            </thead>
+                            <tbody id="apiKeyRows"></tbody>
+                        </table>
+                    </div>
+                    <p class="form-message">Gebruik de REST API met <code>Authorization: Bearer dstar_...</code>. FastAPI docs staan op <code>/docs</code> en OpenAPI op <code>/openapi.json</code>.</p>
+                    <p id="apiKeyMessage" class="form-message"></p>
+                </div>
+            </div>
+
+            <!-- Cloud Security Tab -->
+            <div id="m365-tab" class="tab-panel">
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-header">Cloud Security Connection</div>
+                        <form id="m365SettingsForm" class="form-vertical">
+                            <div class="form-group">
+                                <label>
+                                    <input id="m365EnabledInput" type="checkbox" />
+                                    Enable Microsoft cloud security score sync
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label for="m365TenantInput">Tenant ID</label>
+                                <input id="m365TenantInput" type="text" placeholder="00000000-0000-0000-0000-000000000000" />
+                            </div>
+                            <div class="form-group">
+                                <label for="m365ClientInput">Client ID</label>
+                                <input id="m365ClientInput" type="text" placeholder="App registration client ID" />
+                            </div>
+                            <div class="form-group">
+                                <label for="m365SecretInput">Client Secret</label>
+                                <input id="m365SecretInput" type="password" placeholder="Leave ******** unchanged to keep existing secret" />
+                            </div>
+                            <p class="form-message">Required Graph application permission: SecurityEvents.Read.All or SecurityActions.Read.All depending on tenant policy, with admin consent.</p>
+                            <button type="submit" class="btn-primary">Save Cloud Settings</button>
+                            <button type="button" id="syncM365Btn" class="btn-secondary">Sync Cloud Score</button>
+                            <p id="m365Message" class="form-message"></p>
+                        </form>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">Cloud Score Summary</div>
+                        <div class="grid-2">
+                            <div class="metric-card"><div class="metric-label">Current</div><div class="metric-value" id="m365CurrentScore">0</div></div>
+                            <div class="metric-card"><div class="metric-label">Max</div><div class="metric-value" id="m365MaxScore">0</div></div>
+                        </div>
+                        <p class="form-message" id="m365LastSync">No sync yet.</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">Cloud Security Controls</div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Control</th>
+                                    <th>Title</th>
+                                    <th>Category</th>
+                                    <th>Status</th>
+                                    <th>Score</th>
+                                    <th>Max</th>
+                                </tr>
+                            </thead>
+                            <tbody id="m365ControlRows">
+                                <tr><td colspan="6">No cloud security score items synced yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Oversight Tab -->
+            <div id="oversight-tab" class="tab-panel">
+                <div class="grid-4">
+                    <div class="metric-card"><div class="metric-label">Tenants</div><div class="metric-value" id="tenantTotal">0</div></div>
+                    <div class="metric-card"><div class="metric-label">Findings</div><div class="metric-value" id="tenantFindings">0</div></div>
+                    <div class="metric-card"><div class="metric-label">Critical</div><div class="metric-value critical" id="tenantCritical">0</div></div>
+                    <div class="metric-card"><div class="metric-label">Exploitable</div><div class="metric-value high" id="tenantExploitable">0</div></div>
+                </div>
+                <div class="card">
+                    <div class="card-header">Tenant Summary</div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr><th>Tenant</th><th>DB</th><th>Findings</th><th>Running</th><th>Critical</th><th>Avg Score</th><th>Max Score</th><th>Action</th></tr>
+                            </thead>
+                            <tbody id="oversightRows"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -313,8 +1088,21 @@
                 </div>
             </div>
         </main>
+
+        <div id="detailOverlay" class="detail-overlay hidden" aria-hidden="true">
+            <aside class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+                <div class="detail-header">
+                    <div>
+                        <p id="detailEyebrow" class="detail-eyebrow">Details</p>
+                        <h3 id="detailTitle">Details</h3>
+                    </div>
+                    <button id="detailCloseBtn" type="button" class="icon-button" aria-label="Close details">×</button>
+                </div>
+                <div id="detailBody" class="detail-body"></div>
+            </aside>
+        </div>
     </div>
 
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/app.js?v=20260514-docs"></script>
 </body>
 </html>

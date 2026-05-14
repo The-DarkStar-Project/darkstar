@@ -70,6 +70,11 @@ class OpenVASAPIClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def stop_task(self, task_id: str) -> Dict[str, Any]:
+        resp = await self._client.post(f"/tasks/{task_id}/stop")
+        resp.raise_for_status()
+        return resp.json()
+
     async def get_task_status(self, task_id: str) -> Dict[str, Any]:
         resp = await self._client.get(f"/tasks/{task_id}/status")
         resp.raise_for_status()
@@ -106,6 +111,11 @@ async def list_tasks() -> List[Dict[str, Any]]:
 async def start_task(task_id: str) -> Dict[str, Any]:
     async with OpenVASAPIClient() as client:
         return await client.start_task(task_id)
+
+
+async def stop_task(task_id: str) -> Dict[str, Any]:
+    async with OpenVASAPIClient() as client:
+        return await client.stop_task(task_id)
 
 
 async def get_task_status(task_id: str) -> Dict[str, Any]:

@@ -9,7 +9,9 @@ import ast
 import hashlib
 import logging
 import os
+import signal
 import subprocess
+import threading
 
 import pandas as pd
 
@@ -18,6 +20,56 @@ from core.models.vulnerability import Vulnerability
 from tools.hibp.HIBPwned import HIBPwned
 
 logger = logging.getLogger(__name__)
+
+
+BBOT_ASM_MODULES = [
+    "anubisdb",
+    "certspotter",
+    "code_repository",
+    "crt",
+    "dnscommonsrv",
+    "dnsdumpster",
+    "git",
+    "hackertarget",
+    "httpx",
+    "portscan",
+    "rapiddns",
+    "robots",
+    "securitytxt",
+    "sitedossier",
+    "social",
+    "sslcert",
+    "subdomaincenter",
+    "urlscan",
+    "viewdns",
+    "wayback",
+]
+
+BBOT_HEAVY_MODULE_EXCLUSIONS = [
+    "dnsbrute",
+    "dnsbrute_mutations",
+    "docker_pull",
+    "extractous",
+    "filedownload",
+    "git_clone",
+    "gitdumper",
+    "gowitness",
+    "jadx",
+    "postman_download",
+    "trufflehog",
+]
+
+BBOT_ASM_PORTS = (
+    "80,443,8080,8443,8000,8008,8081,3000,5000,9443,9090,9000,"
+    "22,25,53,110,143,587,993,995,3389"
+)
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
 
 
 class BBotScanner:
@@ -44,6 +96,158 @@ class BBotScanner:
         # Create a directory for bbot output if not exists
         if not os.path.exists(self.folder):
             os.makedirs(self.folder, exist_ok=True)
+
+    def _descendant_pids(self, pid: int) -> list[int]:
+        descendants: list[int] = []
+        try:
+            proc_entries = [entry for entry in os.listdir("/proc") if entry.isdigit()]
+        except OSError:
+            return descendants
+
+        children = []
+        for entry in proc_entries:
+            try:
+                with open(f"/proc/{entry}/stat", encoding="utf-8", errors="replace") as stat_file:
+                    stat_data = stat_file.read()
+                parts = stat_data.rsplit(")", 1)[-1].split()
+                if len(parts) > 1 and int(parts[1]) == pid:
+                    children.append(int(entry))
+            except (OSError, ValueError):
+                continue
+
+        for child in children:
+            descendants.extend(self._descendant_pids(child))
+            descendants.append(child)
+        return descendants
+
+    def _signal_process_tree(self, pid: int, sig: signal.Signals, label: str) -> None:
+        pids = self._descendant_pids(pid) + [pid]
+        logger.warning("Sending %s to BBOT %s process tree: %s", sig.name, label, pids)
+        for child_pid in pids:
+            try:
+                os.kill(child_pid, sig)
+            except ProcessLookupError:
+                continue
+
+    def _run_bbot_command(
+        self,
+        command: list[str],
+        label: str,
+        timeout_seconds: int | None = None,
+    ) -> int:
+        logger.info("%s bbot scan in progress...", label)
+        logger.info("BBOT command: %s", " ".join(command))
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        previous_handlers = {}
+        signals_registered = False
+
+        def _handle_stop_signal(signum, _frame):
+            logger.warning(
+                "BBOT %s scan received signal %s; stopping scanner process tree",
+                label,
+                signum,
+            )
+            self._signal_process_tree(process.pid, signal.SIGTERM, label)
+            raise SystemExit(128 + signum)
+
+        if threading.current_thread() is threading.main_thread():
+            for stop_signal in (signal.SIGTERM, signal.SIGINT):
+                previous_handlers[stop_signal] = signal.getsignal(stop_signal)
+                signal.signal(stop_signal, _handle_stop_signal)
+            signals_registered = True
+
+        try:
+            try:
+                stdout, stderr = process.communicate(timeout=timeout_seconds)
+                return_code = process.returncode
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "BBOT %s scan reached timeout after %s seconds; processing partial output",
+                    label,
+                    timeout_seconds,
+                )
+                self._signal_process_tree(process.pid, signal.SIGTERM, label)
+                try:
+                    stdout, stderr = process.communicate(timeout=30)
+                except subprocess.TimeoutExpired:
+                    self._signal_process_tree(process.pid, signal.SIGKILL, label)
+                    stdout, stderr = process.communicate()
+                return_code = 124
+        finally:
+            if signals_registered:
+                for stop_signal, previous_handler in previous_handlers.items():
+                    signal.signal(stop_signal, previous_handler)
+
+        output = "\n".join(
+            line
+            for line in (stdout or "").splitlines()
+            if line.strip()
+        )
+        errors = "\n".join(
+            line
+            for line in (stderr or "").splitlines()
+            if line.strip()
+        )
+        if return_code != 0:
+            logger.error("BBOT %s scan failed with exit code %s", label, return_code)
+            if output:
+                logger.error("BBOT stdout tail:\n%s", "\n".join(output.splitlines()[-40:]))
+            if errors:
+                logger.error("BBOT stderr tail:\n%s", "\n".join(errors.splitlines()[-40:]))
+        elif output:
+            logger.info("BBOT %s stdout tail:\n%s", label, "\n".join(output.splitlines()[-20:]))
+        if errors and return_code == 0:
+            logger.warning("BBOT %s stderr tail:\n%s", label, "\n".join(errors.splitlines()[-20:]))
+        return return_code
+
+    def _fallback_dataframe_from_text_outputs(self) -> pd.DataFrame:
+        rows = []
+        subdomains_file = f"{self.folder}/{self.foldername}/subdomains.txt"
+        ips_file = f"{self.folder}/{self.foldername}/ips.txt"
+        if os.path.exists(subdomains_file):
+            with open(subdomains_file, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    host = line.strip()
+                    if not host:
+                        continue
+                    rows.append(
+                        {
+                            "Event type": "DNS_NAME",
+                            "Event data": host,
+                            "IP Address": None,
+                            "Source Module": "bbot_subdomains",
+                            "Scope Distance": 0,
+                            "Event Tags": "in-scope,subdomain",
+                        }
+                    )
+        if os.path.exists(ips_file):
+            with open(ips_file, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    ip = line.strip()
+                    if not ip:
+                        continue
+                    rows.append(
+                        {
+                            "Event type": "IP_ADDRESS",
+                            "Event data": ip,
+                            "IP Address": ip,
+                            "Source Module": "bbot_ips",
+                            "Scope Distance": 0,
+                            "Event Tags": "in-scope,ip",
+                        }
+                    )
+        if rows:
+            logger.warning(
+                "BBOT output.csv was missing; falling back to %d records from text outputs",
+                len(rows),
+            )
+        return pd.DataFrame(rows)
 
     def vulns_to_db(self, df: pd.DataFrame) -> None:
         """
@@ -166,39 +370,58 @@ class BBotScanner:
             logger.error(
                 f"No output file found at {output_file}, something went wrong with bbot scan"
             )
-            return pd.DataFrame()
+            return self._fallback_dataframe_from_text_outputs()
 
     def attack_surface(self) -> None:
         """
-        Run bbot with passive scanning flags.
+        Run a bounded BBOT attack-surface discovery scan.
 
-        Executes a non-intrusive scan using bbot's passive modules,
-        focusing on subdomain enumeration and data collection without
-        active probing.
+        This profile intentionally avoids expensive content workflows such as
+        cloning repositories, pulling containers, secret scanning downloaded
+        files, DNS brute forcing, and screenshots.
         """
-        logger.info(f"Starting Passive bbot Scan on {self.target}")
+        logger.info(f"Starting Attack Surface bbot Scan on {self.target}")
 
         command = [
             "/root/.local/bin/bbot",
             "-t",
             self.target,
-            "-f",
-            "safe,passive,subdomain-enum,cloud-enum,email-enum,social-enum,code-enum,web-basic,affiliates",
+            "-m",
+            *BBOT_ASM_MODULES,
+            "-em",
+            *BBOT_HEAVY_MODULE_EXCLUSIONS,
+            "-ef",
+            "slow",
+            "download",
+            "web-screenshots",
+            "aggressive",
+            "deadly",
+            "-c",
+            f"modules.portscan.ports={os.environ.get('BBOT_ASM_PORTS', BBOT_ASM_PORTS)}",
+            f"modules.portscan.rate={_env_int('BBOT_ASM_PORTSCAN_RATE', 300)}",
+            f"modules.portscan.wait={_env_int('BBOT_ASM_PORTSCAN_WAIT', 3)}",
+            f"modules.portscan.module_timeout={_env_int('BBOT_ASM_PORTSCAN_TIMEOUT_SECONDS', 180)}",
+            f"modules.httpx.threads={_env_int('BBOT_ASM_HTTPX_THREADS', 25)}",
+            f"modules.httpx.max_response_size={_env_int('BBOT_ASM_HTTPX_MAX_RESPONSE_SIZE', 1048576)}",
+            "-om",
+            "csv",
+            "subdomains",
+            "txt",
             "-o",
             self.folder,
             "-n",
             self.foldername,
             "-y",
+            "--ignore-failed-deps",
         ]
         logger.debug(f"Command: {' '.join(command)}")
 
-        process = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        return_code = self._run_bbot_command(
+            command,
+            "attack_surface",
+            timeout_seconds=_env_int("BBOT_ASM_TIMEOUT_SECONDS", 1200),
         )
-
-        logger.info("bbot scan in progress...")
-        process.wait()
-        logger.info("Passive scan completed!")
+        logger.info("Attack Surface bbot scan completed with exit code %s", return_code)
 
         # Place target name in the foldername
         with open(f"{self.folder}/{self.foldername}/TARGET_NAME", "w") as target_file:
@@ -207,7 +430,7 @@ class BBotScanner:
         # Store data from csv into the database
         logger.info("Processing scan results and storing in database...")
         insert_bbot_to_db(self.prep_data(), org_name=self.org_name)
-        logger.info("Passive scan data successfully processed")
+        logger.info("Attack Surface scan data successfully processed")
 
     def passive(self) -> None:
         """
@@ -225,22 +448,22 @@ class BBotScanner:
             self.target,
             "-f",
             "safe,passive,cloud-enum,email-enum,social-enum,code-enum",
+            "-om",
+            "csv",
+            "subdomains",
+            "txt",
             "-o",
             self.folder,
             "-n",
             self.foldername,
             "-y",
             "--strict-scope",
+            "--ignore-failed-deps",
         ]
         logger.debug(f"Command: {' '.join(command)}")
 
-        process = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-        )
-
-        logger.info("bbot scan in progress...")
-        process.wait()
-        logger.info("Passive scan completed!")
+        return_code = self._run_bbot_command(command, "passive")
+        logger.info("Passive scan completed with exit code %s", return_code)
 
         # Place target name in the foldername
         with open(f"{self.folder}/{self.foldername}/TARGET_NAME", "w") as target_file:
@@ -266,23 +489,22 @@ class BBotScanner:
             "-t",
             self.target,
             "-f",
-            "cloud-enum,email-enum,social-enum,code-enum,web-basic",
+            "safe,passive,subdomain-enum,cloud-enum,email-enum,social-enum,code-enum,web-basic,affiliates",
+            "-om",
+            "csv",
+            "subdomains",
+            "txt",
             "-o",
             self.folder,
             "-n",
             self.foldername,
             "-y",
-            "--strict-scope",
+            "--ignore-failed-deps",
         ]
         logger.debug(f"Command: {' '.join(command)}")
 
-        process = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-        )
-
-        logger.info("bbot scan in progress...")
-        process.wait()
-        logger.info("normal scan completed!")
+        return_code = self._run_bbot_command(command, "normal")
+        logger.info("normal scan completed with exit code %s", return_code)
 
         # Place target name in the foldername
         with open(f"{self.folder}/{self.foldername}/TARGET_NAME", "w") as target_file:
@@ -308,28 +530,26 @@ class BBotScanner:
             "-t",
             self.target,
             "-f",
-            "safe,passive,active,deadly,aggressive,web-thorough,cloud-enum,code-enum,affiliates",
+            "safe,passive,subdomain-enum,active,deadly,aggressive,web-thorough,cloud-enum,email-enum,social-enum,code-enum,affiliates",
             "-m",
             "nuclei,baddns,baddns_zone,dotnetnuke,ffuf",
+            "-om",
+            "csv",
+            "subdomains",
+            "txt",
             "--allow-deadly",
             "-o",
             self.folder,
             "-n",
             self.foldername,
             "-y",
-            "--strict-scope",
+            "--ignore-failed-deps",
         ]
 
         logger.debug(f"Command: {' '.join(command)}")
 
-        # Execute bbot command
-        process = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-        )
-
-        logger.info("Aggressive bbot scan in progress...")
-        process.wait()
-        logger.info("Aggressive scan completed!")
+        return_code = self._run_bbot_command(command, "aggressive")
+        logger.info("Aggressive scan completed with exit code %s", return_code)
 
         # Place target name in the foldername
         with open(f"{self.folder}/{self.foldername}/TARGET_NAME", "w") as target_file:

@@ -17,10 +17,13 @@
 
 import asyncio
 import datetime
+import ipaddress
 import logging
 import os
 import requests
+import socket
 import xml.etree.ElementTree as ET
+from urllib.parse import urlparse
 from colorama import Fore, Style
 from typing import List, Dict, Any
 
@@ -68,6 +71,91 @@ class OpenVASScanner:
             f"{Fore.CYAN}Using OpenVAS API URL: {self.base_url}{Style.RESET_ALL}"
         )
 
+    @staticmethod
+    def _normalize_target(target: str) -> str:
+        """Return a hostname, IP address, or CIDR without URL scheme/path noise."""
+        clean_target = str(target or "").strip()
+        if not clean_target:
+            return ""
+
+        if "://" in clean_target:
+            parsed = urlparse(clean_target)
+            clean_target = parsed.hostname or clean_target
+        else:
+            clean_target = clean_target.strip().strip("/")
+            if "/" in clean_target and not OpenVASScanner._is_cidr(clean_target):
+                clean_target = clean_target.split("/", 1)[0]
+
+        return clean_target.strip("[]")
+
+    @staticmethod
+    def _is_cidr(target: str) -> bool:
+        try:
+            ipaddress.ip_network(target, strict=False)
+            return "/" in target
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _is_ip(target: str) -> bool:
+        try:
+            ipaddress.ip_address(target)
+            return True
+        except ValueError:
+            return False
+
+    def _resolve_target_hosts(self, target: str) -> list[str]:
+        """Resolve a scan target to host values accepted reliably by OpenVAS."""
+        normalized = self._normalize_target(target)
+        if not normalized:
+            return []
+
+        if self._is_ip(normalized) or self._is_cidr(normalized):
+            return [normalized]
+
+        try:
+            addresses = socket.getaddrinfo(
+                normalized,
+                None,
+                family=socket.AF_UNSPEC,
+                type=socket.SOCK_STREAM,
+            )
+        except socket.gaierror as exc:
+            logger.warning(
+                f"Could not resolve {normalized} for OpenVAS; target will be skipped: {exc}"
+            )
+            return []
+
+        resolved_hosts = []
+        seen = set()
+        for address in addresses:
+            host = address[4][0]
+            if host not in seen:
+                resolved_hosts.append(host)
+                seen.add(host)
+
+        if resolved_hosts:
+            logger.info(
+                f"Resolved {normalized} for OpenVAS: {', '.join(resolved_hosts)}"
+            )
+        return resolved_hosts
+
+    def _prepare_openvas_targets(self, targets: List[str]) -> list[dict[str, Any]]:
+        prepared = []
+        for target in targets:
+            normalized = self._normalize_target(target)
+            hosts = self._resolve_target_hosts(target)
+            if not hosts:
+                continue
+            prepared.append(
+                {
+                    "input": target,
+                    "label": normalized or str(target),
+                    "hosts": hosts,
+                }
+            )
+        return prepared
+
     async def scan_targets(self, targets: List[str]) -> None:
         """
         Main scanning method that orchestrates the entire OpenVAS scanning process.
@@ -79,14 +167,27 @@ class OpenVASScanner:
             f"{Fore.CYAN}Starting OpenVAS scan for targets: {Fore.YELLOW}{targets}{Style.RESET_ALL}"
         )
 
+        openvas_targets = self._prepare_openvas_targets(targets)
+        if not openvas_targets:
+            logger.warning("No resolvable OpenVAS targets found; skipping OpenVAS scan")
+            return
+
         async with OpenVASAPIClient(base_url=self.base_url) as openvas:
+            try:
+                await openvas.list_targets()
+            except Exception as exc:
+                logger.warning(
+                    f"OpenVAS API is not reachable at {self.base_url}; skipping OpenVAS stage: {exc}"
+                )
+                return
+
             # 1) Create all targets in parallel
             create_tasks = [
                 openvas.create_target(
-                    name=f"Discovered {target} - {datetime.datetime.now()}",
-                    hosts=[target],
+                    name=f"Discovered {target['label']} - {datetime.datetime.now().isoformat(timespec='seconds')}",
+                    hosts=target["hosts"],
                 )
-                for target in targets
+                for target in openvas_targets
             ]
             created = await asyncio.gather(*create_tasks, return_exceptions=True)
 
@@ -94,10 +195,17 @@ class OpenVASScanner:
             target_results = []
             for idx, res in enumerate(created):
                 if isinstance(res, Exception):
-                    logger.error(f"Failed to create target for {targets[idx]}: {res}")
+                    logger.error(
+                        f"Failed to create OpenVAS target for {openvas_targets[idx]['label']} "
+                        f"({', '.join(openvas_targets[idx]['hosts'])}): {res}"
+                    )
                 else:
                     logger.info(f"Created target {res['id']} for {res['name']}")
                     target_results.append(res)
+
+            if not target_results:
+                logger.warning("No OpenVAS targets were created; skipping task creation")
+                return
 
             # 2) For each new target, create a scan task
             task_creates = [
@@ -117,6 +225,10 @@ class OpenVASScanner:
                 else:
                     logger.info(f"Created task {res['id']} ({res['name']})")
                     task_results.append(res)
+
+            if not task_results:
+                logger.warning("No OpenVAS tasks were created; skipping OpenVAS monitoring")
+                return
 
             # 3) Start each task
             start_calls = [openvas.start_task(task["id"]) for task in task_results]
@@ -192,6 +304,10 @@ class OpenVASScanner:
         logger.info(
             f"{Fore.CYAN}Starting background monitoring of {len(task_info)} OpenVAS tasks...{Style.RESET_ALL}"
         )
+
+        if not task_info:
+            logger.info("No OpenVAS tasks to monitor; skipping report collection")
+            return
 
         # Create output directory for reports
         reports_dir = (

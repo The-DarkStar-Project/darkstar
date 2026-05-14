@@ -507,6 +507,21 @@ class TestRustScanner:
         assert port_entry["protocol"] == "tcp"
 
     @pytest.mark.asyncio
+    async def test_process_current_rustscan_open_port_line(self, rust_scanner):
+        """Test processing of current RustScan open port lines."""
+        line = "Open 44.238.29.244:80"
+        scan_results = {"ip_results": {}}
+
+        discovered_ip = await rust_scanner._process_discovered_port(line, scan_results)
+
+        assert discovered_ip == "44.238.29.244"
+        assert "44.238.29.244" in scan_results["ip_results"]
+        port_entry = scan_results["ip_results"]["44.238.29.244"]["ports"][0]
+        assert port_entry["port"] == 80
+        assert port_entry["state"] == "open"
+        assert port_entry["protocol"] == "tcp"
+
+    @pytest.mark.asyncio
     async def test_process_discovered_port_invalid_line(self, rust_scanner):
         """Test processing of invalid discovered port lines."""
         line = "Invalid line format"

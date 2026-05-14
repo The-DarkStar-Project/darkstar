@@ -12,8 +12,105 @@ import ipaddress
 import re
 import logging
 from colorama import Fore, Style
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+
+COMMON_MULTI_LABEL_PUBLIC_SUFFIXES = {
+    "ac",
+    "co",
+    "com",
+    "edu",
+    "gov",
+    "mil",
+    "net",
+    "org",
+}
+
+
+def normalize_network_target(target: str) -> str:
+    """Return a host/IP/CIDR value suitable for network scanners."""
+    clean_target = str(target or "").strip()
+    if not clean_target:
+        return ""
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", clean_target):
+        parsed = urlparse(clean_target)
+        return parsed.hostname or clean_target
+    return clean_target.rstrip("/")
+
+
+def normalize_domain_target(target: str) -> str:
+    """Return a clean hostname from a URL/domain target, without ports or paths."""
+    clean_target = str(target or "").strip().strip("[]").rstrip("/")
+    if not clean_target:
+        return ""
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", clean_target):
+        parsed = urlparse(clean_target)
+        clean_target = parsed.hostname or ""
+    else:
+        clean_target = clean_target.split("/", 1)[0]
+        if "@" in clean_target:
+            clean_target = clean_target.rsplit("@", 1)[-1]
+        if ":" in clean_target and clean_target.count(":") == 1:
+            clean_target = clean_target.split(":", 1)[0]
+    return clean_target.lower().strip(".")
+
+
+def registrable_domain(target: str) -> str:
+    """
+    Best-effort eTLD+1 extraction for email security scoping.
+
+    This intentionally avoids live public suffix downloads in scanner containers.
+    It handles normal domains and common ccTLD second-level suffixes such as
+    example.com.br and example.co.uk.
+    """
+    host = normalize_domain_target(target)
+    if not host or "." not in host or "localhost" in host:
+        return ""
+    try:
+        ipaddress.ip_address(host)
+        return ""
+    except ValueError:
+        pass
+
+    labels = [label for label in host.split(".") if label]
+    if len(labels) < 2:
+        return ""
+    if (
+        len(labels) >= 3
+        and len(labels[-1]) == 2
+        and labels[-2] in COMMON_MULTI_LABEL_PUBLIC_SUFFIXES
+    ):
+        return ".".join(labels[-3:])
+    return ".".join(labels[-2:])
+
+
+def email_security_domains_from_targets(targets: List[str]) -> List[str]:
+    """Collapse scan targets to unique root domains suitable for SPF/DMARC checks."""
+    domains = []
+    for target in targets:
+        domain = registrable_domain(target)
+        if domain and domain not in domains:
+            domains.append(domain)
+    return domains
+
+
+def host_targets_from_targets(targets: List[str]) -> List[str]:
+    """Return normalized non-IP host targets while preserving subdomain scope."""
+    hosts = []
+    for target in targets:
+        host = normalize_domain_target(target)
+        if not host or "." not in host or "localhost" in host:
+            continue
+        try:
+            ipaddress.ip_address(host)
+            continue
+        except ValueError:
+            pass
+        if host not in hosts:
+            hosts.append(host)
+    return hosts
 
 
 def get_scan_targets(target_df: pd.DataFrame) -> List[str]:
@@ -31,7 +128,11 @@ def get_scan_targets(target_df: pd.DataFrame) -> List[str]:
 
     for column in target_types:
         if column in target_df.columns:
-            all_targets.extend(target_df[column].tolist())
+            all_targets.extend(
+                normalized
+                for normalized in (normalize_network_target(target) for target in target_df[column].tolist())
+                if normalized
+            )
 
     return all_targets
 

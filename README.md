@@ -22,11 +22,18 @@ Darkstar includes a web dashboard where each organization logs in with its own c
 - On first login, a dedicated tenant database is created automatically.
 - On later logins, credentials are verified against the stored organization account.
 - You can start scans from the UI and monitor recent findings and scan status.
+- Application documentation is available as a standalone page at `http://localhost:8080/documentation`.
 
 Docker Compose:
 
 1. Start stack: `docker compose --profile darkstar up -d --build`
 2. Open dashboard: `http://localhost:8080`
+
+## Documentation
+
+- [Application documentation](./docs/application-documentation.md) and the web page at `/documentation`
+- [Security testing and Sec/DevOps pipeline](./docs/security-testing-pipeline.md)
+- [Distributed scanner workers](./docs/distributed-scanners.md)
 
 ## Roadmap
 - Agent based vulnerability scanning

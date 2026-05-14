@@ -23,6 +23,7 @@ from .scanners.nuclei import NucleiScanner, NucleiMode
 from colorama import Fore, Style, init
 from .scanners.recon import WordPressDetector
 from .scanners.asteroid_scanner import AsteroidScanner
+from .scanners.external_vuln import ExternalVulnerabilityScanner
 from .scanners.email import MailSecurityScanner
 import asyncio
 import os
@@ -31,6 +32,8 @@ from .tools.bruteforce import process_bruteforce_results
 from .core.utils import (
     categorize_targets,
     create_target_dataframe,
+    email_security_domains_from_targets,
+    host_targets_from_targets,
     log_target_summary,
     get_scan_targets,
     prepare_output_directory,
@@ -43,11 +46,13 @@ import ipaddress
 
 # Set up basic logging configuration
 logger = logging.getLogger("main")
-handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 logger.setLevel(logging.INFO)
+logger.propagate = False
 
 warnings.filterwarnings("ignore")
 init(autoreset=True)
@@ -150,11 +155,18 @@ class worker:
         )
         ips_file = f"{bbot_scanner.folder}/{bbot_scanner.foldername}/ips.txt"
         emails_file = f"{bbot_scanner.folder}/{bbot_scanner.foldername}/emails.txt"
+        primary_targets_file = (
+            f"{bbot_scanner.folder}/{bbot_scanner.foldername}/primary_targets.txt"
+        )
+        email_domains_file = (
+            f"{bbot_scanner.folder}/{bbot_scanner.foldername}/email_domains.txt"
+        )
 
         targets = [
             target.strip() for target in self.all_targets.split(",") if target.strip()
         ]
-        domains = []
+        domains = host_targets_from_targets(targets)
+        email_domains = email_security_domains_from_targets(targets)
         ips = []
 
         for target in targets:
@@ -162,8 +174,7 @@ class worker:
                 ipaddress.ip_address(target)
                 ips.append(target)  # Valid IP address
             except ValueError:
-                # If it raises ValueError, it's not a valid IP address, so it's a domain
-                domains.append(target)
+                continue
 
         if not os.path.exists(subdomains_file):
             with open(subdomains_file, "w") as f:
@@ -171,18 +182,29 @@ class worker:
                 for domain in domains:
                     f.write(f"{domain}\n")
 
+        primary_targets = list(dict.fromkeys(get_scan_targets(self.target_df)))
+        os.makedirs(os.path.dirname(primary_targets_file), exist_ok=True)
+        with open(primary_targets_file, "w") as f:
+            for target in primary_targets:
+                f.write(f"{target}\n")
+
+        os.makedirs(os.path.dirname(email_domains_file), exist_ok=True)
+        with open(email_domains_file, "w") as f:
+            for domain in email_domains:
+                f.write(f"{domain}\n")
+
         if not os.path.exists(ips_file):
             with open(ips_file, "w") as f:
                 # If no IPs found, write the IPs from all_targets directly
                 for ip in ips:
                     f.write(f"{ip}\n")
-        
+
         logger.info("Running Email Security Scanner")
 
         with ThreadPoolExecutor() as executor:
             email_scanner = MailSecurityScanner(org_name=self.org_domain)
             await asyncio.get_event_loop().run_in_executor(
-                executor, lambda: email_scanner.run(subdomains_file, emails_file)
+                executor, lambda: email_scanner.run(email_domains_file, emails_file)
             )
 
         return {
@@ -190,6 +212,8 @@ class worker:
             "subdomains_file": subdomains_file,
             "ips_file": ips_file,
             "emails_file": emails_file,
+            "primary_targets_file": primary_targets_file,
+            "email_domains_file": email_domains_file,
         }
 
     async def run_port_scan(self, targets):
@@ -283,7 +307,31 @@ class worker:
             asteroid_scanner = AsteroidScanner(target, self.org_domain)
             await asyncio.get_event_loop().run_in_executor(
                 executor, lambda: asteroid_scanner.run(mode=mode)
-            )        
+            )
+
+    async def run_asteroid_modules(self, target, modules: list[str]):
+        logger.info("Running focused Asteroid modules: %s", ", ".join(modules))
+        with ThreadPoolExecutor() as executor:
+            asteroid_scanner = AsteroidScanner(target, self.org_domain)
+            await asyncio.get_event_loop().run_in_executor(
+                executor, lambda: asteroid_scanner.run_modules(modules)
+            )
+
+    async def run_external_vulnerability_scanner(self, scanner: str):
+        logger.info("Running external vulnerability scanner: %s", scanner)
+        with ThreadPoolExecutor() as executor:
+            external_scanner = ExternalVulnerabilityScanner(self.all_targets, self.org_domain)
+            runner = {
+                "nikto": external_scanner.run_nikto,
+                "wapiti": external_scanner.run_wapiti,
+                "zap": external_scanner.run_zap,
+                "dalfox": external_scanner.run_dalfox,
+                "testssl": external_scanner.run_testssl,
+                "sslscan": external_scanner.run_sslscan,  # legacy alias for testssl
+            }.get(scanner)
+            if not runner:
+                raise ValueError(f"Unsupported external scanner: {scanner}")
+            await asyncio.get_event_loop().run_in_executor(executor, runner)
 
     async def passive_scan(self):
         await self.run_bbot(mode="passive")
@@ -291,37 +339,33 @@ class worker:
     async def normal_scan(self):
         all_scan_targets = get_scan_targets(self.target_df)
 
-        # Run these tasks in parallel
-        tasks = [
-            self.run_bbot(mode="normal"),
-            self.run_port_scan(all_scan_targets),
-            self.run_openvas_scan(all_scan_targets),
-        ]
+        # Start long-running network scanners alongside BBot. Do not let OpenVAS
+        # hold back Nuclei/Asteroid once BBot has produced target files.
+        bbot_task = asyncio.create_task(self.run_bbot(mode="normal"))
+        port_task = asyncio.create_task(self.run_port_scan(all_scan_targets))
+        openvas_task = asyncio.create_task(self.run_openvas_scan(all_scan_targets))
 
-        # Run all tasks in parallel, but do not fail entire mode due to one subsystem.
-        first_stage = await asyncio.gather(*tasks, return_exceptions=True)
-        bbot_results, port_results, openvas_result = first_stage
-
-        if isinstance(openvas_result, Exception):
-            logger.warning(f"OpenVAS stage failed and will be skipped: {openvas_result}")
-
-        if isinstance(port_results, Exception):
-            logger.warning(f"Port scan stage failed and will be skipped: {port_results}")
+        bbot_results = await asyncio.gather(bbot_task, return_exceptions=True)
+        bbot_results = bbot_results[0]
 
         if isinstance(bbot_results, Exception):
+            await asyncio.gather(port_task, openvas_task, return_exceptions=True)
             raise RuntimeError(f"BBot normal scan failed: {bbot_results}")
 
-        subdomains_file = bbot_results.get("subdomains_file")
-        if not subdomains_file:
-            logger.warning("BBot returned no subdomains file; skipping nuclei and asteroid stages")
+        primary_targets_file = bbot_results.get("primary_targets_file")
+        if not primary_targets_file:
+            logger.warning("BBot returned no primary target file; skipping nuclei and asteroid stages")
+            await asyncio.gather(port_task, openvas_task, return_exceptions=True)
             return
+
+        logger.info("Running vulnerability stages on original targets only; BBOT subdomains remain ASM potential targets")
 
         # Now run standard nuclei, wordpress detection+nuclei, network nuclei, and Asteroid
         tasks = [
-            self.run_nuclei(subdomains_file),
-            self.detect_wordpress_and_run_nuclei(subdomains_file),
-            self.run_nuclei(subdomains_file, mode=NucleiMode.NETWORK),
-            self.run_asteroid(subdomains_file, mode="normal"),
+            self.run_nuclei(primary_targets_file),
+            self.detect_wordpress_and_run_nuclei(primary_targets_file),
+            self.run_nuclei(primary_targets_file, mode=NucleiMode.NETWORK),
+            self.run_asteroid(primary_targets_file, mode="normal"),
         ]
         second_stage = await asyncio.gather(*tasks, return_exceptions=True)
         second_names = [
@@ -334,48 +378,55 @@ class worker:
             if isinstance(result, Exception):
                 logger.warning(f"{name} stage failed and was skipped: {result}")
 
+        remaining_stage = await asyncio.gather(port_task, openvas_task, return_exceptions=True)
+        for name, result in zip(["rustscan", "openvas"], remaining_stage):
+            if isinstance(result, Exception):
+                logger.warning(f"{name} stage failed and will be skipped: {result}")
+
     async def aggressive_scan(self):
         all_scan_targets = get_scan_targets(self.target_df)
 
-        # Execute port discovery, bbot and openvas in parallel
-        tasks = [
-            self.run_bbot(mode="aggressive"),
-            self.run_port_scan(all_scan_targets),
-            self.run_openvas_scan(all_scan_targets),
-        ]
+        # Execute port discovery, bbot and OpenVAS in parallel, but only gate
+        # web vuln scanners on BBot's target-file output.
+        bbot_task = asyncio.create_task(self.run_bbot(mode="aggressive"))
+        port_task = asyncio.create_task(self.run_port_scan(all_scan_targets))
+        openvas_task = asyncio.create_task(self.run_openvas_scan(all_scan_targets))
 
-        # Wait for all to complete, but isolate subsystem failures.
-        first_stage = await asyncio.gather(*tasks, return_exceptions=True)
-        bbot_results, port_results, openvas_result = first_stage
-
-        if isinstance(openvas_result, Exception):
-            logger.warning(f"OpenVAS stage failed and will be skipped: {openvas_result}")
-
-        if isinstance(port_results, Exception):
-            logger.warning(f"Port scan stage failed and will be skipped: {port_results}")
+        bbot_results = await asyncio.gather(bbot_task, return_exceptions=True)
+        bbot_results = bbot_results[0]
 
         if isinstance(bbot_results, Exception):
+            await asyncio.gather(port_task, openvas_task, return_exceptions=True)
             raise RuntimeError(f"BBot aggressive scan failed: {bbot_results}")
 
-        subdomains_file = bbot_results.get("subdomains_file")
-        if not subdomains_file:
-            logger.warning("BBot returned no subdomains file; skipping nuclei and asteroid stages")
+        primary_targets_file = bbot_results.get("primary_targets_file")
+        if not primary_targets_file:
+            logger.warning("BBot returned no primary target file; skipping nuclei and asteroid stages")
+            await asyncio.gather(port_task, openvas_task, return_exceptions=True)
             return
+
+        logger.info("Running vulnerability stages on original targets only; BBOT subdomains remain ASM potential targets")
 
         # Now run nucle and wordpress detection and nuclei and Asteroid
         tasks = [
-            self.run_nuclei(subdomains_file),
-            self.run_nuclei(subdomains_file, mode=NucleiMode.NETWORK),
-            self.detect_wordpress_and_run_nuclei(subdomains_file),
-            self.run_asteroid(subdomains_file, mode="aggressive"),
+            self.run_nuclei(primary_targets_file),
+            self.run_nuclei(primary_targets_file, mode=NucleiMode.NETWORK),
+            self.detect_wordpress_and_run_nuclei(primary_targets_file),
+            self.run_asteroid(primary_targets_file, mode="aggressive"),
+            self.run_external_vulnerability_scanner("zap"),
         ]
 
         # Wait for all remaining tasks to complete
         second_stage = await asyncio.gather(*tasks, return_exceptions=True)
-        second_names = ["nuclei-standard", "nuclei-network", "wordpress+nuclei", "asteroid"]
+        second_names = ["nuclei-standard", "nuclei-network", "wordpress+nuclei", "asteroid", "zap"]
         for name, result in zip(second_names, second_stage):
             if isinstance(result, Exception):
                 logger.warning(f"{name} stage failed and was skipped: {result}")
+
+        remaining_stage = await asyncio.gather(port_task, openvas_task, return_exceptions=True)
+        for name, result in zip(["rustscan", "openvas"], remaining_stage):
+            if isinstance(result, Exception):
+                logger.warning(f"{name} stage failed and will be skipped: {result}")
 
     async def attack_surface_scan(self):
         logger.info(f"{Fore.CYAN}Starting Attack Surface Mode...{Style.RESET_ALL}")
@@ -461,6 +512,12 @@ class worker:
                     await self.run_asteroid(self.all_targets, mode="normal")
                 case "asteroid_aggressive":
                     await self.run_asteroid(self.all_targets, mode="aggressive")
+                case "retirejs":
+                    await self.run_asteroid_modules(self.all_targets, ["katana", "gau", "retirejs"])
+                case "vulnscan":
+                    await self.run_asteroid_modules(self.all_targets, ["katana", "gau", "vulnscan"])
+                case "nikto" | "wapiti" | "sslscan" | "zap" | "dalfox" | "testssl":
+                    await self.run_external_vulnerability_scanner(self.scanner)
                 case _:
                     logger.error(
                         f"{Fore.RED}[-] Invalid scanner {self.scanner} specified{Style.RESET_ALL}"
@@ -567,6 +624,14 @@ def setup_parser():
             "openvas",
             "asteroid_normal",
             "asteroid_aggressive",
+            "retirejs",
+            "vulnscan",
+            "nikto",
+            "wapiti",
+            "zap",
+            "dalfox",
+            "testssl",
+            "sslscan",
         ],
     )
     return parser
@@ -627,7 +692,7 @@ def main(args=None):
     }
     if args.mode:
         logger.info(f"Initializing scan in {mode_info[args.mode]}")
-    
+
     # Run the scanner
     scanner = worker(
         mode=args.mode,

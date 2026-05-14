@@ -82,31 +82,66 @@ class AsteroidScanner:
             "katana",
             "gau",
             "extensioninspector",
-            "vulnscan",
             "retirejs",
         ]
+        search_vulns_api_key = (os.getenv("SEARCH_VULNS_API_KEY") or "").strip()
+        if search_vulns_api_key:
+            modules.insert(3, "vulnscan")
+        else:
+            logger.info("Skipping Asteroid Vulnscan module: SEARCH_VULNS_API_KEY is not configured")
         asteroid = Asteroid(
             target=self.target,
             output_dir=self.output_dir,
             specific_modules=",".join(modules),
             rerun=True,
             module_args={
-                "search_vulns_api_key": os.getenv("SEARCH_VULNS_API_KEY", ""),
+                "search_vulns_api_key": search_vulns_api_key,
+            },
+        )
+        asteroid.run()
+
+    def selected_modules(self, modules: list[str]):
+        """Run a focused Asteroid module set and ingest its vulnerabilities."""
+        logger.info("Running Asteroid modules: %s", ", ".join(modules))
+        asteroid = Asteroid(
+            target=self.target,
+            output_dir=self.output_dir,
+            specific_modules=",".join(modules),
+            rerun=True,
+            module_args={
+                "search_vulns_api_key": (os.getenv("SEARCH_VULNS_API_KEY") or "").strip(),
             },
         )
         asteroid.run()
 
     def aggressive(self):
         logger.info("Running Asteroid scanner in aggressive mode")
-        modules = "all"
+        modules = [
+            "katana",
+            "feroxbuster",
+            "gau",
+            "arjun",
+            "directorylisting",
+            "sensitivefiles",
+            "trufflehog",
+            "extensioninspector",
+            "retirejs",
+            "nuclei",
+            "fileupload",
+        ]
+        search_vulns_api_key = (os.getenv("SEARCH_VULNS_API_KEY") or "").strip()
+        if search_vulns_api_key:
+            modules.insert(8, "vulnscan")
+        else:
+            logger.info("Skipping Asteroid Vulnscan module: SEARCH_VULNS_API_KEY is not configured")
         asteroid = Asteroid(
             target=self.target,
             output_dir=self.output_dir,
-            specific_modules=modules,
+            specific_modules=",".join(modules),
             rerun=True,
             module_args={
                 "forms": True,
-                "search_vulns_api_key": os.getenv("SEARCH_VULNS_API_KEY", ""),
+                "search_vulns_api_key": search_vulns_api_key,
             },
         )
         asteroid.run()
@@ -125,4 +160,9 @@ class AsteroidScanner:
         else:
             raise ValueError("Invalid mode. Use 'normal' or 'aggressive'.")
 
+        self.vulns_to_db()
+
+    def run_modules(self, modules: list[str]):
+        """Run selected Asteroid modules and import resulting findings."""
+        self.selected_modules(modules)
         self.vulns_to_db()

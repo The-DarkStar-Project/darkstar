@@ -1,0 +1,42 @@
+CREATE TABLE IF NOT EXISTS scanner_nodes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    node_id VARCHAR(64) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    token_prefix VARCHAR(24) NOT NULL,
+    token_hash VARCHAR(128) NOT NULL UNIQUE,
+    capabilities TEXT DEFAULT NULL,
+    max_parallel_jobs INT NOT NULL DEFAULT 1,
+    status VARCHAR(32) NOT NULL DEFAULT 'registered',
+    last_seen_at DATETIME DEFAULT NULL,
+    revoked_at DATETIME DEFAULT NULL,
+    created_at DATETIME NOT NULL,
+    INDEX idx_scanner_nodes_status (status),
+    INDEX idx_scanner_nodes_seen (last_seen_at)
+);
+
+CREATE TABLE IF NOT EXISTS scanner_jobs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    org_db_name VARCHAR(64) NOT NULL,
+    scan_id INT NOT NULL,
+    scan_name VARCHAR(255) NOT NULL,
+    scan_mode VARCHAR(50) DEFAULT NULL,
+    scanner VARCHAR(100) DEFAULT NULL,
+    targets TEXT NOT NULL,
+    payload_json LONGTEXT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'queued',
+    priority INT NOT NULL DEFAULT 100,
+    attempts INT NOT NULL DEFAULT 0,
+    locked_by_node_id VARCHAR(64) DEFAULT NULL,
+    locked_at DATETIME DEFAULT NULL,
+    lease_until DATETIME DEFAULT NULL,
+    started_at DATETIME DEFAULT NULL,
+    finished_at DATETIME DEFAULT NULL,
+    error_message TEXT DEFAULT NULL,
+    schedule_id INT DEFAULT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    UNIQUE KEY uniq_scanner_job_scan (org_db_name, scan_id),
+    INDEX idx_scanner_jobs_status (status, priority, created_at),
+    INDEX idx_scanner_jobs_node (locked_by_node_id, status),
+    INDEX idx_scanner_jobs_lease (lease_until)
+);

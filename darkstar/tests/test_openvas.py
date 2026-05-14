@@ -513,6 +513,31 @@ class TestOpenVASScanner:
         scanner = OpenVASScanner("env-org")
         assert scanner.base_url == "http://env-openvas:9009"
 
+    def test_prepare_openvas_targets_resolves_domains(self, scanner, mocker: MockerFixture):
+        """Test that OpenVAS uses resolved IPs for hostname targets."""
+        mocker.patch(
+            "openvas.openvas_scanner.socket.getaddrinfo",
+            return_value=[
+                (
+                    2,
+                    1,
+                    6,
+                    "",
+                    ("44.238.29.244", 0),
+                )
+            ],
+        )
+
+        prepared = scanner._prepare_openvas_targets(["http://testasp.vulnweb.com/"])
+
+        assert prepared == [
+            {
+                "input": "http://testasp.vulnweb.com/",
+                "label": "testasp.vulnweb.com",
+                "hosts": ["44.238.29.244"],
+            }
+        ]
+
     @pytest.mark.asyncio
     async def test_scan_targets_success(self, scanner, mocker: MockerFixture):
         """Test successful scanning of targets."""

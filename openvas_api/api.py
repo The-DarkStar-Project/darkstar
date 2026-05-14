@@ -208,6 +208,18 @@ def start_task(task_id: str, gmp: Gmp = Depends(get_gmp)):
     return {"task_id": task_id, "report_id": report_id, "status": "Started"}
 
 
+@app.post("/tasks/{task_id}/stop")
+def stop_task(task_id: str, gmp: Gmp = Depends(get_gmp)):
+    """Stop a running scan task."""
+    resp = gmp.stop_task(task_id)
+    root = _parse_xml(resp)
+    status = root.get("status", "unknown error")
+    status_text = root.get("status_text", "unknown error")
+    if status in {"200", "202"}:
+        return {"task_id": task_id, "status": "Stopped"}
+    raise HTTPException(int(status), status_text)
+
+
 @app.get("/tasks", response_model=List[TaskInfo])
 def list_tasks(gmp: Gmp = Depends(get_gmp)):
     """List all scan tasks and their status."""

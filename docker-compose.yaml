@@ -280,6 +280,7 @@ services:
       dockerfile: Dockerfile
     container_name: openvas-api
     profiles: ["gvm", "darkstar"]
+    restart: unless-stopped
     ports:
       - "8008:8008"
     volumes:
@@ -312,6 +313,8 @@ services:
       - ./darkstar:/app/darkstar
       - ./data:/app/data
       - ./logo_darkstar.png:/app/logo_darkstar.png:ro
+      - ./logo_sidn.png:/app/logo_sidn.png:ro
+      - ./logo_nlnet.png:/app/logo_nlnet.png:ro
     restart: unless-stopped
     tty: true
     stdin_open: true
@@ -340,9 +343,47 @@ services:
       - ./darkstar:/app/darkstar
       - ./data:/app/data
       - ./logo_darkstar.png:/app/logo_darkstar.png:ro
+      - ./logo_sidn.png:/app/logo_sidn.png:ro
+      - ./logo_nlnet.png:/app/logo_nlnet.png:ro
       - ./.env:/app/.env:ro
     restart: unless-stopped
     command: uvicorn darkstar.webapp:app --host 0.0.0.0 --port 8080
+
+  # Scanner-only worker. Create a token first:
+  #   docker compose exec darkstar-web python3 -m darkstar.scanner_attach create \
+  #     --name local-scanner --url http://darkstar-web:8080 --network darkstar_vuln_net
+  # Then put DARKSTAR_SCANNER_TOKEN in .env and start this service.
+  darkstar-scanner:
+    image: darkstar-darkstar-web
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: darkstar-scanner
+    profiles: ["scanner"]
+    working_dir: /app
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app:/app/darkstar
+      DARKSTAR_ORCHESTRATOR_URL: ${DARKSTAR_ORCHESTRATOR_URL:-http://darkstar-web:8080}
+      DARKSTAR_SCANNER_TOKEN: ${DARKSTAR_SCANNER_TOKEN:-}
+      DARKSTAR_SCANNER_NAME: ${DARKSTAR_SCANNER_NAME:-local-scanner}
+      DARKSTAR_WORKER_MAX_PARALLEL: ${DARKSTAR_WORKER_MAX_PARALLEL:-1}
+    networks:
+      - vuln_net
+    volumes:
+      - ./darkstar:/app/darkstar
+      - ./data:/app/data
+      - ./logo_darkstar.png:/app/logo_darkstar.png:ro
+      - ./logo_sidn.png:/app/logo_sidn.png:ro
+      - ./logo_nlnet.png:/app/logo_nlnet.png:ro
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    command: >
+      /bin/bash -lc 'if [ -z "$$DARKSTAR_SCANNER_TOKEN" ];
+      then echo "DARKSTAR_SCANNER_TOKEN missing. Create one with python3 -m darkstar.scanner_attach create."; sleep infinity;
+      else python3 -m darkstar.scanner_worker;
+      fi'
 
 volumes:
   mariadb_data:

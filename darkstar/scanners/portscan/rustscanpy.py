@@ -8,9 +8,10 @@ with asynchronous execution capabilities.
 import asyncio
 import ipaddress
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import dns.asyncresolver
 
@@ -214,7 +215,7 @@ class RustScanner:
                     aaaa_answers = await resolver.resolve(target, "AAAA")
                     ipv6_ips = [str(rdata) for rdata in aaaa_answers]
                     logger.info(
-                        f"Resolved IPv6 addresses for {target}: {', '.jon(ipv6_ips)}"
+                        f"Resolved IPv6 addresses for {target}: {', '.join(ipv6_ips)}"
                     )
                     ips.extend(ipv6_ips)
                 except Exception as e:
@@ -242,7 +243,9 @@ class RustScanner:
                 logger.error(f"Error resolving target {target}: {str(e)}")
                 return ScanTarget(target=target, resolved_ips=[], is_behind_cdn=False)
 
-    async def _process_discovered_port(self, line: str, scan_results: Dict) -> None:
+    async def _process_discovered_port(
+        self, line: str, scan_results: Dict
+    ) -> Optional[str]:
         """
         Process a line containing discovered port information.
 
@@ -251,24 +254,56 @@ class RustScanner:
             scan_results: Dictionary to store the results
         """
         try:
-            parts = line.split()
-            port = int(parts[3].split("/")[0])
-            ip = parts[5]
+            port = None
+            protocol = "tcp"
+            ip = None
+
+            discovered_match = re.search(
+                r"Discovered open port\s+(\d+)/(tcp|udp)\s+on\s+(\S+)",
+                line,
+                re.IGNORECASE,
+            )
+            current_match = re.search(
+                r"^Open\s+(.+):(\d+)(?:/(tcp|udp))?$",
+                line,
+                re.IGNORECASE,
+            )
+
+            if discovered_match:
+                port = int(discovered_match.group(1))
+                protocol = discovered_match.group(2).lower()
+                ip = discovered_match.group(3)
+            elif current_match:
+                ip = current_match.group(1).strip().strip("[]")
+                port = int(current_match.group(2))
+                if current_match.group(3):
+                    protocol = current_match.group(3).lower()
+            else:
+                raise ValueError("Unrecognized RustScan open-port line")
 
             if ip not in scan_results["ip_results"]:
                 scan_results["ip_results"][ip] = {"ports": []}
 
+            existing_ports = {
+                port_entry.get("port")
+                for port_entry in scan_results["ip_results"][ip]["ports"]
+            }
+            if port in existing_ports:
+                return ip
+
             port_entry = {
                 "port": port,
                 "state": "open",
-                "protocol": "tcp",
+                "protocol": protocol,
                 "service": None,
                 "version": None,
             }
             scan_results["ip_results"][ip]["ports"].append(port_entry)
             logger.info(line)
+            return ip
         except (IndexError, ValueError) as e:
             logger.error(f"Error parsing Discovered line: {line}. {e}")
+            return None
 
     async def _process_service_info(
         self, line: str, current_ip: str, scan_results: Dict
@@ -417,10 +452,15 @@ class RustScanner:
                                     logger.error(
                                         f"Error extracting IP from line: {line_str}. {e}"
                                     )
-                            elif "Discovered open port" in line_str:
-                                await self._process_discovered_port(
+                            elif (
+                                "Discovered open port" in line_str
+                                or line_str.startswith("Open ")
+                            ):
+                                discovered_ip = await self._process_discovered_port(
                                     line_str, scan_results
                                 )
+                                if discovered_ip:
+                                    current_ip = discovered_ip
                             elif (
                                 "/tcp" in line_str
                                 and "open" in line_str

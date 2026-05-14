@@ -88,7 +88,8 @@ class TestBBotScanner:
         mock_exists = mocker.patch("scanners.bbot.os.path.exists", return_value=True)
 
         mock_process = mocker.Mock()
-        mock_process.wait.return_value = 0
+        mock_process.communicate.return_value = ("", "")
+        mock_process.returncode = 0
         mock_popen.return_value = mock_process
 
         scanner = BBotScanner("example.com", "test_org")
@@ -118,14 +119,11 @@ class TestBBotScanner:
         "scan_mode,expected_flags",
         [
             ("passive", "safe,passive,cloud-enum,email-enum,social-enum,code-enum"),
-            ("normal", "cloud-enum,email-enum,social-enum,code-enum,web-basic"),
-            (
-                "attack_surface",
-                "safe,passive,subdomain-enum,cloud-enum,email-enum,social-enum,code-enum,web-basic,affiliates",
-            ),
+            ("normal", "safe,passive,subdomain-enum,cloud-enum,email-enum,social-enum,code-enum,web-basic,affiliates"),
+            ("attack_surface", "anubisdb"),
             (
                 "aggressive",
-                "safe,passive,active,deadly,aggressive,web-thorough,cloud-enum,code-enum,affiliates",
+                "safe,passive,subdomain-enum,active,deadly,aggressive,web-thorough,cloud-enum,email-enum,social-enum,code-enum,affiliates",
             ),
         ],
     )
@@ -143,7 +141,8 @@ class TestBBotScanner:
         mocker.patch("builtins.open", mock_open_func)
 
         mock_process = mocker.Mock()
-        mock_process.wait.return_value = 0
+        mock_process.communicate.return_value = ("", "")
+        mock_process.returncode = 0
         mock_popen.return_value = mock_process
 
         scanner = BBotScanner("example.com", "test_org")
@@ -155,7 +154,11 @@ class TestBBotScanner:
         # Verify the correct flags were used
         mock_popen.assert_called_once()
         call_args = mock_popen.call_args[0][0]
-        assert expected_flags in call_args[4]
+        assert expected_flags in call_args
+        if scan_mode == "attack_surface":
+            excluded_modules = call_args[call_args.index("-em") + 1:call_args.index("-ef")]
+            assert "trufflehog" in excluded_modules
+            assert "gowitness" in excluded_modules
 
 
 class TestNucleiScanner:

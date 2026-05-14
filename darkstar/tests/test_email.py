@@ -1,4 +1,5 @@
 from darkstar.scanners.email import MailSecurityScanner
+from darkstar.core.utils import email_security_domains_from_targets, registrable_domain
 
 
 class DummyResponse:
@@ -6,6 +7,37 @@ class DummyResponse:
         self.status_code = status_code
         self.headers = headers or {}
         self.text = text
+
+
+def test_registrable_domain_for_email_security_scope():
+    assert registrable_domain("https://ens.ufsc.br:443/path") == "ufsc.br"
+    assert registrable_domain("mail.example.com.br") == "example.com.br"
+    assert registrable_domain("127.0.0.1") == ""
+
+
+def test_email_security_domains_from_targets_collapses_to_roots():
+    targets = ["ufsc.br", "ens.ufsc.br", "https://gr.ufsc.br/path", "example.com.br"]
+    assert email_security_domains_from_targets(targets) == ["ufsc.br", "example.com.br"]
+
+
+def test_run_scans_only_root_target_domains(tmp_path, monkeypatch):
+    domains_file = tmp_path / "email_domains.txt"
+    emails_file = tmp_path / "emails.txt"
+    domains_file.write_text("ufsc.br\nens.ufsc.br\nhttps://gr.ufsc.br:443/path\n", encoding="utf-8")
+    emails_file.write_text("user@ced.ufsc.br\nexternal@example.net\n", encoding="utf-8")
+
+    scanner = MailSecurityScanner(org_name="test_org")
+    scanned = []
+
+    def fake_scan_domain(domain, from_emails_file=False, force=False):
+        scanned.append((domain, from_emails_file))
+        return {"skipped": False, "vulnerabilities": []}
+
+    monkeypatch.setattr(scanner, "scan_domain", fake_scan_domain)
+
+    scanner.run(str(domains_file), str(emails_file))
+
+    assert scanned == [("ufsc.br", True)]
 
 
 def test_scan_skipped_when_no_spf_or_dmarc(monkeypatch):
@@ -559,4 +591,3 @@ def test_mta_sts_request_exception(monkeypatch):
     results = scanner.scan_domain(domain, force=True)
     titles = {v.title for v in results["vulnerabilities"]}
     assert "MTA_STS_POLICY_FILE_MISSING" in titles
-

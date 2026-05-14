@@ -305,14 +305,14 @@ class WordPressDetector:
         url_https = f"https://{normalized}"
         url_http = f"http://{normalized}"
 
-        # Required behavior: try HTTPS first, fallback to HTTP only if HTTPS is down.
-        if self.is_reachable(url_https):
-            return self.is_wordpress(url_https)
+        # Try HTTPS first, then fall back to HTTP if HTTPS is not WordPress.
+        if self.is_wordpress(url_https):
+            return True
 
-        if self.is_reachable(url_http):
-            return self.is_wordpress(url_http)
+        if self.is_wordpress(url_http):
+            return True
 
-        colored_debug(f"Host appears down on both HTTPS and HTTP: {normalized}", "red")
+        colored_debug(f"No WordPress fingerprint found on HTTPS or HTTP: {normalized}", "red")
         return False
 
     def run(self, target):

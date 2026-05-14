@@ -25,3 +25,4 @@ itsdangerous==2.2.0
 pytest
 pytest-asyncio
 pytest-mock
+qrcode==8.2
