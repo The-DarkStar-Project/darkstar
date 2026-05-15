@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.3.0-native"
+const agentVersion = "0.3.1-native"
 
 type options struct {
 	Command         string

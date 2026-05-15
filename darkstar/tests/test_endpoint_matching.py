@@ -1,8 +1,13 @@
+import json
 import textwrap
 
 import pytest
 
 from darkstar.core import endpoint_vendor_vuln as vendor
+from darkstar.core.endpoint_custom_checks import (
+    POSTURE_SOFTWARE_KEY,
+    match_custom_vulnerabilities,
+)
 from darkstar.core.endpoint_vuln import (
     _cvss3_vector_score,
     hydrate_osv_finding,
@@ -61,6 +66,57 @@ def test_hydrate_osv_finding_adds_package_evidence_and_normalizes_cve():
 def test_cvss3_vector_score_handles_common_high_vector():
     assert _cvss3_vector_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H") == 9.8
     assert _cvss3_vector_score("not-a-vector") is None
+
+
+def test_custom_posture_checks_create_non_cve_findings():
+    findings = match_custom_vulnerabilities(
+        [
+            {
+                "software_key": POSTURE_SOFTWARE_KEY,
+                "package_type": "security_posture",
+                "version": "1",
+                "raw": {
+                    "platform": "linux",
+                    "collected_at": "2026-05-15T10:00:00Z",
+                    "security_checks": [
+                        {
+                            "id": "DARKSTAR-LINUX-SSH-ROOT-LOGIN",
+                            "passed": False,
+                            "confidence": 91,
+                            "evidence": {"effective_value": "yes"},
+                        },
+                        {"id": "DARKSTAR-UNKNOWN-CHECK", "passed": False},
+                    ],
+                },
+            }
+        ],
+        os_info={"platform": "linux"},
+    )
+
+    assert len(findings) == 1
+    assert findings[0]["cve"] == "DARKSTAR-LINUX-SSH-ROOT-LOGIN"
+    assert findings[0]["source"] == "DarkstarCheck"
+    assert findings[0]["severity"] == "high"
+    assert findings[0]["confidence"] == 91
+    assert findings[0]["evidence"]["agent_evidence"] == {"effective_value": "yes"}
+
+
+def test_custom_posture_checks_read_stored_raw_json():
+    raw_json = json.dumps({
+        "raw": {
+            "platform": "windows",
+            "security_checks": [
+                {"id": "DARKSTAR-WINDOWS-ALWAYS-INSTALL-ELEVATED", "passed": False}
+            ],
+        }
+    })
+
+    findings = match_custom_vulnerabilities(
+        [{"software_key": POSTURE_SOFTWARE_KEY, "package_type": "security_posture", "raw_json": raw_json}],
+        os_info={"platform": "windows"},
+    )
+
+    assert [finding["cve"] for finding in findings] == ["DARKSTAR-WINDOWS-ALWAYS-INSTALL-ELEVATED"]
 
 
 def test_vendor_version_like_rejects_unbounded_numeric_input():

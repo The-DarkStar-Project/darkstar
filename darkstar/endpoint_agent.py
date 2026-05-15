@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import glob
 import ipaddress
 import json
 import os
@@ -15,6 +16,7 @@ import platform
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -25,8 +27,10 @@ from urllib.parse import quote
 import requests
 
 
-AGENT_VERSION = "0.2.0"
+AGENT_VERSION = "0.2.1"
 NETWORK_PROBE_VERSION = 1
+SECURITY_CHECK_SCHEMA_VERSION = 1
+POSTURE_SOFTWARE_KEY = "darkstar-security-posture"
 CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 DEFAULT_FINGERPRINT_PORTS = [22, 53, 80, 135, 139, 443, 445, 3389, 8080, 8443, 62078]
 
@@ -690,7 +694,7 @@ def _open_ports_for_target(ip_text: str, ports: list[int]) -> list[int]:
                 if future.result():
                     open_ports.append(port)
             except Exception:
-                pass
+                continue
     return sorted(open_ports)
 
 
@@ -838,6 +842,591 @@ def collect_network_probe(peer_targets: list[dict[str, Any]] | None = None) -> d
     }
 
 
+def _failed_security_check(check_id: str, evidence: dict[str, Any] | None = None, confidence: int = 90) -> dict[str, Any]:
+    return {
+        "id": check_id,
+        "passed": False,
+        "confidence": confidence,
+        "evidence": evidence or {},
+    }
+
+
+def _read_text_file(path: str, max_bytes: int = 1024 * 1024) -> str | None:
+    try:
+        file_path = Path(path)
+        if not file_path.is_file() or file_path.stat().st_size > max_bytes:
+            return None
+        return file_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return None
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        if value in (None, ""):
+            return None
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_login_defs(path: str = "/etc/login.defs") -> dict[str, str]:
+    values: dict[str, str] = {}
+    text = _read_text_file(path, max_bytes=256 * 1024)
+    if not text:
+        return values
+    for line in text.splitlines():
+        stripped = line.split("#", 1)[0].strip()
+        if not stripped:
+            continue
+        parts = stripped.split(None, 1)
+        if len(parts) == 2:
+            values[parts[0].upper()] = parts[1].strip()
+    return values
+
+
+def _parse_pwquality(path: str = "/etc/security/pwquality.conf") -> dict[str, str]:
+    values: dict[str, str] = {}
+    text = _read_text_file(path, max_bytes=256 * 1024)
+    if not text:
+        return values
+    for line in text.splitlines():
+        stripped = line.split("#", 1)[0].strip()
+        if not stripped or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key.strip().lower()] = value.strip()
+    return values
+
+
+def _sshd_config_lines(path: str = "/etc/ssh/sshd_config", seen: set[str] | None = None, depth: int = 0):
+    seen = seen or set()
+    if depth > 4:
+        return
+    try:
+        real_path = str(Path(path).resolve())
+    except Exception:
+        real_path = path
+    if real_path in seen:
+        return
+    seen.add(real_path)
+    text = _read_text_file(path, max_bytes=1024 * 1024)
+    if not text:
+        return
+    base_dir = str(Path(path).parent)
+    in_match_block = False
+    for lineno, line in enumerate(text.splitlines(), 1):
+        stripped = line.split("#", 1)[0].strip()
+        if not stripped:
+            continue
+        parts = stripped.split(None, 1)
+        directive = parts[0].lower()
+        value = parts[1].strip() if len(parts) > 1 else ""
+        if directive == "match":
+            in_match_block = True
+            continue
+        if in_match_block:
+            continue
+        if directive == "include":
+            for pattern in value.split():
+                expanded = pattern if pattern.startswith("/") else str(Path(base_dir) / pattern)
+                for include_path in sorted(glob.glob(expanded)):
+                    yield from _sshd_config_lines(include_path, seen=seen, depth=depth + 1)
+            continue
+        yield path, lineno, directive, value
+
+
+def _linux_ssh_checks() -> list[dict[str, Any]]:
+    settings: dict[str, tuple[str, str, int]] = {}
+    for path, lineno, directive, value in _sshd_config_lines() or []:
+        settings[directive] = (value.strip().lower(), path, lineno)
+
+    checks: list[dict[str, Any]] = []
+    root_login = settings.get("permitrootlogin")
+    if root_login and root_login[0] == "yes":
+        checks.append(_failed_security_check(
+            "DARKSTAR-LINUX-SSH-ROOT-LOGIN",
+            {"effective_value": root_login[0], "source": root_login[1], "line": root_login[2]},
+        ))
+    password_auth = settings.get("passwordauthentication")
+    if password_auth and password_auth[0] == "yes":
+        checks.append(_failed_security_check(
+            "DARKSTAR-LINUX-SSH-PASSWORD-AUTH",
+            {"effective_value": password_auth[0], "source": password_auth[1], "line": password_auth[2]},
+        ))
+    empty_passwords = settings.get("permitemptypasswords")
+    if empty_passwords and empty_passwords[0] == "yes":
+        checks.append(_failed_security_check(
+            "DARKSTAR-LINUX-SSH-EMPTY-PASSWORDS",
+            {"effective_value": empty_passwords[0], "source": empty_passwords[1], "line": empty_passwords[2]},
+            confidence=95,
+        ))
+    return checks
+
+
+def _linux_sudo_checks() -> list[dict[str, Any]]:
+    paths = ["/etc/sudoers"]
+    paths.extend(sorted(glob.glob("/etc/sudoers.d/*")))
+    examples: list[dict[str, Any]] = []
+    for path in paths:
+        try:
+            if not Path(path).is_file():
+                continue
+        except Exception:
+            continue
+        text = _read_text_file(path, max_bytes=1024 * 1024)
+        if not text:
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "NOPASSWD" in stripped.upper():
+                examples.append({"source": path, "line": lineno})
+    if not examples:
+        return []
+    return [_failed_security_check(
+        "DARKSTAR-LINUX-SUDO-NOPASSWD",
+        {"entry_count": len(examples), "examples": examples[:10]},
+    )]
+
+
+def _linux_shadow_checks() -> list[dict[str, Any]]:
+    text = _read_text_file("/etc/shadow", max_bytes=2 * 1024 * 1024)
+    if not text:
+        return []
+    empty_count = 0
+    weak_algorithms: dict[str, int] = {}
+    for line in text.splitlines():
+        parts = line.split(":")
+        if len(parts) < 2:
+            continue
+        password_field = parts[1]
+        if password_field == "":
+            empty_count += 1
+            continue
+        if password_field.startswith(("!", "*")):
+            continue
+        if password_field.startswith("$1$"):
+            weak_algorithms["md5"] = weak_algorithms.get("md5", 0) + 1
+        elif password_field and not password_field.startswith("$"):
+            weak_algorithms["des"] = weak_algorithms.get("des", 0) + 1
+
+    checks: list[dict[str, Any]] = []
+    if empty_count:
+        checks.append(_failed_security_check(
+            "DARKSTAR-LINUX-EMPTY-PASSWORD",
+            {"account_count": empty_count, "source": "/etc/shadow", "hashes_collected": False},
+            confidence=95,
+        ))
+    if weak_algorithms:
+        checks.append(_failed_security_check(
+            "DARKSTAR-LINUX-WEAK-PASSWORD-HASH",
+            {"algorithm_counts": weak_algorithms, "source": "/etc/shadow", "hashes_collected": False},
+        ))
+    return checks
+
+
+def _linux_passwd_uid0_checks() -> list[dict[str, Any]]:
+    text = _read_text_file("/etc/passwd", max_bytes=1024 * 1024)
+    if not text:
+        return []
+    accounts = []
+    for line in text.splitlines():
+        parts = line.split(":")
+        if len(parts) < 3:
+            continue
+        if parts[0] != "root" and _safe_int(parts[2]) == 0:
+            accounts.append(parts[0])
+    if not accounts:
+        return []
+    return [_failed_security_check(
+        "DARKSTAR-LINUX-UID0-EXTRA-ACCOUNT",
+        {"account_count": len(accounts), "accounts": accounts[:20], "source": "/etc/passwd"},
+    )]
+
+
+def _linux_sensitive_permission_checks() -> list[dict[str, Any]]:
+    unsafe = []
+    checks = [
+        ("/etc/passwd", stat.S_IWGRP | stat.S_IWOTH, "group_or_world_writable"),
+        ("/etc/shadow", stat.S_IROTH | stat.S_IWGRP | stat.S_IWOTH, "world_readable_or_group_world_writable"),
+        ("/etc/sudoers", stat.S_IWGRP | stat.S_IWOTH, "group_or_world_writable"),
+    ]
+    for path, mask, reason in checks:
+        try:
+            mode = os.stat(path).st_mode
+        except Exception:
+            continue
+        if mode & mask:
+            unsafe.append({"path": path, "mode": oct(stat.S_IMODE(mode)), "reason": reason})
+    if not unsafe:
+        return []
+    return [_failed_security_check(
+        "DARKSTAR-LINUX-SENSITIVE-FILE-PERMISSIONS",
+        {"files": unsafe},
+        confidence=95,
+    )]
+
+
+def _linux_world_writable_path_checks() -> list[dict[str, Any]]:
+    path_values = (os.environ.get("PATH") or "").split(os.pathsep)
+    path_values.extend(["/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"])
+    unsafe = []
+    seen = set()
+    for path in path_values:
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        try:
+            mode = os.stat(path).st_mode
+        except Exception:
+            continue
+        if stat.S_ISDIR(mode) and mode & stat.S_IWOTH:
+            unsafe.append({"path": path, "mode": oct(stat.S_IMODE(mode))})
+    if not unsafe:
+        return []
+    return [_failed_security_check(
+        "DARKSTAR-LINUX-WORLD-WRITABLE-PATH",
+        {"directories": unsafe[:20]},
+    )]
+
+
+def _linux_root_equivalent_group_checks() -> list[dict[str, Any]]:
+    text = _read_text_file("/etc/group", max_bytes=1024 * 1024)
+    if not text:
+        return []
+    risky_groups = {"docker", "lxd", "libvirt", "podman"}
+    groups = []
+    for line in text.splitlines():
+        parts = line.split(":")
+        if len(parts) < 4 or parts[0] not in risky_groups:
+            continue
+        members = [member for member in parts[3].split(",") if member]
+        if members:
+            groups.append({"group": parts[0], "member_count": len(members), "members": members[:20]})
+    if not groups:
+        return []
+    return [_failed_security_check(
+        "DARKSTAR-LINUX-ROOT-EQUIVALENT-GROUP",
+        {"groups": groups},
+    )]
+
+
+def _linux_password_policy_checks() -> list[dict[str, Any]]:
+    login_defs = _parse_login_defs()
+    pwquality = _parse_pwquality()
+    weak = []
+    min_len = _safe_int(login_defs.get("PASS_MIN_LEN"))
+    if min_len is not None and min_len < 12:
+        weak.append({"setting": "PASS_MIN_LEN", "value": min_len, "baseline": 12})
+    max_days = _safe_int(login_defs.get("PASS_MAX_DAYS"))
+    if max_days is not None and (max_days <= 0 or max_days > 90):
+        weak.append({"setting": "PASS_MAX_DAYS", "value": max_days, "baseline": 90})
+    min_days = _safe_int(login_defs.get("PASS_MIN_DAYS"))
+    if min_days is not None and min_days < 1:
+        weak.append({"setting": "PASS_MIN_DAYS", "value": min_days, "baseline": 1})
+    quality_min_len = _safe_int(pwquality.get("minlen"))
+    if quality_min_len is not None and quality_min_len < 12:
+        weak.append({"setting": "pwquality.minlen", "value": quality_min_len, "baseline": 12})
+    if not weak:
+        return []
+    return [_failed_security_check(
+        "DARKSTAR-LINUX-PASSWORD-POLICY-WEAK",
+        {"weak_settings": weak, "sources": ["/etc/login.defs", "/etc/security/pwquality.conf"]},
+    )]
+
+
+def _linux_suid_coredump_checks() -> list[dict[str, Any]]:
+    value = (_read_text_file("/proc/sys/fs/suid_dumpable", max_bytes=32) or "").strip()
+    if value not in {"1", "2"}:
+        return []
+    return [_failed_security_check(
+        "DARKSTAR-LINUX-SUID-COREDUMPS",
+        {"path": "/proc/sys/fs/suid_dumpable", "value": value, "expected": "0"},
+    )]
+
+
+def _linux_security_checks() -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    checks.extend(_linux_ssh_checks())
+    checks.extend(_linux_sudo_checks())
+    checks.extend(_linux_shadow_checks())
+    checks.extend(_linux_passwd_uid0_checks())
+    checks.extend(_linux_sensitive_permission_checks())
+    checks.extend(_linux_world_writable_path_checks())
+    checks.extend(_linux_root_equivalent_group_checks())
+    checks.extend(_linux_password_policy_checks())
+    checks.extend(_linux_suid_coredump_checks())
+    return checks
+
+
+def _as_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if value in (None, ""):
+        return []
+    return [value]
+
+
+def _windows_security_state() -> dict[str, Any]:
+    script = r"""
+$ErrorActionPreference = 'SilentlyContinue'
+function Get-RegDword($Path, $Name) {
+  try {
+    $value = (Get-ItemProperty -Path $Path -Name $Name -ErrorAction Stop).$Name
+    if ($null -eq $value) { return $null }
+    return [int]$value
+  } catch { return $null }
+}
+function Get-RegString($Path, $Name) {
+  try {
+    $value = (Get-ItemProperty -Path $Path -Name $Name -ErrorAction Stop).$Name
+    if ($null -eq $value) { return $null }
+    return [string]$value
+  } catch { return $null }
+}
+function Test-RegValue($Path, $Name) {
+  try {
+    $key = Get-Item -Path $Path -ErrorAction Stop
+    return @($key.GetValueNames()) -contains $Name
+  } catch { return $false }
+}
+$users = @(Get-CimInstance Win32_UserAccount -Filter "LocalAccount=True" |
+  Select-Object Name, SID, Disabled, PasswordRequired)
+$services = @(Get-CimInstance Win32_Service |
+  Where-Object {
+    $_.PathName -and
+    $_.PathName.Contains(' ') -and
+    -not $_.PathName.TrimStart().StartsWith('"') -and
+    $_.PathName -match '^[A-Za-z]:\\'
+  } |
+  Select-Object -First 20 Name, StartName, PathName)
+$firewall = @(Get-NetFirewallProfile | Select-Object Name, Enabled)
+$netAccounts = ""
+try { $netAccounts = (net accounts | Out-String) } catch {}
+[pscustomobject]@{
+  AutoAdminLogon = Get-RegString 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' 'AutoAdminLogon'
+  DefaultPasswordPresent = Test-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' 'DefaultPassword'
+  WDigestUseLogonCredential = Get-RegDword 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest' 'UseLogonCredential'
+  AlwaysInstallElevatedHKLM = Get-RegDword 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer' 'AlwaysInstallElevated'
+  AlwaysInstallElevatedHKCU = Get-RegDword 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer' 'AlwaysInstallElevated'
+  EnableLUA = Get-RegDword 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' 'EnableLUA'
+  FDenyTSConnections = Get-RegDword 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' 'fDenyTSConnections'
+  RdpUserAuthentication = Get-RegDword 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' 'UserAuthentication'
+  AllowInsecureGuestAuth = Get-RegDword 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LanmanWorkstation' 'AllowInsecureGuestAuth'
+  NoLMHash = Get-RegDword 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' 'NoLMHash'
+  SMB1 = Get-RegDword 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters' 'SMB1'
+  LocalAccountTokenFilterPolicy = Get-RegDword 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' 'LocalAccountTokenFilterPolicy'
+  Users = $users
+  UnquotedServices = $services
+  FirewallProfiles = $firewall
+  NetAccounts = $netAccounts
+} | ConvertTo-Json -Depth 5 -Compress
+"""
+    data = _powershell_json(script, timeout=60)
+    return data if isinstance(data, dict) else {}
+
+
+def _parse_windows_net_accounts(text: str) -> dict[str, Any]:
+    parsed: dict[str, Any] = {}
+    for line in str(text or "").splitlines():
+        if "Minimum password length" in line:
+            match = re.search(r"(\d+)", line)
+            if match:
+                parsed["minimum_password_length"] = int(match.group(1))
+        elif "Maximum password age" in line:
+            if "unlimited" in line.lower() or "never" in line.lower():
+                parsed["maximum_password_age_days"] = None
+                parsed["maximum_password_age_unlimited"] = True
+            else:
+                match = re.search(r"(\d+)", line)
+                if match:
+                    parsed["maximum_password_age_days"] = int(match.group(1))
+        elif "Lockout threshold" in line:
+            if "never" in line.lower():
+                parsed["lockout_threshold"] = 0
+            else:
+                match = re.search(r"(\d+)", line)
+                if match:
+                    parsed["lockout_threshold"] = int(match.group(1))
+    return parsed
+
+
+def _windows_security_checks() -> list[dict[str, Any]]:
+    state = _windows_security_state()
+    checks: list[dict[str, Any]] = []
+    if str(state.get("AutoAdminLogon") or "").strip() == "1" and state.get("DefaultPasswordPresent"):
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-AUTOLOGON-PASSWORD",
+            {"registry_path": r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon", "password_value_collected": False},
+            confidence=95,
+        ))
+    if state.get("WDigestUseLogonCredential") == 1:
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-WDIGEST-CREDENTIAL-CACHING",
+            {"registry_value": "WDigest\\UseLogonCredential", "value": 1},
+        ))
+    if state.get("AlwaysInstallElevatedHKLM") == 1 and state.get("AlwaysInstallElevatedHKCU") == 1:
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-ALWAYS-INSTALL-ELEVATED",
+            {"hklm": 1, "hkcu": 1},
+        ))
+    if state.get("EnableLUA") == 0:
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-UAC-DISABLED",
+            {"registry_value": "Policies\\System\\EnableLUA", "value": 0},
+        ))
+    rdp_enabled = state.get("FDenyTSConnections") == 0
+    if rdp_enabled:
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-RDP-ENABLED",
+            {"registry_value": "Terminal Server\\fDenyTSConnections", "value": 0},
+        ))
+        if state.get("RdpUserAuthentication") == 0:
+            checks.append(_failed_security_check(
+                "DARKSTAR-WINDOWS-RDP-NLA-DISABLED",
+                {"registry_value": "RDP-Tcp\\UserAuthentication", "value": 0},
+            ))
+    if state.get("AllowInsecureGuestAuth") == 1:
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-INSECURE-GUEST-SMB",
+            {"registry_value": "LanmanWorkstation\\AllowInsecureGuestAuth", "value": 1},
+        ))
+    if state.get("NoLMHash") == 0:
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-LM-HASH-STORAGE",
+            {"registry_value": "Lsa\\NoLMHash", "value": 0},
+        ))
+    if state.get("SMB1") == 1:
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-SMBV1-ENABLED",
+            {"registry_value": "LanmanServer\\Parameters\\SMB1", "value": 1},
+        ))
+    if state.get("LocalAccountTokenFilterPolicy") == 1:
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-LOCALACCOUNT-TOKEN-FILTER",
+            {"registry_value": "Policies\\System\\LocalAccountTokenFilterPolicy", "value": 1},
+        ))
+
+    users = [user for user in _as_list(state.get("Users")) if isinstance(user, dict)]
+    no_password_users = [
+        user.get("Name")
+        for user in users
+        if not user.get("Disabled") and user.get("PasswordRequired") is False
+    ]
+    if no_password_users:
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-PASSWORD-NOT-REQUIRED",
+            {"account_count": len(no_password_users), "accounts": no_password_users[:20]},
+        ))
+    builtin_admins = [
+        user.get("Name")
+        for user in users
+        if not user.get("Disabled") and str(user.get("SID") or "").endswith("-500")
+    ]
+    if builtin_admins:
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-BUILTIN-ADMIN-ENABLED",
+            {"account_count": len(builtin_admins), "accounts": builtin_admins[:20]},
+        ))
+
+    services = [service for service in _as_list(state.get("UnquotedServices")) if isinstance(service, dict)]
+    if services:
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-UNQUOTED-SERVICE-PATH",
+            {
+                "service_count": len(services),
+                "examples": [
+                    {
+                        "name": service.get("Name"),
+                        "run_as": service.get("StartName"),
+                        "path": str(service.get("PathName") or "")[:500],
+                    }
+                    for service in services[:10]
+                ],
+            },
+        ))
+
+    disabled_profiles = [
+        profile.get("Name")
+        for profile in _as_list(state.get("FirewallProfiles"))
+        if isinstance(profile, dict) and profile.get("Enabled") is False
+    ]
+    if disabled_profiles:
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-FIREWALL-DISABLED",
+            {"profiles": disabled_profiles[:10]},
+        ))
+
+    policy = _parse_windows_net_accounts(str(state.get("NetAccounts") or ""))
+    weak_policy = []
+    min_len = policy.get("minimum_password_length")
+    if min_len is not None and int(min_len) < 12:
+        weak_policy.append({"setting": "minimum_password_length", "value": min_len, "baseline": 12})
+    if policy.get("maximum_password_age_unlimited") or (
+        policy.get("maximum_password_age_days") is not None and int(policy["maximum_password_age_days"]) > 90
+    ):
+        weak_policy.append({"setting": "maximum_password_age_days", "value": policy.get("maximum_password_age_days"), "baseline": 90})
+    if policy.get("lockout_threshold") == 0:
+        weak_policy.append({"setting": "lockout_threshold", "value": 0, "baseline": "non-zero"})
+    if weak_policy:
+        checks.append(_failed_security_check(
+            "DARKSTAR-WINDOWS-WEAK-PASSWORD-POLICY",
+            {"weak_settings": weak_policy},
+        ))
+    return checks
+
+
+def collect_security_checks() -> list[dict[str, Any]]:
+    system = platform.system().lower()
+    try:
+        if system == "windows":
+            checks = _windows_security_checks()
+        elif system == "linux":
+            checks = _linux_security_checks()
+        else:
+            checks = []
+    except Exception:
+        return []
+    collected_at = datetime_utc_iso()
+    for check in checks:
+        check.setdefault("collected_at", collected_at)
+    return checks
+
+
+def security_posture_software(os_info: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "software_key": POSTURE_SOFTWARE_KEY,
+        "name": "Endpoint Security Posture",
+        "version": str(SECURITY_CHECK_SCHEMA_VERSION),
+        "vendor": "Darkstar",
+        "ecosystem": "security_posture",
+        "source": "darkstar_security_checks",
+        "package_type": "security_posture",
+        "raw": {
+            "schema_version": SECURITY_CHECK_SCHEMA_VERSION,
+            "platform": os_info.get("platform") or platform.system().lower(),
+            "collected_at": datetime_utc_iso(),
+            "security_checks": checks,
+            "failed_count": len(checks),
+        },
+    }
+
+
+def security_checks_metadata(checks: list[dict[str, Any]]) -> dict[str, Any]:
+    categories: dict[str, int] = {}
+    for check in checks:
+        check_id = str(check.get("id") or "")
+        prefix = check_id.split("-", 3)[2].lower() if check_id.count("-") >= 3 else "custom"
+        categories[prefix] = categories.get(prefix, 0) + 1
+    return {
+        "schema_version": SECURITY_CHECK_SCHEMA_VERSION,
+        "failed_count": len(checks),
+        "categories": categories,
+    }
+
+
 def datetime_utc_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -845,6 +1434,7 @@ def datetime_utc_iso() -> str:
 def collect_inventory(peer_targets: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     os_info = _os_info()
     system = platform.system().lower()
+    security_checks = collect_security_checks()
     software = []
     if system == "windows":
         software.extend(_windows_programs(os_info))
@@ -855,6 +1445,7 @@ def collect_inventory(peer_targets: list[dict[str, Any]] | None = None) -> dict[
         software.extend(_rpm_packages(os_info))
     software.extend(_python_packages())
     software.extend(_npm_global_packages())
+    software.append(security_posture_software(os_info, security_checks))
     ips, macs = _network_ids()
     network_probe = collect_network_probe(peer_targets)
     return {
@@ -872,6 +1463,7 @@ def collect_inventory(peer_targets: list[dict[str, Any]] | None = None) -> dict[
                 "version": NETWORK_PROBE_VERSION,
                 "mode": "neighbor-cache+gateway+endpoint-peers",
             },
+            "security_checks": security_checks_metadata(security_checks),
         },
     }
 
@@ -889,7 +1481,7 @@ def _save_state(path: Path, state: dict[str, Any]) -> None:
     try:
         os.chmod(path, 0o600)
     except Exception:
-        pass
+        return
 
 
 def register(base_url: str, org: str, enrollment_token: str, inventory: dict[str, Any]) -> dict[str, Any]:

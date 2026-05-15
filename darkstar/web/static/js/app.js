@@ -725,7 +725,7 @@ function openEndpointNetworkNodeDetail(node) {
             detailField("Status", statusBadge(node.status || "unknown"), { raw: true }),
             detailField("OS", node.os || "-"),
             detailField("IPs", (node.ip_addresses || []).join(", ") || "-"),
-            detailField("Endpoint CVEs", node.risk || 0),
+            detailField("Endpoint Findings", node.risk || 0),
             detailField("Last Seen", formatDateTime(node.last_seen_at))
         );
     } else if (node.type === "network") {
@@ -1055,7 +1055,7 @@ async function openEndpointAgentDetail(agentId) {
                 <td><button type="button" class="link-button endpoint-vuln-link" data-endpoint-vuln-id="${escapeHtml(vuln.id)}">${escapeHtml(vuln.cve || "-")}</button></td>
                 <td>${escapeHtml(vuln.software_name || "-")}</td>
             </tr>
-        `).join("") || '<tr><td colspan="3">No endpoint CVEs matched.</td></tr>';
+        `).join("") || '<tr><td colspan="3">No endpoint findings matched.</td></tr>';
         const metadata = parseMaybeJson(agent.metadata_json, {});
         openDetailDrawer("Endpoint", agent.hostname || agent.agent_id, `
             <div class="detail-metrics">
@@ -1093,11 +1093,11 @@ async function openEndpointAgentDetail(agentId) {
 
 async function openEndpointVulnerabilityDetail(findingId) {
     if (!findingId) return;
-    openDetailDrawer("Endpoint CVE", `Finding ${findingId}`, '<div class="empty-state">Loading endpoint vulnerability...</div>');
+    openDetailDrawer("Endpoint Finding", `Finding ${findingId}`, '<div class="empty-state">Loading endpoint vulnerability...</div>');
     try {
         const vuln = await requestJson(`/api/endpoints/vulnerabilities/${encodeURIComponent(findingId)}`);
         const evidence = parseMaybeJson(vuln.evidence_json, {});
-        openDetailDrawer("Endpoint CVE", vuln.cve || `Finding ${findingId}`, `
+        openDetailDrawer("Endpoint Finding", vuln.cve || `Finding ${findingId}`, `
             <div class="detail-metrics">
                 ${detailField("Severity", severityBadge(vuln.severity || "info"), { raw: true })}
                 ${detailField("CVSS", vuln.cvss || "-")}
@@ -1116,7 +1116,7 @@ async function openEndpointVulnerabilityDetail(findingId) {
             ${detailPre("Matcher Evidence", Object.keys(evidence || {}).length ? JSON.stringify(evidence, null, 2) : "")}
         `);
     } catch (error) {
-        openDetailDrawer("Endpoint CVE", `Finding ${findingId}`, `<div class="empty-state">Failed to load endpoint vulnerability: ${escapeHtml(error.message)}</div>`);
+        openDetailDrawer("Endpoint Finding", `Finding ${findingId}`, `<div class="empty-state">Failed to load endpoint vulnerability: ${escapeHtml(error.message)}</div>`);
     }
 }
 
@@ -2056,7 +2056,7 @@ function renderEndpointVulnerabilities(items) {
             <td>${escapeHtml(vuln.confidence || 0)}%</td>
             <td>${escapeHtml(vuln.summary || "-")}</td>
         </tr>
-    `).join("") || '<tr><td colspan="8">No endpoint vulnerabilities matched. Name-only and broad CPE matches are intentionally suppressed.</td></tr>';
+    `).join("") || '<tr><td colspan="8">No endpoint findings matched. Name-only and broad CPE matches are intentionally suppressed.</td></tr>';
 }
 
 // ============================================================================
@@ -2972,7 +2972,7 @@ document.addEventListener("click", async (event) => {
 
     const deleteEndpointAgentBtn = event.target.closest(".delete-endpoint-agent-btn");
     if (deleteEndpointAgentBtn) {
-        const confirmed = window.confirm("Delete this local endpoint record, including its inventory and endpoint CVEs?");
+        const confirmed = window.confirm("Delete this local endpoint record, including its inventory and endpoint findings?");
         if (!confirmed) return;
         await requestJson(`/api/endpoints/agents/${encodeURIComponent(deleteEndpointAgentBtn.dataset.agentId)}`, { method: "DELETE" });
         closeDetailDrawer();
@@ -3328,10 +3328,10 @@ document.getElementById("endpointVulnNextBtn").addEventListener("click", () => {
 
 document.getElementById("recalculateEndpointVulnsBtn").addEventListener("click", async () => {
     const message = document.getElementById("endpointVulnMessage");
-    message.textContent = "Recalculating endpoint CVEs...";
+    message.textContent = "Recalculating endpoint findings...";
     try {
         const result = await requestJson("/api/endpoints/vulnerabilities/recalculate", { method: "POST" });
-        message.textContent = `Recalculated ${result.vulnerabilities || 0} endpoint CVEs across ${result.agents || 0} agents.`;
+        message.textContent = `Recalculated ${result.vulnerabilities || 0} endpoint findings across ${result.agents || 0} agents.`;
         await loadEndpointsView();
     } catch (error) {
         message.textContent = error.message;

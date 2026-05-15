@@ -1,11 +1,8 @@
 param(
-    [Parameter(Mandatory = $true)]
     [string]$Url,
 
-    [Parameter(Mandatory = $true)]
     [string]$Org,
 
-    [Parameter(Mandatory = $true)]
     [string]$EnrollmentToken,
 
     [int]$IntervalSeconds = 3600,
@@ -30,6 +27,25 @@ if (-not (Test-Path $sourceExe)) {
 
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 New-Item -ItemType Directory -Force -Path $programDataDir | Out-Null
+
+$existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if ($existingService) {
+    if ($existingService.Status -ne "Stopped") {
+        Stop-Service -Name $ServiceName -Force
+        $existingService.WaitForStatus("Stopped", "00:00:30")
+    }
+
+    Copy-Item -Force $sourceExe $targetExe
+    Start-Service -Name $ServiceName
+
+    Write-Host "Darkstar endpoint agent updated and restarted as service '$ServiceName'."
+    exit 0
+}
+
+if (-not $Url -or -not $Org -or -not $EnrollmentToken) {
+    throw "Fresh install requires -Url, -Org and -EnrollmentToken. Existing services can be updated without enrollment parameters."
+}
+
 Copy-Item -Force $sourceExe $targetExe
 
 & $targetExe install `

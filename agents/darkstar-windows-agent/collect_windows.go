@@ -16,6 +16,7 @@ import (
 
 func collectInventory(peerTargets []ProbeTarget) (Inventory, error) {
 	osInfo := collectOSInfo()
+	securityChecks := collectSecurityChecks()
 	programs := collectWindowsPrograms()
 	patches := collectWindowsPatches()
 	ips, macs := collectNetworkIDs()
@@ -36,6 +37,7 @@ func collectInventory(peerTargets []ProbeTarget) (Inventory, error) {
 	}
 	software = append(software, programs...)
 	software = append(software, patches...)
+	software = append(software, securityPostureSoftware(osInfo, securityChecks))
 	hostname, _ := os.Hostname()
 	return Inventory{
 		OS:           osInfo,
@@ -52,6 +54,7 @@ func collectInventory(peerTargets []ProbeTarget) (Inventory, error) {
 				"version": 1,
 				"mode":    "neighbor-cache+gateway+endpoint-peers",
 			},
+			"security_checks": securityChecksMetadata(securityChecks),
 		},
 	}, nil
 }

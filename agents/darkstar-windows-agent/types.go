@@ -3,6 +3,7 @@ package main
 type OSInfo map[string]interface{}
 
 type SoftwareItem struct {
+	SoftwareKey     string                 `json:"software_key,omitempty"`
 	Name            string                 `json:"name"`
 	Version         string                 `json:"version,omitempty"`
 	Vendor          string                 `json:"vendor,omitempty"`

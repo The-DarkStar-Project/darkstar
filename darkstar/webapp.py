@@ -142,6 +142,7 @@ from .core.endpoint_vuln import (
     osv_package_key,
     query_osv_cache_results,
 )
+from .core.endpoint_custom_checks import match_custom_vulnerabilities
 from .core.endpoint_vendor_vuln import match_vendor_vulnerabilities
 
 logger = logging.getLogger("webapp")
@@ -698,7 +699,7 @@ def _match_endpoint_vulnerabilities(
 ) -> tuple[list[dict], dict]:
     """Match endpoint inventory with tenant-local package/version cache."""
     findings = []
-    matcher_stats = {"matcher": "osv_purl_exact_version_cached+vendor", "candidates": 0, "cache_hits": 0, "cache_misses": 0}
+    matcher_stats = {"matcher": "osv_purl_exact_version_cached+vendor+custom", "candidates": 0, "cache_hits": 0, "cache_misses": 0}
     vendor_matching_enabled = os.environ.get("ENDPOINT_VENDOR_MATCHING", "true").lower() not in {"0", "false", "no"}
     if os.environ.get("ENDPOINT_OSV_MATCHING", "true").lower() not in {"0", "false", "no"}:
         candidates = []
@@ -750,8 +751,14 @@ def _match_endpoint_vulnerabilities(
         vendor_findings = match_vendor_vulnerabilities(software or [], os_info or {})
         findings.extend(vendor_findings)
 
+    custom_findings = []
+    if os.environ.get("ENDPOINT_CUSTOM_CHECKS", "true").lower() not in {"0", "false", "no"}:
+        custom_findings = match_custom_vulnerabilities(software or [], os_info or {})
+        findings.extend(custom_findings)
+
     findings = _dedupe_endpoint_findings(findings)
     matcher_stats["vendor_findings"] = len(vendor_findings)
+    matcher_stats["custom_findings"] = len(custom_findings)
     matcher_stats["findings_after_dedupe"] = len(findings)
     return findings, matcher_stats
 
@@ -1938,7 +1945,7 @@ def endpoint_agent_inventory(request: Request, body: EndpointInventoryRequest):
             os_info=body.os,
         )
         finding_count = None
-        matcher_stats = {"matcher": "osv_purl_exact_version_cached+vendor", "queued": True}
+        matcher_stats = {"matcher": "osv_purl_exact_version_cached+vendor+custom", "queued": True}
         matching_status = "queued"
     return {
         "ok": True,
@@ -2177,7 +2184,7 @@ def stop_scan(request: Request, scan_id: int):
         try:
             os.killpg(os.getpgid(process.pid), signal.SIGTERM)
         except ProcessLookupError:
-            pass
+            logger.debug("Scan process group for scan %s already exited", scan_id)
         except Exception as exc:
             logger.warning("Failed to stop scan process group for scan %s: %s", scan_id, exc)
             process.terminate()
@@ -2866,9 +2873,10 @@ def export_vulnerabilities_html(
         if row.get("has_public_exploit") or row.get("has_poc"):
             exploitable_count += 1
         try:
-            max_score = max(max_score, float(row.get("priority_score") or 0))
+            priority_score = float(row.get("priority_score") or 0)
         except (TypeError, ValueError):
-            pass
+            priority_score = 0.0
+        max_score = max(max_score, priority_score)
         if row.get("host"):
             hosts.add(str(row["host"]))
 
@@ -3213,7 +3221,7 @@ async def websocket_endpoint(websocket: WebSocket, scan_id: int):
                 # Keep the connection open; server pushes are one-way.
                 continue
     except WebSocketDisconnect:
-        pass
+        logger.debug("WebSocket disconnected for scan %s", scan_id)
     except Exception as e:
         logger.error(f"WebSocket error for scan {scan_id}: {e}")
     finally:

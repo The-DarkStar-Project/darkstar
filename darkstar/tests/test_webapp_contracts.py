@@ -169,6 +169,33 @@ def test_match_endpoint_vulnerabilities_skips_vendor_packages_for_osv(monkeypatc
     assert stats["skipped_vendor_os_packages"] == 1
 
 
+def test_match_endpoint_vulnerabilities_includes_custom_checks(monkeypatch):
+    monkeypatch.setenv("ENDPOINT_OSV_MATCHING", "false")
+    monkeypatch.setenv("ENDPOINT_VENDOR_MATCHING", "false")
+
+    findings, stats = webapp._match_endpoint_vulnerabilities(
+        "tenant_db",
+        [
+            {
+                "software_key": "darkstar-security-posture",
+                "package_type": "security_posture",
+                "version": "1",
+                "raw": {
+                    "security_checks": [
+                        {"id": "DARKSTAR-LINUX-SUDO-NOPASSWD", "passed": False}
+                    ]
+                },
+            }
+        ],
+        os_info={"platform": "linux"},
+    )
+
+    assert [finding["cve"] for finding in findings] == ["DARKSTAR-LINUX-SUDO-NOPASSWD"]
+    assert findings[0]["source"] == "DarkstarCheck"
+    assert stats["custom_findings"] == 1
+    assert stats["findings_after_dedupe"] == 1
+
+
 def test_refresh_endpoint_vulnerabilities_replaces_agent_findings(monkeypatch):
     monkeypatch.setattr(
         webapp,

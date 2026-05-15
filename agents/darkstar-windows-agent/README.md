@@ -2,6 +2,11 @@
 
 Native Windows endpoint inventory agent. It uses the same Darkstar enrollment and inventory API as the Python agent, but ships as a single Windows executable and runs as a Windows Service.
 
+The agent also performs passive security posture checks for weak Windows
+settings, password-policy issues and local privilege escalation indicators. It
+reports failed checks as an `Endpoint Security Posture` inventory item; it does
+not collect passwords or password hashes.
+
 ## Build
 
 From this directory:
@@ -29,6 +34,21 @@ The installer creates:
 - Config/state/logs: `C:\ProgramData\Darkstar\EndpointAgent\`
 
 After first successful enrollment, the one-time enrollment token is removed from `config.json`; the long-lived agent token is stored in `agent.json`.
+
+## Update Existing Agent
+
+Build a fresh `darkstar-agent.exe`, copy it next to `install.ps1` on the target,
+and run the installer from an elevated PowerShell session. If the service already
+exists, the installer stops it, replaces the executable and starts it again; no
+enrollment token is required for updates.
+
+```powershell
+.\install.ps1
+darkstar-agent.exe run --print-inventory
+```
+
+The printed inventory should contain an `Endpoint Security Posture` software item
+with any failed passive checks under `raw.security_checks`.
 
 ## Useful Commands
 

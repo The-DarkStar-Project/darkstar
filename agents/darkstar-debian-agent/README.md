@@ -13,6 +13,8 @@ a protected environment file, and a small launcher for server rollouts.
 - OS, hostname, IP and MAC metadata
 - internal network map observations from routes, neighbors, gateways and
   endpoint peer probes
+- passive security posture checks for weak settings, password-policy issues and
+  local privilege escalation indicators
 - optional osquery data when `osqueryi` is installed
 
 ## Install
@@ -48,6 +50,20 @@ sudo journalctl -u darkstar-endpoint-agent -f
 sudo darkstar-endpoint-agent --once
 sudo darkstar-endpoint-agent --print-inventory
 ```
+
+## Update Existing Agent
+
+Re-run the installer on an enrolled endpoint. Existing config and state are kept
+unless `--force-env` is provided.
+
+```bash
+sudo bash /tmp/darkstar-endpoint-install.sh --skip-apt
+sudo systemctl restart darkstar-endpoint-agent
+sudo darkstar-endpoint-agent --print-inventory
+```
+
+The printed inventory should contain an `Endpoint Security Posture` software item
+with any failed passive checks under `raw.security_checks`.
 
 ## Secret Handling
 
