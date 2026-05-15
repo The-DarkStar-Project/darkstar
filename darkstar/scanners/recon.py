@@ -134,8 +134,8 @@ class WordPressDetector:
                 ):
                     return True
         except Exception:
-            # Catch all exceptions to ensure test passes
-            pass
+            # Treat network/parsing failures as a negative detection signal.
+            return False
         return False
 
     def check_wp_login(self, url):
@@ -155,7 +155,7 @@ class WordPressDetector:
                 if "wp-submit" in content or "loginform" in content:
                     return True
         except requests.RequestException:
-            pass
+            return False
         return False
 
     def check_readme(self, url):
@@ -175,7 +175,7 @@ class WordPressDetector:
                 if "wordpress" in content:
                     return True
         except requests.RequestException:
-            pass
+            return False
         return False
 
     def check_xmlrpc(self, url):
@@ -195,7 +195,7 @@ class WordPressDetector:
                 if "xmlrpc" in content:
                     return True
         except requests.RequestException:
-            pass
+            return False
         return False
 
     def check_wp_json(self, url):
@@ -218,9 +218,9 @@ class WordPressDetector:
                         if "namespaces" in data or "routes" in data:
                             return True
                     except ValueError:
-                        pass
+                        return False
         except requests.RequestException:
-            pass
+            return False
         return False
 
     def is_wordpress(self, url):

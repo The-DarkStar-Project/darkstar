@@ -423,7 +423,7 @@ class TestIntegration:
     ):
         """Test processing scan results with no supported services."""
         mock_logger = mocker.patch("tools.bruteforce.integration.logger")
-        mock_makedirs = mocker.patch("tools.bruteforce.integration.os.makedirs")
+        mocker.patch("tools.bruteforce.integration.os.makedirs")
         mock_hydra_class = mocker.patch("tools.bruteforce.integration.HydraAttack")
 
         # Mock HydraAttack instance
@@ -490,7 +490,7 @@ class TestIntegration:
             else:
                 return mock_attack_result_2
 
-        mock_run_hydra_attack = mocker.patch(
+        mocker.patch(
             "tools.bruteforce.integration.run_hydra_attack",
             side_effect=mock_run_hydra_attack_side_effect,
         )
@@ -564,7 +564,7 @@ class TestIntegration:
     ):
         """Test processing scan results when some attacks raise exceptions."""
         mock_logger = mocker.patch("tools.bruteforce.integration.logger")
-        mock_makedirs = mocker.patch("tools.bruteforce.integration.os.makedirs")
+        mocker.patch("tools.bruteforce.integration.os.makedirs")
         mock_hydra_class = mocker.patch("tools.bruteforce.integration.HydraAttack")
 
         # Mock one successful result and one exception
@@ -591,7 +591,7 @@ class TestIntegration:
             else:
                 raise test_exception
 
-        mock_run_hydra_attack = mocker.patch(
+        mocker.patch(
             "tools.bruteforce.integration.run_hydra_attack",
             side_effect=mock_run_hydra_attack_side_effect,
         )
@@ -641,8 +641,8 @@ class TestIntegration:
         self, mocker: MockerFixture
     ):
         """Test processing scan results with multiple IP addresses."""
-        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
-        mock_makedirs = mocker.patch("tools.bruteforce.integration.os.makedirs")
+        mocker.patch("tools.bruteforce.integration.logger")
+        mocker.patch("tools.bruteforce.integration.os.makedirs")
         mock_hydra_class = mocker.patch("tools.bruteforce.integration.HydraAttack")
 
         # Mock attack results for different IPs
@@ -675,7 +675,7 @@ class TestIntegration:
             else:
                 return mock_result_2
 
-        mock_run_hydra_attack = mocker.patch(
+        mocker.patch(
             "tools.bruteforce.integration.run_hydra_attack",
             side_effect=mock_run_hydra_attack_side_effect,
         )
@@ -713,7 +713,7 @@ class TestIntegration:
         self, mocker: MockerFixture
     ):
         """Test processing scan results with custom concurrent_limit and timeout."""
-        mock_logger = mocker.patch("tools.bruteforce.integration.logger")
+        mocker.patch("tools.bruteforce.integration.logger")
         mock_makedirs = mocker.patch("tools.bruteforce.integration.os.makedirs")
         mock_hydra_class = mocker.patch("tools.bruteforce.integration.HydraAttack")
 
@@ -736,7 +736,7 @@ class TestIntegration:
         ):
             return mock_attack_result
 
-        mock_run_hydra_attack = mocker.patch(
+        mocker.patch(
             "tools.bruteforce.integration.run_hydra_attack",
             side_effect=mock_run_hydra_attack_side_effect,
         )
@@ -792,7 +792,7 @@ class TestIntegration:
     async def test_process_scan_results_mixed_services(self, mocker: MockerFixture):
         """Test processing scan results with mix of supported and unsupported services."""
         mock_logger = mocker.patch("tools.bruteforce.integration.logger")
-        mock_makedirs = mocker.patch("tools.bruteforce.integration.os.makedirs")
+        mocker.patch("tools.bruteforce.integration.os.makedirs")
         mock_hydra_class = mocker.patch("tools.bruteforce.integration.HydraAttack")
 
         # Mock successful result for supported services
@@ -825,7 +825,7 @@ class TestIntegration:
             else:
                 return mock_attack_result_2
 
-        mock_run_hydra_attack = mocker.patch(
+        mocker.patch(
             "tools.bruteforce.integration.run_hydra_attack",
             side_effect=mock_run_hydra_attack_side_effect,
         )

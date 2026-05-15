@@ -69,7 +69,10 @@ def test_totp_verification_accepts_current_and_adjacent_windows(monkeypatch):
     timestamp = 1_800_000_000
     code = webapp._totp_code(secret, timestamp)
 
-    monkeypatch.setattr(webapp.time, "time", lambda: timestamp + 30)
+    def current_time():
+        return timestamp + 30
+
+    monkeypatch.setattr(webapp.time, "time", current_time)
 
     assert webapp._verify_totp(secret, code) is True
     assert webapp._verify_totp(secret, "000000") is False

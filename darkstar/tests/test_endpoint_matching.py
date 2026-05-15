@@ -224,10 +224,8 @@ def test_parse_msrc_document_extracts_product_specific_record():
 
 
 def test_match_windows_msrc_creates_os_finding_when_build_is_vulnerable(monkeypatch):
-    monkeypatch.setattr(
-        vendor,
-        "_fetch_msrc_records",
-        lambda: [
+    def fetch_msrc_records():
+        return [
             {
                 "doc_id": "2026-May",
                 "product_id": "1000",
@@ -248,7 +246,12 @@ def test_match_windows_msrc_creates_os_finding_when_build_is_vulnerable(monkeypa
                     }
                 ],
             }
-        ],
+        ]
+
+    monkeypatch.setattr(
+        vendor,
+        "_fetch_msrc_records",
+        fetch_msrc_records,
     )
 
     findings = vendor._match_windows_msrc(

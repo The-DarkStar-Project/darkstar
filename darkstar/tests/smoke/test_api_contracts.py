@@ -11,7 +11,7 @@ pytestmark = pytest.mark.smoke
 
 @pytest.fixture()
 def api_client(monkeypatch):
-    monkeypatch.setattr(webapp, "list_organizations", lambda: [])
+    monkeypatch.setattr(webapp, "list_organizations", list)
     monkeypatch.setattr(webapp, "scheduler_started", True)
     monkeypatch.setattr(
         webapp,

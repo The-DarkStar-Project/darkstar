@@ -247,7 +247,7 @@ class HydraAttack:
                         try:
                             await asyncio.wait_for(process.wait(), timeout=10)
                         except asyncio.TimeoutError:
-                            pass
+                            logger.warning("Hydra process did not exit after force kill")
                     logger.warning("Force killed Hydra process")
 
                 status = "success" if found_credentials else "completed"
@@ -311,8 +311,8 @@ class HydraAttack:
                 process.kill()
                 try:
                     await asyncio.wait_for(process.wait(), timeout=1.0)
-                except (asyncio.TimeoutError, Exception):
-                    pass
+                except (asyncio.TimeoutError, Exception) as exc:
+                    logger.debug("Hydra process cleanup wait failed: %s", exc)
 
     def _build_command(
         self, target, protocol, login_file, password_file, tasks, port, stop_on_success

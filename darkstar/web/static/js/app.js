@@ -920,7 +920,7 @@ function parseMaybeJson(value, fallback = null) {
     }
 }
 
-function compactList(value) {
+function compactJsonList(value) {
     const parsed = parseMaybeJson(value, Array.isArray(value) ? value : []);
     if (Array.isArray(parsed)) return parsed.filter(Boolean).join(", ") || "-";
     return String(value || "-");
@@ -1067,8 +1067,8 @@ async function openEndpointAgentDetail(agentId) {
             <div class="detail-grid">
                 ${detailField("OS", [agent.os_name, agent.os_version, agent.os_arch].filter(Boolean).join(" ") || "-")}
                 ${detailField("Agent Version", agent.agent_version || "-")}
-                ${detailField("IP Addresses", compactList(agent.ip_addresses))}
-                ${detailField("MAC Addresses", compactList(agent.mac_addresses))}
+                ${detailField("IP Addresses", compactJsonList(agent.ip_addresses))}
+                ${detailField("MAC Addresses", compactJsonList(agent.mac_addresses))}
                 ${detailField("Enrolled", formatDateTime(agent.first_seen_at))}
                 ${detailField("Revoked", formatDateTime(agent.revoked_at))}
             </div>
@@ -1896,9 +1896,7 @@ async function loadScoringView() {
             </tr>
         `).join("") || '<tr><td colspan="7">No assets scored yet.</td></tr>';
 
-        document.getElementById("scoringVulnRows").innerHTML = (result.top_vulnerabilities || []).map(vuln => {
-            const sev = (vuln.severity || "unknown").toLowerCase();
-            return `
+        document.getElementById("scoringVulnRows").innerHTML = (result.top_vulnerabilities || []).map(vuln => `
                 <tr class="clickable-row vulnerability-detail-row" data-vulnerability-id="${escapeHtml(vuln.id)}">
                     <td>${scoreButton(vuln.priority_score || 0, vuln.id)}</td>
                     <td>${severityBadge(vuln.severity)}</td>
@@ -1908,8 +1906,7 @@ async function loadScoringView() {
                     <td>${vuln.has_public_exploit ? "Yes" : "No"}</td>
                     <td>${escapeHtml(vuln.score_reason || "-")}</td>
                 </tr>
-            `;
-        }).join("") || '<tr><td colspan="7">No vulnerabilities scored yet.</td></tr>';
+            `).join("") || '<tr><td colspan="7">No vulnerabilities scored yet.</td></tr>';
 
         state.scoringFilters.assetTotal = result.asset_total || 0;
         state.scoringFilters.vulnTotal = result.vulnerability_total || 0;
@@ -2520,7 +2517,7 @@ function connectDebugWebSocket(scanId) {
     attemptConnect();
 }
 
-function appendDebugLog(message, level = "info") {
+function appendDebugLog(message) {
     state.debugLogs.push(escapeHtml(message));
     renderDebugLogs();
 }

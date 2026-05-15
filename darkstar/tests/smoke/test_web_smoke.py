@@ -11,7 +11,7 @@ pytestmark = pytest.mark.smoke
 
 @pytest.fixture()
 def client(monkeypatch):
-    monkeypatch.setattr(webapp, "list_organizations", lambda: [])
+    monkeypatch.setattr(webapp, "list_organizations", list)
     monkeypatch.setattr(webapp, "scheduler_started", True)
     with TestClient(webapp.app) as test_client:
         yield test_client

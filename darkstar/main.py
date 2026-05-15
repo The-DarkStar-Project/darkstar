@@ -40,6 +40,7 @@ from .core.utils import (
 )
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from .openvas.openvas_scanner import OpenVASScanner
 from typing import Literal
 import ipaddress
@@ -146,7 +147,7 @@ class worker:
         with ThreadPoolExecutor() as executor:
             bbot_scanner = BBotScanner(self.all_targets, self.org_domain)
             await asyncio.get_event_loop().run_in_executor(
-                executor, lambda: bbot_scanner.run(mode=mode)
+                executor, partial(bbot_scanner.run, mode=mode)
             )
 
         # Get the generated filenames
@@ -204,7 +205,7 @@ class worker:
         with ThreadPoolExecutor() as executor:
             email_scanner = MailSecurityScanner(org_name=self.org_domain)
             await asyncio.get_event_loop().run_in_executor(
-                executor, lambda: email_scanner.run(email_domains_file, emails_file)
+                executor, partial(email_scanner.run, email_domains_file, emails_file)
             )
 
         return {
@@ -267,7 +268,7 @@ class worker:
     async def detect_wordpress(self, target):
         with ThreadPoolExecutor() as executor:
             wordpress_domains = await asyncio.get_event_loop().run_in_executor(
-                executor, lambda: WordPressDetector().run(target)
+                executor, partial(WordPressDetector().run, target)
             )
 
         logger.info(
@@ -306,7 +307,7 @@ class worker:
         with ThreadPoolExecutor() as executor:
             asteroid_scanner = AsteroidScanner(target, self.org_domain)
             await asyncio.get_event_loop().run_in_executor(
-                executor, lambda: asteroid_scanner.run(mode=mode)
+                executor, partial(asteroid_scanner.run, mode=mode)
             )
 
     async def run_asteroid_modules(self, target, modules: list[str]):
@@ -314,7 +315,7 @@ class worker:
         with ThreadPoolExecutor() as executor:
             asteroid_scanner = AsteroidScanner(target, self.org_domain)
             await asyncio.get_event_loop().run_in_executor(
-                executor, lambda: asteroid_scanner.run_modules(modules)
+                executor, partial(asteroid_scanner.run_modules, modules)
             )
 
     async def run_external_vulnerability_scanner(self, scanner: str):

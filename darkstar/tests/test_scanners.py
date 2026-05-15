@@ -7,7 +7,6 @@ from pytest_mock import MockerFixture
 # Add the parent directory to the path to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.models.vulnerability import Vulnerability
 from scanners.bbot import BBotScanner
 from scanners.nuclei import NucleiScanner, NucleiMode
 from scanners.asteroid_scanner import AsteroidScanner
@@ -19,7 +18,7 @@ class TestBBotScanner:
     def test_bbot_initialization(self, mocker: MockerFixture):
         """Test initializing the bbot scanner."""
         mock_makedirs = mocker.patch("scanners.bbot.os.makedirs")
-        mock_exists = mocker.patch("scanners.bbot.os.path.exists", return_value=False)
+        mocker.patch("scanners.bbot.os.path.exists", return_value=False)
         mock_md5 = mocker.patch("scanners.bbot.hashlib.md5")
         mock_md5().hexdigest.return_value = "abc123"
 
@@ -33,7 +32,7 @@ class TestBBotScanner:
 
     def test_vulns_to_db(self, mocker: MockerFixture):
         """Test adding vulnerabilities to the database."""
-        mock_makedirs = mocker.patch("scanners.bbot.os.makedirs")
+        mocker.patch("scanners.bbot.os.makedirs")
         mock_insert = mocker.patch("scanners.bbot.insert_vulnerability_to_database")
 
         scanner = BBotScanner("example.com", "test_org")
@@ -60,7 +59,7 @@ class TestBBotScanner:
 
     def test_vulns_to_db_no_vulnerabilities(self, mocker: MockerFixture):
         """Test vulns_to_db with no vulnerabilities."""
-        mock_makedirs = mocker.patch("scanners.bbot.os.makedirs")
+        mocker.patch("scanners.bbot.os.makedirs")
 
         scanner = BBotScanner("example.com", "test_org")
 
@@ -80,12 +79,12 @@ class TestBBotScanner:
 
     def test_passive_scan(self, mocker: MockerFixture):
         """Test running a passive bbot scan."""
-        mock_makedirs = mocker.patch("scanners.bbot.os.makedirs")
+        mocker.patch("scanners.bbot.os.makedirs")
         mock_popen = mocker.patch("scanners.bbot.subprocess.Popen")
         mock_insert = mocker.patch("scanners.bbot.insert_bbot_to_db")
         mock_open_func = mocker.mock_open()
         mocker.patch("builtins.open", mock_open_func)
-        mock_exists = mocker.patch("scanners.bbot.os.path.exists", return_value=True)
+        mocker.patch("scanners.bbot.os.path.exists", return_value=True)
 
         mock_process = mocker.Mock()
         mock_process.communicate.return_value = ("", "")
@@ -134,9 +133,9 @@ class TestBBotScanner:
         mocker: MockerFixture,
     ):
         """Test different scan modes with parametrized testing."""
-        mock_makedirs = mocker.patch("scanners.bbot.os.makedirs")
+        mocker.patch("scanners.bbot.os.makedirs")
         mock_popen = mocker.patch("scanners.bbot.subprocess.Popen")
-        mock_insert = mocker.patch("scanners.bbot.insert_bbot_to_db")
+        mocker.patch("scanners.bbot.insert_bbot_to_db")
         mock_open_func = mocker.mock_open()
         mocker.patch("builtins.open", mock_open_func)
 
@@ -260,7 +259,7 @@ class TestAsteroidScanner:
     def test_asteroid_initialization_single_target(self, mocker: MockerFixture):
         """Test initializing the asteroid scanner with a single target."""
         _mock_makedirs = mocker.patch("scanners.asteroid_scanner.os.makedirs")
-        _mock_exists = mocker.patch(
+        mocker.patch(
             "scanners.asteroid_scanner.os.path.exists", return_value=False
         )
 

@@ -464,10 +464,8 @@ class OpenVASScanner:
                 cve = "NOCVE"
 
             # Default values
-            exploit = False
             epss = 0.0
 
-            port = result.find("port").text
             threat = result.find("threat").text
             severity = result.find(
                 "severity"
@@ -485,8 +483,6 @@ class OpenVASScanner:
                         data = response_epss.json().get("data", [])
                         if data:
                             epss = float(data[0].get("percentile", 0))
-                            if epss >= 0.65:
-                                exploit = True
                 except Exception as e:
                     logger.warning(f"Failed to fetch EPSS for {cve}: {e}")
 

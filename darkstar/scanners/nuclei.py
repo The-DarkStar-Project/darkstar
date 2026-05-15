@@ -179,7 +179,7 @@ class NucleiScanner:
 
             try:
                 output_obj = json.loads(raw)
-            except json.JSONDecodeError as e:
+            except json.JSONDecodeError:
                 logger.debug(f"Skipping non-JSON line from Nuclei: {raw[:100]}")
                 continue
             except Exception as e:

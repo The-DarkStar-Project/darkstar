@@ -212,8 +212,8 @@ class ScannerWorker:
                 self._terminate_process_group(process)
             try:
                 self.complete(job_id, "failed", str(exc)[:4000])
-            except Exception:
-                pass
+            except Exception as complete_exc:
+                print(f"Failed to mark scanner job {job_id} failed: {complete_exc}", file=sys.stderr, flush=True)
         finally:
             self.active_threads.pop(job_id, None)
 

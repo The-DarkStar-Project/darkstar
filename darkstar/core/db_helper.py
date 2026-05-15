@@ -25,12 +25,6 @@ logger = logging.getLogger(__name__)
 
 ORG_IDENTIFIER_RE = re.compile(r"^[a-z0-9_]{3,64}$")
 VALID_ROLES = {"platform_admin", "tenant_admin", "security_analyst", "viewer"}
-ROLE_RANK = {
-    "viewer": 10,
-    "security_analyst": 50,
-    "tenant_admin": 80,
-    "platform_admin": 100,
-}
 
 
 ORG_SCHEMA_STATEMENTS = [
@@ -648,8 +642,6 @@ def ensure_organization(org_name: str, password: str) -> tuple[str, bool]:
     created_now = False
     created_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
-    metadata_payload = dict(metadata or {})
-    metadata_payload.setdefault("os", os_info or {})
     with DatabaseConnectionManager() as connection:
         cursor = connection.cursor(dictionary=True)
 
@@ -1626,6 +1618,7 @@ class DatabaseConnectionManager:
         if exc_type:
             logger.error(f"An error occurred: {exc_value}")
             return False
+        return False
 
 
 def sanitize_string(value):
@@ -4099,7 +4092,6 @@ def get_endpoint_network_map(org_name: str) -> dict:
         ip_address = observation.get("ip_address")
         device_basis = ip_address or observation.get("mac_address") or observation.get("observation_key")
         device_id = f"device:{_network_hash_key('d', device_basis)}"
-        raw = _json_loads(observation.get("raw_json"), {}) or {}
         open_ports = _json_loads(observation.get("open_ports"), []) or []
         device_type = observation.get("device_type") or "unknown"
         nodes[device_id] = {

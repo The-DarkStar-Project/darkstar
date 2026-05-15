@@ -323,7 +323,6 @@ class MailSecurityScanner:
                 
         # Check for IP address format
         ip4_pattern = r'ip4:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:/\d{1,2})?)'
-        ip6_pattern = r'ip6:([0-9a-fA-F:]+(?:/\d{1,3})?)'
         
         for ip4_match in re.finditer(ip4_pattern, spf_record):
             ip = ip4_match.group(1)

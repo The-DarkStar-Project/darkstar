@@ -1,3 +1,5 @@
+from contextlib import suppress
+
 import pytest
 from pytest_mock import MockerFixture
 from httpx import HTTPStatusError
@@ -642,18 +644,16 @@ class TestOpenVASScanner:
         mock_client.get_task_status.return_value = {"status": task_status}
         mock_client.get_report.return_value = "<report></report>"
 
-        mock_makedirs = mocker.patch("os.makedirs")
-        mock_open = mocker.patch("builtins.open", mocker.mock_open())
+        mocker.patch("os.makedirs")
+        mocker.patch("builtins.open", mocker.mock_open())
         mock_parse = mocker.patch.object(scanner, "parse_results_to_vulns")
         mock_sleep = mocker.patch("asyncio.sleep")
 
         # Mock sleep to avoid waiting in tests
         mock_sleep.side_effect = [None, Exception("Break loop")]
 
-        try:
+        with suppress(Exception):
             await scanner.monitor_task_queue(mock_client, task_info)
-        except Exception:
-            pass  # Expected to break the loop
 
         assert task_info[0]["completed"] == should_complete
         if should_complete and task_status in ["Done", "Stopped"]:
@@ -821,20 +821,17 @@ class TestOpenVASIntegration:
             </result>
         </report>"""
 
-        mock_makedirs = mocker.patch("os.makedirs")
-        mock_open = mocker.patch("builtins.open", mocker.mock_open())
+        mocker.patch("os.makedirs")
+        mocker.patch("builtins.open", mocker.mock_open())
         mock_parse = mocker.patch.object(scanner, "parse_results_to_vulns")
-        mock_sleep = mocker.patch(
+        mocker.patch(
             "asyncio.sleep", side_effect=[None, Exception("Break")]
         )
 
         mock_parse.return_value = None
 
-        # This should complete without errors
-        try:
+        with suppress(Exception):
             await scanner.scan_targets(["192.168.1.1"])
-        except Exception:
-            pass  # Expected from breaking the monitoring loop
 
         # Verify the workflow was followed
         mock_client.create_target.assert_called_once()

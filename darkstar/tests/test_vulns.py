@@ -163,7 +163,7 @@ class TestVulnerability:
     ):
         """Test that cve_enricher handles failure cases correctly."""
         # Set up mocks
-        mock_epss = mocker.patch(
+        mocker.patch(
             "core.models.vulnerability.CVE.search_epss_by_cve", return_value=0.5
         )
         mock_read_csv = mocker.patch("core.models.vulnerability.pd.read_csv")

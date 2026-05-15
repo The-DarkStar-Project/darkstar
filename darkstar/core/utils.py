@@ -70,9 +70,12 @@ def registrable_domain(target: str) -> str:
         return ""
     try:
         ipaddress.ip_address(host)
-        return ""
     except ValueError:
-        pass
+        is_ip_address = False
+    else:
+        is_ip_address = True
+    if is_ip_address:
+        return ""
 
     labels = [label for label in host.split(".") if label]
     if len(labels) < 2:
@@ -105,9 +108,12 @@ def host_targets_from_targets(targets: List[str]) -> List[str]:
             continue
         try:
             ipaddress.ip_address(host)
-            continue
         except ValueError:
-            pass
+            is_ip_address = False
+        else:
+            is_ip_address = True
+        if is_ip_address:
+            continue
         if host not in hosts:
             hosts.append(host)
     return hosts

@@ -387,8 +387,8 @@ def _dpkg_lt(installed: str, fixed: str) -> bool:
             comparison = result.returncode == 0
             _DPKG_COMPARE_CACHE[cache_key] = comparison
             return comparison
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("dpkg version comparison failed, using string fallback: %s", exc)
     comparison = installed < fixed
     _DPKG_COMPARE_CACHE[cache_key] = comparison
     return comparison

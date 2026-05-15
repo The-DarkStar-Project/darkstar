@@ -33,6 +33,11 @@ SECURITY_CHECK_SCHEMA_VERSION = 1
 POSTURE_SOFTWARE_KEY = "darkstar-security-posture"
 CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 DEFAULT_FINGERPRINT_PORTS = [22, 53, 80, 135, 139, 443, 445, 3389, 8080, 8443, 62078]
+SENSITIVE_OUTPUT_KEY_PATTERN = re.compile(
+    r"(authorization|credential|enrollment[_-]?token|password|private[_-]?key|secret|token)",
+    re.IGNORECASE,
+)
+REDACTED_OUTPUT_VALUE = "[REDACTED]"
 
 
 def _parse_source_rpm(value: str | None) -> tuple[str | None, str | None]:
@@ -1468,6 +1473,22 @@ def collect_inventory(peer_targets: list[dict[str, Any]] | None = None) -> dict[
     }
 
 
+def redact_inventory_for_output(value: Any) -> Any:
+    """Return an inventory copy that is safe to print to a terminal or logs."""
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if SENSITIVE_OUTPUT_KEY_PATTERN.search(key_text):
+                redacted[key_text] = REDACTED_OUTPUT_VALUE
+            else:
+                redacted[key_text] = redact_inventory_for_output(item)
+        return redacted
+    if isinstance(value, list):
+        return [redact_inventory_for_output(item) for item in value]
+    return value
+
+
 def _load_state(path: Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -1547,7 +1568,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.print_inventory:
         try:
-            print(json.dumps(collect_inventory(), indent=2))
+            inventory = redact_inventory_for_output(collect_inventory())
+            print(json.dumps(inventory, indent=2))
         except BrokenPipeError:
             return 0
         return 0

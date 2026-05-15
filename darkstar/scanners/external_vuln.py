@@ -17,7 +17,6 @@ import socket
 import subprocess
 import tempfile
 import time
-import threading
 from urllib.parse import urlparse
 
 from core.db_helper import insert_vulnerability_to_database
@@ -166,8 +165,8 @@ class NiktoScanner:
         finally:
             try:
                 os.unlink(out_path)
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug("Could not remove Nikto output file %s: %s", out_path, exc)
 
         return findings
 
@@ -440,8 +439,8 @@ class ZAPScanner:
                 timeout=5,
             )
             time.sleep(3)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Could not request ZAP shutdown: %s", exc)
 
         if self._zap_process:
             try:
@@ -450,8 +449,8 @@ class ZAPScanner:
             except Exception:
                 try:
                     self._zap_process.kill()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Could not kill ZAP process: %s", exc)
 
     def _zap_api(self, path: str) -> dict | list | None:
         """Call the ZAP JSON API and return parsed response."""
@@ -652,8 +651,8 @@ class DalfoxScanner:
         raw_findings = self._load_report(out_path)
         try:
             os.unlink(out_path)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.debug("Could not remove Dalfox output file %s: %s", out_path, exc)
 
         findings: list[dict] = []
         seen: set[tuple[str, str, str]] = set()
@@ -835,8 +834,8 @@ class TestSSLScanner:
         finally:
             try:
                 os.unlink(out_path)
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug("Could not remove testssl.sh output file %s: %s", out_path, exc)
 
         return findings
 

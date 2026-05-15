@@ -74,7 +74,7 @@ class TestRustScanUtils:
         self, mocker: MockerFixture, rustscan_installed, expected
     ):
         """Test verification of all required installations."""
-        mock_verify = mocker.patch(
+        mocker.patch(
             "scanners.portscan.rustscan_utils.verify_rustscan",
             return_value=rustscan_installed,
         )
@@ -130,6 +130,8 @@ class TestRustScanUtils:
 
             # Should create the specified directory
             mock_makedirs.assert_called_once_with(temp_dir, exist_ok=True)
+            assert created_files
+            mock_json_dump.assert_called()
 
     @pytest.mark.asyncio
     async def test_save_results_handles_non_string_targets(self):
