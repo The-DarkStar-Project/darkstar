@@ -143,8 +143,8 @@ def test_windows_build_and_release_detection():
 
 
 def test_dpkg_version_compare_caches_fallback_result(monkeypatch):
-    monkeypatch.setattr(vendor, "_APT_PKG_INIT_ATTEMPTED", True)
-    monkeypatch.setattr(vendor, "_APT_PKG", None)
+    vendor._apt_pkg_module.cache_clear()
+    monkeypatch.setattr(vendor, "_apt_pkg_module", lambda: None)
     monkeypatch.setattr(vendor.shutil, "which", lambda binary: None)
     vendor._DPKG_COMPARE_CACHE.clear()
 

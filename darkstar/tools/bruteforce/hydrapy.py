@@ -226,7 +226,7 @@ class HydraAttack:
             )
 
             try:
-                stdout_result, stderr_result = await asyncio.wait_for(
+                await asyncio.wait_for(
                     asyncio.gather(
                         self.process_hydra_output(
                             process.stdout, False, process, found_credentials

@@ -17,6 +17,7 @@ import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+from functools import cache
 from typing import Any
 
 import requests
@@ -43,8 +44,6 @@ _REDHAT_LIST_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _REDHAT_DETAIL_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _MSRC_UPDATES_CACHE: dict[str, Any] = {"loaded_at": 0.0, "data": None}
 _MSRC_DOC_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
-_APT_PKG: Any | None = None
-_APT_PKG_INIT_ATTEMPTED = False
 
 
 def _cache_ttl() -> int:
@@ -203,7 +202,18 @@ def _max_version(values: list[str]) -> str | None:
     clean = [value for value in values if _version_like(value)]
     if not clean:
         return None
-    return max(clean, key=lambda value: _numeric_version_parts(value))
+    return max(clean, key=_numeric_version_parts)
+
+
+@cache
+def _apt_pkg_module() -> Any | None:
+    try:
+        import apt_pkg  # type: ignore
+
+        apt_pkg.init_system()
+        return apt_pkg
+    except Exception:
+        return None
 
 
 def _is_windows_os(os_info: dict[str, Any]) -> bool:
@@ -361,18 +371,9 @@ def _dpkg_lt(installed: str, fixed: str) -> bool:
     cache_key = (installed, fixed)
     if cache_key in _DPKG_COMPARE_CACHE:
         return _DPKG_COMPARE_CACHE[cache_key]
-    global _APT_PKG, _APT_PKG_INIT_ATTEMPTED
-    if not _APT_PKG_INIT_ATTEMPTED:
-        _APT_PKG_INIT_ATTEMPTED = True
-        try:
-            import apt_pkg  # type: ignore
-
-            apt_pkg.init_system()
-            _APT_PKG = apt_pkg
-        except Exception:
-            _APT_PKG = None
-    if _APT_PKG is not None:
-        result = _APT_PKG.version_compare(installed, fixed) < 0
+    apt_pkg = _apt_pkg_module()
+    if apt_pkg is not None:
+        result = apt_pkg.version_compare(installed, fixed) < 0
         _DPKG_COMPARE_CACHE[cache_key] = result
         return result
     dpkg = shutil.which("dpkg")

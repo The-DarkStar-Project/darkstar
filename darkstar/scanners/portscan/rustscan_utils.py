@@ -37,7 +37,7 @@ async def verify_installation(program):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await process.communicate()
+        await process.communicate()
 
         return process.returncode == 0
     except Exception as e:
