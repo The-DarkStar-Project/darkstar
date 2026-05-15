@@ -1572,7 +1572,6 @@ def get_vulnerability_stats(org_name: str) -> dict:
     except Exception:
         logger.warning("Error getting vulnerability stats for organization")
         # Return empty stats on error - will be retried on next poll
-        pass
 
     return {
         "total_vulnerabilities": total_vulns,
@@ -1908,7 +1907,6 @@ def insert_bbot_to_db(dataframe: pd.DataFrame, org_name: str) -> bool:
         logger.info(f"Successfully inserted {total_rows} records")
         cursor.close()
         return True
-    return False
 
 
 def insert_email_data(emails: list, org_name: str) -> bool:
@@ -1943,7 +1941,6 @@ def insert_email_data(emails: list, org_name: str) -> bool:
         logger.info(f"Successfully inserted {len(emails)} email addresses")
         cursor.close()
         return True
-    return False
 
 
 def insert_breached_email_data(email_breaches: list, org_name: str) -> bool:
@@ -1970,7 +1967,6 @@ def insert_breached_email_data(email_breaches: list, org_name: str) -> bool:
             connection.commit()
         cursor.close()
         return True
-    return False
 
 
 def insert_password_data(passwords: list, org_name: str) -> bool:
@@ -1994,7 +1990,6 @@ def insert_password_data(passwords: list, org_name: str) -> bool:
             connection.commit()
         cursor.close()
         return True
-    return False
 
 
 def insert_scan_log(org_name: str, scan_id: int, message: str, log_level: str = "info"):

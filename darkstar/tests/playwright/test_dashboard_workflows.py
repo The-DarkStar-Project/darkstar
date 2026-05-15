@@ -152,7 +152,7 @@ def _install_dashboard_mocks(page, base_url):
         method = request.method.upper()
 
         if path == "/api/me":
-            return _json(
+            _json(
                 route,
                 {
                     "authenticated": True,
@@ -166,8 +166,9 @@ def _install_dashboard_mocks(page, base_url):
                     ],
                 },
             )
+            return
         if path == "/api/stats":
-            return _json(
+            _json(
                 route,
                 {
                     "total_vulnerabilities": 2,
@@ -177,36 +178,46 @@ def _install_dashboard_mocks(page, base_url):
                     "severity_breakdown": {"critical": 1, "high": 1, "medium": 0, "low": 0},
                 },
             )
+            return
         if path == "/api/scans" and method == "GET":
-            return _json(route, scans_payload())
+            _json(route, scans_payload())
+            return
         if path.startswith("/api/scans/") and path.endswith("/logs"):
-            return _json(
+            _json(
                 route,
                 {"items": [{"message": "Queued for scanner workers", "log_level": "info", "created_at": "2026-05-14T10:00:00Z"}]},
             )
+            return
         if path == "/api/scans/start" and method == "POST":
             payload = request.post_data_json or {}
             state["scan_requests"].append(payload)
-            return _json(route, {"ok": True, "scan_id": 776 + len(state["scan_requests"]), "status": "queued"})
+            _json(route, {"ok": True, "scan_id": 776 + len(state["scan_requests"]), "status": "queued"})
+            return
         if path == "/api/vulnerabilities" and method == "GET":
-            return _json(route, {"items": VULNERABILITIES})
+            _json(route, {"items": VULNERABILITIES})
+            return
         if path == "/api/vulnerabilities/filtered":
-            return _json(route, filtered_vulnerabilities(query))
+            _json(route, filtered_vulnerabilities(query))
+            return
         if path == "/api/vulnerabilities/grouped":
-            return _json(
+            _json(
                 route,
                 {"items": [{"group_key": "app.example.com", "count": 2, "max_priority": 97, "hosts": "app.example.com"}]},
             )
+            return
         if path.startswith("/api/vulnerabilities/"):
             vulnerability_id = int(path.rsplit("/", 1)[1])
             item = next((vuln for vuln in VULNERABILITIES if vuln["id"] == vulnerability_id), None)
-            return _json(route, item or {"detail": "not found"}, status=200 if item else 404)
+            _json(route, item or {"detail": "not found"}, status=200 if item else 404)
+            return
         if path == "/api/filters/hosts":
-            return _json(route, {"items": ["app.example.com", "portal.example.com"]})
+            _json(route, {"items": ["app.example.com", "portal.example.com"]})
+            return
         if path == "/api/filters/tools":
-            return _json(route, {"items": ["nuclei", "zap"]})
+            _json(route, {"items": ["nuclei", "zap"]})
+            return
         if path == "/api/attack-surface":
-            return _json(
+            _json(
                 route,
                 {
                     "summary": {
@@ -233,8 +244,9 @@ def _install_dashboard_mocks(page, base_url):
                     "offset": int((query.get("offset") or ["0"])[0]),
                 },
             )
+            return
         if path == "/api/recon/subdomains":
-            return _json(
+            _json(
                 route,
                 {
                     "items": [
@@ -265,13 +277,15 @@ def _install_dashboard_mocks(page, base_url):
                     "offset": int((query.get("offset") or ["0"])[0]),
                 },
             )
+            return
         if path == "/api/scanner-nodes/available":
-            return _json(
+            _json(
                 route,
                 {"items": [{"node_id": "node-1", "name": "Office scanner", "status": "online", "running_jobs": 0, "max_parallel_jobs": 2}]},
             )
+            return
         if path == "/api/schedules" and method == "GET":
-            return _json(
+            _json(
                 route,
                 {
                     "items": [
@@ -287,12 +301,14 @@ def _install_dashboard_mocks(page, base_url):
                     ]
                 },
             )
+            return
         if path == "/api/schedules" and method == "POST":
             payload = request.post_data_json or {}
             state["schedule_requests"].append(payload)
-            return _json(route, {"ok": True, "schedule_id": 12})
+            _json(route, {"ok": True, "schedule_id": 12})
+            return
         if path == "/api/notifications/settings" and method == "GET":
-            return _json(
+            _json(
                 route,
                 {
                     "enabled": False,
@@ -302,17 +318,21 @@ def _install_dashboard_mocks(page, base_url):
                     "notify_on_failure": True,
                 },
             )
+            return
         if path == "/api/notifications/settings" and method == "PATCH":
             payload = request.post_data_json or {}
             state["notification_updates"].append(payload)
-            return _json(route, {"ok": True, **payload})
+            _json(route, {"ok": True, **payload})
+            return
         if path == "/api/notifications/test" and method == "POST":
             state["notification_tests"] += 1
-            return _json(route, {"ok": True})
+            _json(route, {"ok": True})
+            return
         if path == "/api/auth/mfa/settings":
-            return _json(route, {"enabled": False, "required": False, "org_required": False})
+            _json(route, {"enabled": False, "required": False, "org_required": False})
+            return
         if path == "/api/auth/sso/settings":
-            return _json(
+            _json(
                 route,
                 {
                     "enabled": False,
@@ -323,10 +343,12 @@ def _install_dashboard_mocks(page, base_url):
                     "allowed_domain": "",
                 },
             )
+            return
         if path == "/api/api-keys":
-            return _json(route, {"items": [{"id": 5, "name": "CI readout", "key_prefix": "ds_live_", "role": "security_analyst"}]})
+            _json(route, {"items": [{"id": 5, "name": "CI readout", "key_prefix": "ds_live_", "role": "security_analyst"}]})
+            return
         if path == "/api/users":
-            return _json(
+            _json(
                 route,
                 {
                     "items": [
@@ -340,9 +362,10 @@ def _install_dashboard_mocks(page, base_url):
                     ]
                 },
             )
+            return
 
         state["unexpected"].append((method, path))
-        return _json(route, {"detail": f"Unexpected test API route: {method} {path}"}, status=404)
+        _json(route, {"detail": f"Unexpected test API route: {method} {path}"}, status=404)
 
     page.route(f"{base_url}/", root_handler)
     page.route(f"{base_url}/api/**", api_handler)
