@@ -26,7 +26,7 @@ def test_documentation_page_renders_on_desktop_and_mobile(darkstar_server):
             mobile.goto(f"{darkstar_server}/documentation", wait_until="networkidle")
             assert mobile.locator("h1").is_visible()
             assert mobile.locator(".doc-sidebar").is_visible()
-            assert mobile.locator("text=Verantwoord gebruik").first.is_visible()
+            assert mobile.locator("text=Responsible Use").first.is_visible()
             box = mobile.locator(".hero-section").bounding_box()
             assert box is not None
             assert box["width"] <= 390

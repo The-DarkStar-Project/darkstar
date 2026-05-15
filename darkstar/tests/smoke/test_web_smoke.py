@@ -22,9 +22,9 @@ def test_documentation_page_smoke(client):
 
     assert response.status_code == 200
     assert "Darkstar Documentation" in response.text
-    assert "Verantwoord en toegestaan gebruik" in response.text
-    assert "Tools en licenties" in response.text
-    assert "Sec/DevOps pipeline" in response.text
+    assert "Responsible and Authorized Use" in response.text
+    assert "Tools and Licenses" in response.text
+    assert "Sec/DevOps Pipeline" in response.text
 
 
 def test_documentation_static_assets_smoke(client):

@@ -1,106 +1,99 @@
-# Darkstar applicatiedocumentatie
+# Darkstar Application Documentation
 
-Deze documentatie beschrijft het gebruik en beheer van de Darkstar webapplicatie.
-De uitgebreide webversie staat op `/documentation` in de draaiende applicatie.
+This documentation describes how to use and administer the Darkstar web
+application. The full web version is available at `/documentation` in the
+running application.
 
-## Doel
+## Purpose
 
-Darkstar is een multi-tenant vulnerability intelligence platform. Het dashboard
-combineert:
+Darkstar is a multi-tenant vulnerability intelligence platform. The dashboard
+combines:
 
-- scans en scanlogs
+- scans and scan logs
 - vulnerability findings
 - attack-surface data
-- endpoint inventory en endpoint CVE matching
+- endpoint inventory and endpoint CVE matching
 - cloud security score data
-- exports voor rapportage en audit
-- tenant security settings zoals MFA, SSO, API keys en notificaties
+- exports for reporting and audit
+- tenant security settings such as MFA, SSO, API keys and notifications
 
-Darkstar wordt ondersteund door [SIDN](https://www.sidnfonds.nl/) en
-[NLnet](https://nlnet.nl/). De Darkstar repository zelf is gelicenseerd onder
-GNU GPLv3. Upstream tools houden hun eigen licenties.
+Darkstar is supported by [SIDN](https://www.sidnfonds.nl/) and
+[NLnet](https://nlnet.nl/). The Darkstar repository itself is licensed under
+GNU GPLv3. Upstream tools keep their own licenses.
 
-## Verantwoord en toegestaan gebruik
+## Responsible and Authorized Use
 
-Darkstar bevat security tooling voor ASM, DAST, netwerk vulnerability scanning
-en interne scans. Gebruik deze tooling uitsluitend voor legitieme
-beveiligingsdoeleinden op systemen waarvan je eigenaar bent of waarvoor je
-vooraf expliciete toestemming hebt gekregen.
+Darkstar includes security tooling for ASM, DAST, network vulnerability
+scanning and internal scans. Use this tooling only for legitimate security
+purposes on systems you own or for which you have explicit prior permission.
 
-Deze documentatie beschrijft bedoeld gebruik van Darkstar, maar vervangt geen
-juridisch advies. Gebruikers en organisaties blijven zelf verantwoordelijk voor
-naleving van wetgeving, contracten, bug bounty regels, cloudprovider
-voorwaarden en klantafspraken.
+This documentation describes the intended use of Darkstar, but it is not legal
+advice. Users and organizations remain responsible for complying with laws,
+contracts, bug bounty rules, cloud provider terms and customer agreements.
 
-De gebruiker is zelf verantwoordelijk voor:
+The user is responsible for:
 
-- het controleren van toegestane scope, targets, scanvensters en
-  scanintensiteit;
-- het verkrijgen van expliciete toestemming van de eigenaar, opdrachtgever of
-  verantwoordelijke organisatie;
-- het alleen testen van productieomgevingen wanneer dat binnen de afgesproken
-  testscope valt;
-- het veilig behandelen van resultaten, exports, screenshots, secrets en
-  persoonsgegevens;
-- het beperken van toegang tot findings en exports tot personen die deze
-  informatie nodig hebben;
-- het stoppen van verdere tests wanneer een target buiten scope blijkt te
-  vallen.
+- verifying the allowed scope, targets, scan windows and scan intensity;
+- obtaining explicit permission from the owner, client or responsible
+  organization;
+- testing production environments only when that is part of the agreed test
+  scope;
+- handling results, exports, screenshots, secrets and personal data securely;
+- limiting access to findings and exports to people who need that information;
+- stopping further tests when a target turns out to be out of scope.
 
-Darkstar mag niet worden gebruikt voor activiteiten buiten toestemming of buiten
-testscope, waaronder:
+Darkstar must not be used for activities outside permission or outside the test
+scope, including:
 
-- ongeautoriseerde scans, exploitatie of toegang tot systemen;
-- credential stuffing, wachtwoordaanvallen of gebruik van buitgemaakte
-  credentials;
-- phishing, social engineering, datadiefstal of verzamelen van persoonsgegevens
-  zonder grondslag;
-- denial-of-service, verstoring, destructieve tests of agressieve belasting
-  zonder akkoord;
-- persistentie, laterale beweging of pogingen om beveiligingsmonitoring te
-  omzeilen.
+- unauthorized scans, exploitation or access to systems;
+- credential stuffing, password attacks or use of compromised credentials;
+- phishing, social engineering, data theft or collecting personal data without
+  a valid basis;
+- denial-of-service, disruption, destructive tests or aggressive load without
+  approval;
+- persistence, lateral movement or attempts to bypass security monitoring.
 
-Als een scan een kwetsbaarheid of systeem buiten scope raakt, stop dan met
-verdere tests op dat target. Leg vast wat er is gevonden, deel geen gevoelige
-details breder dan nodig en volg een responsible disclosure of Coordinated
-Vulnerability Disclosure proces.
+If a scan touches an out-of-scope vulnerability or system, stop further testing
+on that target. Record what was found, do not share sensitive details more
+widely than needed, and follow a responsible disclosure or Coordinated
+Vulnerability Disclosure process.
 
-## Rollen
+## Roles
 
-| Rol | Rechten |
+| Role | Permissions |
 | --- | --- |
-| `viewer` | Resultaten en rapportages bekijken. |
-| `security_analyst` | Scans starten en operationele scanworkflows gebruiken. |
-| `tenant_admin` | Tenantinstellingen, gebruikers, API keys, endpoint tokens en scanner nodes beheren. |
-| `platform_admin` | Platformbreed tenant-overzicht en beheer. |
+| `viewer` | View results and reports. |
+| `security_analyst` | Start scans and use operational scan workflows. |
+| `tenant_admin` | Manage tenant settings, users, API keys, endpoint tokens and scanner nodes. |
+| `platform_admin` | Platform-wide tenant overview and administration. |
 
-## Testing en kwaliteitscontrole
+## Testing and Quality Control
 
-Darkstar heeft een gelaagde testopzet voor ontwikkelaars en CI/CD:
+Darkstar has a layered test setup for developers and CI/CD:
 
-- unit tests voor validatie, parsing, endpoint matching, scanner workers en
-  scanner output normalisatie;
-- smoke tests voor belangrijke webapp routes, documentatie, static assets,
-  OpenAPI, auth boundaries en API-contracten voor vulnerabilities, ASM, scans,
-  schedules en notificaties;
-- Playwright browsertests voor de standalone documentatiepagina en normale
-  applicatieflows zoals vulnerabilities bekijken, targets selecteren,
-  scanpayloads aanmaken en notificaties configureren;
-- GitHub Actions workflow voor unit/smoke en Playwright checks.
+- unit tests for validation, parsing, endpoint matching, scanner workers and
+  scanner output normalization;
+- smoke tests for important web app routes, documentation, static assets,
+  OpenAPI, auth boundaries and API contracts for vulnerabilities, ASM, scans,
+  schedules and notifications;
+- Playwright browser tests for the standalone documentation page and normal
+  application flows such as viewing vulnerabilities, selecting targets, creating
+  scan payloads and configuring notifications;
+- a GitHub Actions workflow for unit/smoke and Playwright checks.
 
-Installeer lokale testdependencies:
+Install local test dependencies:
 
 ```bash
 python3 -m pip install -r requirements-dev.txt
 ```
 
-Run unit en smoke tests:
+Run unit and smoke tests:
 
 ```bash
 python3 -m pytest -m "not playwright"
 ```
 
-Run alleen smoke tests:
+Run only smoke tests:
 
 ```bash
 python3 -m pytest -m smoke
@@ -113,130 +106,130 @@ python3 -m playwright install chromium
 RUN_PLAYWRIGHT=1 python3 -m pytest -m playwright
 ```
 
-Playwright mockt scan-API's in de browser. De tests verifieren dus de UI-flow en
-payloads, maar starten geen echte scanner tools en scannen geen targets.
-Screenshots worden opgeslagen in `test-results/playwright/`. De volledige
-testinghandleiding staat in [Testing](./testing.md).
+Playwright mocks scan APIs in the browser. The tests therefore verify the UI
+flow and payloads, but they do not start real scanner tools and do not scan
+targets. Screenshots are stored in `test-results/playwright/`. The full testing
+guide is in [Testing](./testing.md).
 
-## Aan de slag
+## Getting Started
 
-1. Log in met een organisatieaccount of via SSO.
-2. Kies de juiste tenant als je account meerdere organisaties heeft.
-3. Controleer je rol rechtsboven in het dashboard.
+1. Log in with an organization account or via SSO.
+2. Select the correct tenant if your account belongs to multiple organizations.
+3. Check your role in the upper-right corner of the dashboard.
 4. Open `Scan Center`.
-5. Voer een target in, bijvoorbeeld een domein, hostname, IP-adres of CIDR range.
-6. Kies een scan mode of een individuele scanner.
-7. Start de scan en volg de output in `Debug`.
-8. Triageer resultaten in `Vulnerabilities`.
+5. Enter a target, such as a domain, hostname, IP address or CIDR range.
+6. Choose a scan mode or an individual scanner.
+7. Start the scan and follow the output in `Debug`.
+8. Triage results in `Vulnerabilities`.
 
 ## Dashboard
 
-Het dashboard toont een korte status van:
+The dashboard shows a short status summary of:
 
-- totaal aantal findings
-- severity verdeling
-- recente scans
-- actieve en geplande scans
+- total number of findings
+- severity distribution
+- recent scans
+- active and scheduled scans
 
-Gebruik dit scherm voor dagelijkse statuschecks.
+Use this screen for daily status checks.
 
 ## Scan Center
 
-Scan Center queue't scanjobs centraal. Een scan kan lokaal of via een distributed
-scanner appliance worden uitgevoerd.
+Scan Center queues scan jobs centrally. A scan can run locally or through a
+distributed scanner appliance.
 
 ### Targets
 
-Targets mogen worden ingevoerd als:
+Targets can be entered as:
 
 - `example.com`
 - `app.example.com`
 - `192.0.2.10`
 - `192.0.2.0/24`
 
-Meerdere targets kunnen met komma's of nieuwe regels worden opgegeven.
+Multiple targets can be separated with commas or new lines.
 
-### Scan mode of scanner
+### Scan Mode Or Scanner
 
-Gebruik een scan mode als je een vaste workflow wilt:
+Use a scan mode when you want a fixed workflow:
 
 - Passive
 - Normal
 - Aggressive
 - Attack Surface
 
-Gebruik een individuele scanner als je bewust een specifiek hulpmiddel wilt
-draaien, zoals BBot, RustScan, Nuclei, OWASP ZAP, Nikto, Wapiti, OpenVAS of een
+Use an individual scanner when you intentionally want to run a specific tool,
+such as BBot, RustScan, Nuclei, OWASP ZAP, Nikto, Wapiti, OpenVAS or an
 Asteroid module.
 
-Kies niet tegelijk een scan mode en een individuele scanner. De backend
-accepteert precies een van beide.
+Do not choose a scan mode and an individual scanner at the same time. The
+backend accepts exactly one of them.
 
-### Scanner appliance
+### Scanner Appliance
 
-Met `Auto` kiest Darkstar een beschikbare scanner. Kies een specifieke scanner
-appliance wanneer de scan vanuit een bepaalde netwerkpositie moet draaien.
+With `Auto`, Darkstar chooses an available scanner. Choose a specific scanner
+appliance when the scan must run from a particular network position.
 
-### Geplande scans
+### Scheduled Scans
 
-Recurring scans ondersteunen:
+Recurring scans support:
 
-- interval in uren, dagen, weken, maanden of jaren
-- optionele startdatum
-- optionele einddatum
-- optionele voorkeursappliance
+- an interval in hours, days, weeks, months or years
+- an optional start date
+- an optional end date
+- an optional preferred appliance
 
-Darkstar slaat een identieke geplande scan tijdelijk over wanneer dezelfde
-scanner en targetset al actief zijn.
+Darkstar temporarily skips an identical scheduled scan when the same scanner and
+target set are already active.
 
 ## Vulnerabilities
 
-De `Vulnerabilities` pagina toont findings per tenant. Beschikbare filters:
+The `Vulnerabilities` page shows findings per tenant. Available filters:
 
 - severity
 - host
 - tool
 - grouping
 
-Groepering kan worden gezet op raw findings, deduplicated, severity, host, tool,
-asset of vulnerability.
+Grouping can be set to raw findings, deduplicated, severity, host, tool, asset
+or vulnerability.
 
-### Triageproces
+### Triage Process
 
-1. Begin met critical en high findings.
-2. Controleer host, CVE, exploitstatus en tool.
-3. Open details voor evidence en scorecontext.
-4. Exporteer de relevante set als CSV, XLSX of HTML report.
-5. Leg false positives of accepted risks vast buiten Darkstar in het ticket- of
-   riskregister.
+1. Start with critical and high findings.
+2. Check host, CVE, exploit status and tool.
+3. Open details for evidence and score context.
+4. Export the relevant set as a CSV, XLSX or HTML report.
+5. Record false positives or accepted risks outside Darkstar in the ticket or
+   risk register.
 
 ## Attack Surface
 
-Attack Surface bundelt externe assetinformatie uit recon-scans. Gebruik deze
-pagina voor:
+Attack Surface combines external asset information from recon scans. Use this
+page for:
 
 - asset review
-- host en poortoverzicht
-- subdomeinonderzoek
-- vervolgscans op geselecteerde subdomeinen
-- exports voor scope- en exposure-rapportages
+- host and port overview
+- subdomain investigation
+- follow-up scans on selected subdomains
+- exports for scope and exposure reports
 
-Controleer scan-scope altijd voordat agressieve scans of brute-force opties
-worden gebruikt.
+Always verify scan scope before using aggressive scans or brute-force options.
 
-## ASM, DAST en interne scanning
+## ASM, DAST and Internal Scanning
 
-Darkstar ondersteunt drie scanperspectieven:
+Darkstar supports three scan perspectives:
 
-- ASM: externe attack-surface mapping met BBOT, DNS/OSINT-bronnen en portdata.
-- DAST: dynamische webapplicatiechecks met onder andere Nuclei, OWASP ZAP,
-  Wapiti, Nikto, Dalfox, testssl.sh en Asteroid modules.
-- Interne netwerken: scanner-only containers draaien in een intern netwerk of
-  VPN en claimen jobs bij de centrale orchestrator.
+- ASM: external attack-surface mapping with BBOT, DNS/OSINT sources and port
+  data.
+- DAST: dynamic web application checks with Nuclei, OWASP ZAP, Wapiti, Nikto,
+  Dalfox, testssl.sh and Asteroid modules.
+- Internal networks: scanner-only containers run in an internal network or VPN
+  and claim jobs from the central orchestrator.
 
-### Interne scanner container activeren
+### Activate An Internal Scanner Container
 
-Maak een attach token aan vanuit de orchestrator:
+Create an attach token from the orchestrator:
 
 ```bash
 docker compose exec darkstar-web python3 -m darkstar.scanner_attach create \
@@ -246,11 +239,10 @@ docker compose exec darkstar-web python3 -m darkstar.scanner_attach create \
   --max-parallel-jobs 2
 ```
 
-De CLI schrijft de scanner token en worker instellingen naar een beschermd env
-bestand (`0600`) en toont een `docker run --env-file ...` command. Kopieer de
-waarden alleen naar de worker host of naar een secret manager; plak tokens niet
-in logs of tickets. Voor een lokale Compose worker zet je dezelfde waarden in
-de lokale `.env`:
+The CLI writes the scanner token and worker settings to a protected env file
+(`0600`) and prints a `docker run --env-file ...` command. Copy values only to
+the worker host or to a secret manager; do not paste tokens into logs or
+tickets. For a local Compose worker, put the same values in the local `.env`:
 
 ```bash
 DARKSTAR_ORCHESTRATOR_URL='http://darkstar-web:8080'
@@ -259,31 +251,31 @@ DARKSTAR_SCANNER_NAME='local-scanner'
 DARKSTAR_WORKER_MAX_PARALLEL='2'
 ```
 
-Start de worker:
+Start the worker:
 
 ```bash
 docker compose --profile scanner up -d darkstar-scanner
 ```
 
-Kies daarna in `Scan Center` bij `Scanner appliance` de worker die vanuit het
-interne netwerk moet scannen.
+Then choose the worker that must scan from the internal network in `Scan Center`
+under `Scanner appliance`.
 
 ## Endpoints
 
-Endpoint Agents leveren software-inventaris en endpointcontext aan Darkstar.
-Darkstar matcht software tegen bekende vulnerabilities.
+Endpoint agents send software inventory and endpoint context to Darkstar.
+Darkstar matches software against known vulnerabilities.
 
 ### Enrollment
 
 1. Open `Endpoints`.
-2. Maak een enrollment token aan.
-3. Voer het getoonde install command uit op de endpoint host.
-4. Controleer of de agent online komt.
-5. Controleer software inventory en endpoint vulnerabilities.
+2. Create an enrollment token.
+3. Run the displayed install command on the endpoint host.
+4. Check that the agent comes online.
+5. Check software inventory and endpoint vulnerabilities.
 
-### Debian/Linux agent
+### Debian/Linux Agent
 
-Voor Debian en Ubuntu hosts gebruikt Darkstar de Python endpoint agent via een
+For Debian and Ubuntu hosts, Darkstar uses the Python endpoint agent through a
 systemd installer:
 
 ```bash
@@ -295,13 +287,13 @@ sudo bash /tmp/darkstar-endpoint-install.sh \
   --enrollment-token "<endpoint enrollment token>"
 ```
 
-De installer maakt een `darkstar-endpoint-agent` service, een protected env
-file in `/etc/darkstar/endpoint-agent.env` en state in
-`/var/lib/darkstar-endpoint/agent.json`. De agent verzamelt Debian packages,
-optionele osquery data, Python/npm packages, IP/MAC metadata en interne
-netwerkobservaties voor de endpoint network map.
+The installer creates a `darkstar-endpoint-agent` service, a protected env file
+in `/etc/darkstar/endpoint-agent.env` and state in
+`/var/lib/darkstar-endpoint/agent.json`. The agent collects Debian packages,
+optional osquery data, Python/npm packages, IP/MAC metadata and internal network
+observations for the endpoint network map.
 
-Beheer:
+Management:
 
 ```bash
 sudo systemctl status darkstar-endpoint-agent
@@ -311,86 +303,86 @@ sudo darkstar-endpoint-agent --once
 sudo darkstar-endpoint-agent --print-inventory
 ```
 
-Behandel `/etc/darkstar/endpoint-agent.env` en
-`/var/lib/darkstar-endpoint/agent.json` als secrets.
+Treat `/etc/darkstar/endpoint-agent.env` and
+`/var/lib/darkstar-endpoint/agent.json` as secrets.
 
-### Windows agent
+### Windows Agent
 
-De native Windows agent staat in `agents/darkstar-windows-agent/` en wordt als
-Windows Service geinstalleerd. Gebruik deze voor Windows fleets waar een single
-binary handiger is dan Python.
+The native Windows agent is in `agents/darkstar-windows-agent/` and is installed
+as a Windows Service. Use it for Windows fleets where a single binary is more
+convenient than Python.
 
-### Beheer
+### Management
 
-Tenant admins kunnen:
+Tenant admins can:
 
-- enrollment tokens intrekken
-- endpoint agents revoken
-- lokale endpoint records verwijderen
+- revoke enrollment tokens
+- revoke endpoint agents
+- delete local endpoint records
 
-Revoke blokkeert toekomstige agentcommunicatie. Delete verwijdert het lokale
-record met gekoppelde inventory.
+Revoke blocks future agent communication. Delete removes the local record and
+the linked inventory.
 
-## Security instellingen
+## Security Settings
 
-Security instellingen staan onder `Settings`.
+Security settings are under `Settings`.
 
 ### MFA
 
-Gebruikers kunnen MFA activeren met een authenticator-app. Tenant admins kunnen
-MFA verplicht maken voor de organisatie. Platform admins kunnen MFA
-platformbreed verplicht maken.
+Users can enable MFA with an authenticator app. Tenant admins can require MFA
+for the organization. Platform admins can require MFA platform-wide.
 
 ### SSO
 
-SSO gebruikt OIDC. Configureer:
+SSO uses OIDC. Configure:
 
 - issuer URL
 - client ID
 - client secret
-- optioneel toegestaan e-maildomein
+- optional allowed email domain
 
-Registreer `/api/auth/sso/callback` als redirect URI bij de identity provider,
-of stel `SSO_REDIRECT_URI` in als de publieke URL afwijkt.
+Register `/api/auth/sso/callback` as the redirect URI with the identity
+provider, or set `SSO_REDIRECT_URI` if the public URL differs.
 
-### API keys
+### API Keys
 
-API keys gebruiken:
+API keys use:
 
 ```http
 Authorization: Bearer dstar_...
 ```
 
-De secret wordt eenmalig getoond. Sla API keys alleen op in een secret manager of
-CI/CD secret storage en roteer ze periodiek.
+The secret is shown once. Store API keys only in a secret manager or CI/CD
+secret storage and rotate them periodically.
 
-## MFA en SSO configuratie
+## MFA and SSO Configuration
 
 MFA:
 
 1. Open `Settings` -> `Authentication`.
-2. Klik `Setup MFA`.
-3. Scan de QR-code met een authenticator app.
-4. Voer de TOTP-code in en klik `Enable MFA`.
-5. Tenant admins kunnen daarna MFA verplicht maken voor de organisatie.
+2. Click `Setup MFA`.
+3. Scan the QR code with an authenticator app.
+4. Enter the TOTP code and click `Enable MFA`.
+5. Tenant admins can then require MFA for the organization.
 
 SSO:
 
-1. Maak een OIDC application bij de identity provider.
-2. Configureer de callback URL `/api/auth/sso/callback`.
+1. Create an OIDC application with the identity provider.
+2. Configure the callback URL `/api/auth/sso/callback`.
 3. Open `Settings` -> `Authentication` -> `Setup SSO`.
-4. Vul issuer URL, client ID, client secret en eventueel allowed email domain in.
-5. Test SSO login voordat `Require SSO for this organization` wordt aangezet.
+4. Enter the issuer URL, client ID, client secret and optionally an allowed
+   email domain.
+5. Test SSO login before enabling `Require SSO for this organization`.
 
-Gebruik `SSO_REDIRECT_URI` als de publieke callback URL afwijkt van de interne
+Use `SSO_REDIRECT_URI` when the public callback URL differs from the internal
 container URL.
 
-### Email notificaties
+### Email Notifications
 
-Notificaties kunnen worden beperkt op minimale severity. Darkstar kan ook
-succesvolle, gefaalde of gestopte scans melden.
+Notifications can be limited by minimum severity. Darkstar can also report
+successful, failed or stopped scans.
 
-SMTP wordt via environment variabelen ingesteld:
+SMTP is configured through environment variables:
 
 ```bash
 SMTP_HOST='smtp.example.org'
@@ -401,27 +393,27 @@ SMTP_PASSWORD='...'
 SMTP_TLS='true'
 ```
 
-In de UI stel je per tenant ontvangers, minimale severity en succes/foutmeldingen
-in onder `Settings` -> `Email Notifications`.
+In the UI, configure recipients, minimum severity and success/failure messages
+per tenant under `Settings` -> `Email Notifications`.
 
-## Tools en licenties
+## Tools and Licenses
 
-| Tool | Gebruik | Licentie |
+| Tool | Use | License |
 | --- | --- | --- |
 | Darkstar | Dashboard, API, orchestrator | GNU GPLv3 |
-| Asteroid | Modulaire web application scanner | GNU AGPLv3 |
+| Asteroid | Modular web application scanner | GNU AGPLv3 |
 | BBOT | ASM, recon, subdomains | GPL-3.0 |
 | RustScan | Port discovery | GPL-3.0 |
 | Nmap | Service detection | Nmap Public Source License |
-| OpenVAS Scanner / Greenbone CE | Netwerk vulnerability scanning | GPLv2 voor scannercomponenten; feed/data objecten hebben eigen voorwaarden |
+| OpenVAS Scanner / Greenbone CE | Network vulnerability scanning | GPLv2 for scanner components; feed/data objects have their own terms |
 | Nuclei | Template-based vulnerability scanning | MIT |
 | OWASP ZAP | DAST baseline/spider/passive alerts | Apache-2.0 |
-| Nikto | Webserver misconfiguration checks | GPL; controleer upstream database/testvoorwaarden |
+| Nikto | Webserver misconfiguration checks | GPL; check upstream database/test terms |
 | Wapiti | Black-box web vulnerability scanner | GPL-2.0 |
 | Dalfox | XSS scanning | MIT |
 | testssl.sh | TLS/SSL checks | GPL-2.0 |
-| THC-Hydra | Optionele bruteforce | GPL-3.0-or-later |
-| massdns | DNS brute-force ondersteuning | GPL-3.0 |
+| THC-Hydra | Optional brute force | GPL-3.0-or-later |
+| massdns | DNS brute-force support | GPL-3.0 |
 | Katana | Crawling | MIT |
 | httpx | HTTP probing/filtering | MIT |
 | Gau | URL discovery | MIT |
@@ -430,29 +422,29 @@ in onder `Settings` -> `Email Notifications`.
 | TruffleHog | Secrets scanning | AGPL-3.0 |
 | wappalyzer-next | Technology detection | GPL-3.0 |
 | RetireJS | Vulnerable JavaScript library detection | Apache-2.0 |
-| uro | URL normalisatie | Apache-2.0 |
+| uro | URL normalization | Apache-2.0 |
 
-## Distributed scanner workers
+## Distributed Scanner Workers
 
-Distributed scanners claimen jobs via de orchestrator API en sturen logs terug.
-Zie [distributed-scanners.md](./distributed-scanners.md) voor setupdetails.
+Distributed scanners claim jobs through the orchestrator API and send logs back.
+See [distributed-scanners.md](./distributed-scanners.md) for setup details.
 
-## Operationele checklist
+## Operational Checklist
 
-Dagelijks:
+Daily:
 
-- controleer mislukte of vastgelopen scans
-- review nieuwe critical en high findings
-- controleer scanner node heartbeats
+- check failed or stuck scans
+- review new critical and high findings
+- check scanner node heartbeats
 
-Wekelijks:
+Weekly:
 
-- exporteer vulnerability en attack-surface rapportages
-- review scanplanning en scan-scope
-- controleer offline endpoint agents
+- export vulnerability and attack-surface reports
+- review scan schedules and scan scope
+- check offline endpoint agents
 
-Maandelijks:
+Monthly:
 
-- roteer ongebruikte API keys
-- review gebruikersrollen en MFA/SSO enforcement
-- controleer CI/CD security artifacts
+- rotate unused API keys
+- review user roles and MFA/SSO enforcement
+- check CI/CD security artifacts

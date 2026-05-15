@@ -1,34 +1,33 @@
-# Security testing en Sec/DevOps pipeline
+# Security Testing and Sec/DevOps Pipeline
 
-Deze pagina beschrijft hoe Darkstar security testing onderdeel maakt van de
-ontwikkel- en releasepipeline. Het doel is dat security testing niet alleen
-handmatig gebeurt, maar terugkomt als vaste controle met reproduceerbare
-evidence.
+This page describes how Darkstar makes security testing part of the development
+and release pipeline. The goal is for security testing to happen not only
+manually, but also as a fixed control with reproducible evidence.
 
-## Pipeline doelstellingen
+## Pipeline Objectives
 
-- Security checks draaien automatisch per pull request of release.
-- Resultaten worden bewaard als pipeline artifacts.
-- Releases worden geblokkeerd bij niet-geaccepteerde critical findings.
-- High findings hebben een ticket, eigenaar en streefdatum.
-- Secrets staan in CI/CD secret storage, niet in repositorybestanden.
-- DAST en agressieve scans draaien alleen op toegestane test- of
-  stagingomgevingen.
+- Security checks run automatically per pull request or release.
+- Results are stored as pipeline artifacts.
+- Releases are blocked for unaccepted critical findings.
+- High findings have a ticket, owner and target date.
+- Secrets are stored in CI/CD secret storage, not in repository files.
+- DAST and aggressive scans run only against approved test or staging
+  environments.
 
-## Aanbevolen controles
+## Recommended Controls
 
-| Fase | Controle | Voorbeelden |
+| Phase | Control | Examples |
 | --- | --- | --- |
-| Code | Unit tests, linting, SAST, secrets scanning | `pytest`, Semgrep, Gitleaks of TruffleHog |
+| Code | Unit tests, linting, SAST, secrets scanning | `pytest`, Semgrep, Gitleaks or TruffleHog |
 | Dependencies | Package vulnerability scanning | OSV Scanner, Grype, Trivy |
-| Build | Container en base image scanning | Trivy, Grype |
-| Config | IaC en Compose/Kubernetes checks | Checkov, Trivy config |
+| Build | Container and base image scanning | Trivy, Grype |
+| Config | IaC and Compose/Kubernetes checks | Checkov, Trivy config |
 | Staging | DAST baseline | OWASP ZAP baseline, Nuclei, Nikto, Wapiti |
-| Darkstar | Gecentraliseerde scan en rapportage | Darkstar API, CSV/XLSX/HTML exports |
+| Darkstar | Centralized scan and reporting | Darkstar API, CSV/XLSX/HTML exports |
 
-## Minimale lokale testset
+## Minimum Local Test Set
 
-Gebruik lokaal minimaal:
+Use at least the following locally:
 
 ```bash
 python3 -m pip install -r requirements-dev.txt
@@ -42,14 +41,14 @@ for root in (Path("darkstar"), Path("openvas_api")):
 PY
 ```
 
-Voor browsercontrole van de documentatie en responsive layout:
+For browser checks of the documentation and responsive layout:
 
 ```bash
 python3 -m playwright install chromium
 RUN_PLAYWRIGHT=1 python3 -m pytest -m playwright
 ```
 
-Wanneer de tools beschikbaar zijn:
+When the tools are available:
 
 ```bash
 semgrep scan --config auto
@@ -58,18 +57,18 @@ trivy fs .
 trivy config .
 ```
 
-Deze commands zijn voorbeelden. De uiteindelijke pipeline moet aansluiten bij de
-tooling die in de runner beschikbaar is.
+These commands are examples. The final pipeline should match the tooling
+available in the runner.
 
-Zie [Testing](./testing.md) voor markers, Playwright screenshots, CI artifacts
-en troubleshooting.
+See [Testing](./testing.md) for markers, Playwright screenshots, CI artifacts
+and troubleshooting.
 
-## Darkstar in CI/CD
+## Darkstar In CI/CD
 
-Maak in Darkstar een API key aan met de laagste rol die de pipeline nodig heeft.
-Sla de key op als CI/CD secret, bijvoorbeeld `DARKSTAR_API_KEY`.
+Create an API key in Darkstar with the lowest role the pipeline needs. Store the
+key as a CI/CD secret, for example `DARKSTAR_API_KEY`.
 
-Voorbeeldvariabelen:
+Example variables:
 
 ```bash
 DARKSTAR_URL=https://darkstar.example.org
@@ -77,66 +76,65 @@ DARKSTAR_API_KEY=dstar_...
 DARKSTAR_TARGET=https://staging.example.org
 ```
 
-Een pipeline kan daarna:
+A pipeline can then:
 
-1. een deployment naar staging uitvoeren
-2. een Darkstar scan starten tegen de staging URL
-3. wachten tot de scan is afgerond
-4. findings exporteren
-5. release blokkeren als de acceptatiecriteria worden overschreden
+1. deploy to staging
+2. start a Darkstar scan against the staging URL
+3. wait until the scan is complete
+4. export findings
+5. block the release if acceptance criteria are exceeded
 
-## Acceptatiecriteria
+## Acceptance Criteria
 
-Aanbevolen default:
+Recommended default:
 
-- Nieuwe critical findings blokkeren de release.
-- Nieuwe high findings blokkeren tenzij er een risk acceptance of hotfix-ticket
-  bestaat.
-- Medium findings krijgen een ticket en worden gepland.
-- Low en info findings worden periodiek gereviewd.
-- False positives worden met evidence vastgelegd.
+- New critical findings block the release.
+- New high findings block unless a risk acceptance or hotfix ticket exists.
+- Medium findings get a ticket and are scheduled.
+- Low and info findings are reviewed periodically.
+- False positives are recorded with evidence.
 
-## Evidence artifacts
+## Evidence Artifacts
 
-Bewaar per release:
+Store per release:
 
-- testresultaten
-- dependency scanresultaten
-- container scanresultaten
+- test results
+- dependency scan results
+- container scan results
 - DAST output
 - Darkstar vulnerability export
-- Darkstar attack-surface export wanneer relevant
-- link naar tickets of risk acceptance
+- Darkstar attack-surface export when relevant
+- link to tickets or risk acceptance
 
-## Secrets en toegangsbeheer
+## Secrets and Access Management
 
-- Gebruik alleen CI/CD secret storage voor API keys.
-- Geef pipeline keys geen platform admin rechten.
-- Roteer API keys periodiek.
-- Trek ongebruikte keys direct in.
-- Log secrets nooit naar stdout.
+- Use only CI/CD secret storage for API keys.
+- Do not give pipeline keys platform admin rights.
+- Rotate API keys periodically.
+- Revoke unused keys immediately.
+- Never log secrets to stdout.
 
-## Scope en veiligheid
+## Scope and Safety
 
-DAST, agressieve scans en brute-force opties mogen alleen draaien tegen systemen
-waarvoor expliciet toestemming en scope is vastgelegd. Voor productie moet de
-pipeline standaard passieve of beperkte checks gebruiken, tenzij er een apart
-change window en akkoord is.
+DAST, aggressive scans and brute-force options may run only against systems for
+which explicit permission and scope have been recorded. For production, the
+pipeline should default to passive or limited checks unless there is a separate
+change window and approval.
 
-## Periodieke controles
+## Periodic Controls
 
-Dagelijks:
+Daily:
 
-- gefaalde scans nalopen
-- critical/high deltas reviewen
+- review failed scans
+- review critical/high deltas
 
-Wekelijks:
+Weekly:
 
-- pipeline artifacts steekproefsgewijs controleren
-- scan-scope en staging URL's valideren
+- sample pipeline artifacts
+- validate scan scope and staging URLs
 
-Maandelijks:
+Monthly:
 
-- API keys roteren of herbevestigen
-- MFA/SSO enforcement controleren
-- scanner nodes en endpoint agents opschonen
+- rotate or reconfirm API keys
+- check MFA/SSO enforcement
+- clean up scanner nodes and endpoint agents

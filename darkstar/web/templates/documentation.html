@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="en">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -16,31 +16,31 @@
             <span>Darkstar</span>
         </a>
         <nav class="top-links" aria-label="Top navigation">
-            <a href="#responsible-use">Verantwoord gebruik</a>
-            <a href="#tools">Tools & licenties</a>
+            <a href="#responsible-use">Responsible Use</a>
+            <a href="#tools">Tools &amp; Licenses</a>
             <a href="#testing">Testing</a>
-            <a href="#internal-scanners">Interne scanners</a>
-            <a href="#authentication">MFA & SSO</a>
+            <a href="#internal-scanners">Internal Scanners</a>
+            <a href="#authentication">MFA &amp; SSO</a>
             <a href="/">Dashboard</a>
         </nav>
     </header>
 
     <main class="doc-layout">
-        <aside class="doc-sidebar" aria-label="Documentatie navigatie">
-            <a href="#overview">Overzicht</a>
-            <a href="#sponsors">Sponsors en licentie</a>
-            <a href="#responsible-use">Verantwoord gebruik</a>
-            <a href="#architecture">Architectuur</a>
-            <a href="#installation">Installatie</a>
-            <a href="#scan-modes">Scan modes</a>
+        <aside class="doc-sidebar" aria-label="Documentation navigation">
+            <a href="#overview">Overview</a>
+            <a href="#sponsors">Sponsors and License</a>
+            <a href="#responsible-use">Responsible Use</a>
+            <a href="#architecture">Architecture</a>
+            <a href="#installation">Installation</a>
+            <a href="#scan-modes">Scan Modes</a>
             <a href="#asm">ASM</a>
             <a href="#dast">DAST</a>
-            <a href="#internal-scanners">Interne netwerken</a>
-            <a href="#tools">Tools en licenties</a>
-            <a href="#authentication">MFA en SSO</a>
-            <a href="#notifications">Notificaties</a>
-            <a href="#api">API en exports</a>
-            <a href="#pipeline">Sec/DevOps pipeline</a>
+            <a href="#internal-scanners">Internal Networks</a>
+            <a href="#tools">Tools and Licenses</a>
+            <a href="#authentication">MFA and SSO</a>
+            <a href="#notifications">Notifications</a>
+            <a href="#api">API and Exports</a>
+            <a href="#pipeline">Sec/DevOps Pipeline</a>
             <a href="#testing">Testing</a>
             <a href="#runbook">Runbook</a>
             <a href="#troubleshooting">Troubleshooting</a>
@@ -48,24 +48,25 @@
 
         <article class="doc-content">
             <section id="overview" class="hero-section">
-                <p class="eyebrow">Project documentatie</p>
+                <p class="eyebrow">Project documentation</p>
                 <h1>Darkstar Documentation</h1>
                 <p class="lead">
-                    Darkstar is een open source vulnerability intelligence platform voor externe attack-surface management,
-                    DAST, netwerk vulnerability scanning en interne scans via losse scanner containers.
+                    Darkstar is an open-source vulnerability intelligence platform for external attack-surface
+                    management, DAST, network vulnerability scanning and internal scans through separate scanner
+                    containers.
                 </p>
                 <div class="hero-actions">
                     <a class="primary-action" href="/">Open dashboard</a>
-                    <a class="secondary-action" href="#installation">Start installatie</a>
+                    <a class="secondary-action" href="#installation">Start installation</a>
                 </div>
             </section>
 
             <section id="sponsors" class="doc-section">
-                <h2>Sponsors en projectlicentie</h2>
+                <h2>Sponsors and Project License</h2>
                 <p>
-                    Darkstar wordt ondersteund door SIDN en NLnet. Die ondersteuning is belangrijk voor het verder
-                    ontwikkelen van open source vulnerability management, inclusief documentatie, scannerintegratie en
-                    security testing in de Sec/DevOps pipeline.
+                    Darkstar is supported by SIDN and NLnet. That support is important for continuing open-source
+                    vulnerability management work, including documentation, scanner integration and security testing
+                    in the Sec/DevOps pipeline.
                 </p>
                 <div class="sponsor-row">
                     <a href="https://www.sidnfonds.nl/" target="_blank" rel="noopener">
@@ -77,441 +78,444 @@
                 </div>
                 <div class="info-grid">
                     <div>
-                        <h3>Darkstar licentie</h3>
-                        <p>De Darkstar repository zelf is gelicenseerd onder GNU GPLv3. Zie de repository root `LICENSE` voor de volledige tekst.</p>
+                        <h3>Darkstar license</h3>
+                        <p>The Darkstar repository itself is licensed under GNU GPLv3. See the repository root <code>LICENSE</code> for the full text.</p>
                     </div>
                     <div>
-                        <h3>Tool licenties</h3>
-                        <p>Darkstar gebruikt meerdere upstream open source security tools. Die tools behouden hun eigen licenties en voorwaarden.</p>
+                        <h3>Tool licenses</h3>
+                        <p>Darkstar uses multiple upstream open-source security tools. Those tools keep their own licenses and terms.</p>
                     </div>
                     <div>
-                        <h3>Let op bij distributie</h3>
-                        <p>Deze pagina is documentatie, geen juridisch advies. Controleer upstream licenties opnieuw voordat je images of binaries herdistribueert.</p>
+                        <h3>Distribution note</h3>
+                        <p>This page is documentation, not legal advice. Re-check upstream licenses before redistributing images or binaries.</p>
                     </div>
                 </div>
             </section>
 
             <section id="responsible-use" class="doc-section">
-                <h2>Verantwoord en toegestaan gebruik</h2>
+                <h2>Responsible and Authorized Use</h2>
                 <p>
-                    Darkstar bevat security tooling voor ASM, DAST, netwerk vulnerability scanning en interne scans.
-                    Gebruik deze tooling uitsluitend voor legitieme beveiligingsdoeleinden op systemen waarvan je
-                    eigenaar bent of waarvoor je vooraf expliciete toestemming hebt gekregen.
+                    Darkstar includes security tooling for ASM, DAST, network vulnerability scanning and internal scans.
+                    Use this tooling only for legitimate security purposes on systems you own or for which you have
+                    explicit prior permission.
                 </p>
                 <div class="callout">
-                    <strong>Geen juridisch advies</strong>
+                    <strong>Not legal advice</strong>
                     <p>
-                        Deze documentatie beschrijft bedoeld gebruik van Darkstar, maar vervangt geen juridisch advies.
-                        Gebruikers en organisaties blijven zelf verantwoordelijk voor naleving van wetgeving, contracten,
-                        bug bounty regels, cloudprovider voorwaarden en klantafspraken.
+                        This documentation describes the intended use of Darkstar, but it is not legal advice.
+                        Users and organizations remain responsible for complying with laws, contracts, bug bounty
+                        rules, cloud provider terms and customer agreements.
                     </p>
                 </div>
-                <h3>Verantwoordelijkheden van de gebruiker</h3>
+                <h3>User Responsibilities</h3>
                 <ul>
-                    <li>Controleer vooraf de toegestane scope, targets, scanvensters en scanintensiteit.</li>
-                    <li>Zorg voor expliciete toestemming van de eigenaar, opdrachtgever of verantwoordelijke organisatie.</li>
-                    <li>Gebruik productieomgevingen alleen wanneer dat binnen de afgesproken testscope valt.</li>
-                    <li>Behandel resultaten, exports, screenshots, secrets en persoonsgegevens als gevoelige informatie.</li>
-                    <li>Beperk toegang tot findings en exports tot personen die deze informatie nodig hebben.</li>
-                    <li>Stop verdere tests wanneer een target buiten scope blijkt te vallen.</li>
+                    <li>Verify the allowed scope, targets, scan windows and scan intensity in advance.</li>
+                    <li>Obtain explicit permission from the owner, client or responsible organization.</li>
+                    <li>Use production environments only when that is part of the agreed test scope.</li>
+                    <li>Treat results, exports, screenshots, secrets and personal data as sensitive information.</li>
+                    <li>Limit access to findings and exports to people who need that information.</li>
+                    <li>Stop further tests when a target turns out to be out of scope.</li>
                 </ul>
-                <h3>Niet toegestaan gebruik</h3>
-                <p>Darkstar mag niet worden gebruikt voor activiteiten buiten toestemming of buiten testscope, waaronder:</p>
+                <h3>Prohibited Use</h3>
+                <p>Darkstar must not be used for activities outside permission or outside the test scope, including:</p>
                 <ul>
-                    <li>ongeautoriseerde scans, exploitatie of toegang tot systemen;</li>
-                    <li>credential stuffing, wachtwoordaanvallen of gebruik van buitgemaakte credentials;</li>
-                    <li>phishing, social engineering, datadiefstal of verzamelen van persoonsgegevens zonder grondslag;</li>
-                    <li>denial-of-service, verstoring, destructieve tests of agressieve belasting zonder akkoord;</li>
-                    <li>persistentie, laterale beweging of pogingen om beveiligingsmonitoring te omzeilen.</li>
+                    <li>unauthorized scans, exploitation or access to systems;</li>
+                    <li>credential stuffing, password attacks or use of compromised credentials;</li>
+                    <li>phishing, social engineering, data theft or collecting personal data without a valid basis;</li>
+                    <li>denial-of-service, disruption, destructive tests or aggressive load without approval;</li>
+                    <li>persistence, lateral movement or attempts to bypass security monitoring.</li>
                 </ul>
-                <h3>Kwetsbaarheden buiten scope</h3>
+                <h3>Out-Of-Scope Vulnerabilities</h3>
                 <p>
-                    Als een scan een kwetsbaarheid of systeem buiten scope raakt, stop dan met verdere tests op dat
-                    target. Leg vast wat er is gevonden, deel geen gevoelige details breder dan nodig en volg een
-                    responsible disclosure of Coordinated Vulnerability Disclosure proces.
+                    If a scan touches an out-of-scope vulnerability or system, stop further testing on that target.
+                    Record what was found, do not share sensitive details more widely than needed, and follow a
+                    responsible disclosure or Coordinated Vulnerability Disclosure process.
                 </p>
             </section>
 
             <section id="architecture" class="doc-section">
-                <h2>Architectuur</h2>
+                <h2>Architecture</h2>
                 <p>
-                    Darkstar bestaat uit een web/orchestrator, een MariaDB database, scanner tooling, optionele Greenbone/OpenVAS
-                    services en optionele scanner-only workers. De orchestrator bewaart tenantdata, gebruikers, policies,
-                    scanqueues, logs en resultaten. Scanner workers voeren scanjobs uit vanaf hun eigen netwerkpositie.
+                    Darkstar consists of a web/orchestrator, a MariaDB database, scanner tooling, optional
+                    Greenbone/OpenVAS services and optional scanner-only workers. The orchestrator stores tenant data,
+                    users, policies, scan queues, logs and results. Scanner workers execute scan jobs from their own
+                    network position.
                 </p>
                 <div class="flow">
-                    <div><strong>Dashboard</strong><span>Gebruikers, scans, filters, exports, settings</span></div>
+                    <div><strong>Dashboard</strong><span>Users, scans, filters, exports, settings</span></div>
                     <div><strong>Orchestrator API</strong><span>Auth, queue, scanner nodes, logs, lifecycle</span></div>
                     <div><strong>Scanner runtime</strong><span>BBOT, RustScan, Nuclei, OpenVAS, Asteroid, DAST tools</span></div>
                     <div><strong>Tenant databases</strong><span>Findings, ASM assets, endpoint inventory, schedules</span></div>
                 </div>
-                <h3>Multi-tenant model</h3>
+                <h3>Multi-Tenant Model</h3>
                 <p>
-                    Elke organisatie werkt in een tenantcontext. Gebruikers kunnen aan een of meer tenants gekoppeld zijn.
-                    Bij login kiest de gebruiker de tenant wanneer er meerdere memberships bestaan. Rollen bepalen daarna
-                    welke acties zichtbaar en toegestaan zijn.
+                    Each organization works in a tenant context. Users can be linked to one or more tenants. During
+                    login, the user selects the tenant when multiple memberships exist. Roles then determine which
+                    actions are visible and allowed.
                 </p>
                 <table>
-                    <thead><tr><th>Rol</th><th>Bedoeling</th><th>Voorbeelden</th></tr></thead>
+                    <thead><tr><th>Role</th><th>Purpose</th><th>Examples</th></tr></thead>
                     <tbody>
-                        <tr><td><code>viewer</code></td><td>Lezen en rapporteren</td><td>Dashboard bekijken, findings filteren, exports downloaden</td></tr>
-                        <tr><td><code>security_analyst</code></td><td>Operationeel scannen</td><td>Scans starten, debug logs bekijken, scanresultaten triageren</td></tr>
-                        <tr><td><code>tenant_admin</code></td><td>Tenantbeheer</td><td>Gebruikers, API keys, MFA/SSO, notificaties en scanner nodes beheren</td></tr>
-                        <tr><td><code>platform_admin</code></td><td>Platformbeheer</td><td>Tenantoverzicht, platformbrede MFA policy en admin users</td></tr>
+                        <tr><td><code>viewer</code></td><td>Read and report</td><td>View dashboard, filter findings, download exports</td></tr>
+                        <tr><td><code>security_analyst</code></td><td>Operational scanning</td><td>Start scans, view debug logs, triage scan results</td></tr>
+                        <tr><td><code>tenant_admin</code></td><td>Tenant administration</td><td>Manage users, API keys, MFA/SSO, notifications and scanner nodes</td></tr>
+                        <tr><td><code>platform_admin</code></td><td>Platform administration</td><td>Tenant overview, platform-wide MFA policy and admin users</td></tr>
                     </tbody>
                 </table>
             </section>
 
             <section id="installation" class="doc-section">
-                <h2>Installatie en starten</h2>
-                <p>De standaard stack draait via Docker Compose. Gebruik het `darkstar` profiel voor de volledige omgeving.</p>
+                <h2>Installation and Startup</h2>
+                <p>The default stack runs through Docker Compose. Use the <code>darkstar</code> profile for the full environment.</p>
                 <pre><code>git clone --recurse-submodules git@github.com:The-DarkStar-Project/darkstar.git
 cd darkstar
 cp .env.example .env
 docker compose --profile darkstar up -d --build</code></pre>
-                <p>Open daarna het dashboard op:</p>
+                <p>Then open the dashboard at:</p>
                 <pre><code>http://localhost:8080</code></pre>
-                <h3>Belangrijke environment variabelen</h3>
+                <h3>Important Environment Variables</h3>
                 <table>
-                    <thead><tr><th>Variabele</th><th>Gebruik</th></tr></thead>
+                    <thead><tr><th>Variable</th><th>Use</th></tr></thead>
                     <tbody>
-                        <tr><td><code>DB_HOST</code>, <code>DB_NAME</code>, <code>DB_USER</code>, <code>DB_PASSWORD</code></td><td>Databaseverbinding voor orchestrator en scanner workers.</td></tr>
-                        <tr><td><code>WEB_SESSION_SECRET</code></td><td>Session signing secret. In productie altijd vervangen.</td></tr>
-                        <tr><td><code>OPENVAS_USER</code>, <code>OPENVAS_PASS</code></td><td>Credentials voor de OpenVAS/GVM integratie.</td></tr>
-                        <tr><td><code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_FROM</code></td><td>Emailnotificaties versturen.</td></tr>
-                        <tr><td><code>SSO_REDIRECT_URI</code></td><td>Publieke OIDC callback URL wanneer de auto-detect URL niet klopt.</td></tr>
-                        <tr><td><code>DARKSTAR_ORCHESTRATOR_URL</code>, <code>DARKSTAR_SCANNER_TOKEN</code></td><td>Scanner-only workers koppelen aan de orchestrator.</td></tr>
+                        <tr><td><code>DB_HOST</code>, <code>DB_NAME</code>, <code>DB_USER</code>, <code>DB_PASSWORD</code></td><td>Database connection for the orchestrator and scanner workers.</td></tr>
+                        <tr><td><code>WEB_SESSION_SECRET</code></td><td>Session signing secret. Always replace it in production.</td></tr>
+                        <tr><td><code>OPENVAS_USER</code>, <code>OPENVAS_PASS</code></td><td>Credentials for the OpenVAS/GVM integration.</td></tr>
+                        <tr><td><code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_FROM</code></td><td>Send email notifications.</td></tr>
+                        <tr><td><code>SSO_REDIRECT_URI</code></td><td>Public OIDC callback URL when the auto-detected URL is not correct.</td></tr>
+                        <tr><td><code>DARKSTAR_ORCHESTRATOR_URL</code>, <code>DARKSTAR_SCANNER_TOKEN</code></td><td>Connect scanner-only workers to the orchestrator.</td></tr>
                     </tbody>
                 </table>
             </section>
 
             <section id="scan-modes" class="doc-section">
-                <h2>Scan modes</h2>
+                <h2>Scan Modes</h2>
                 <p>
-                    In Scan Center kies je een scan mode of een individuele scanner. Kies nooit allebei tegelijk:
-                    de backend accepteert precies een mode of precies een scanner.
+                    In Scan Center, choose a scan mode or an individual scanner. Do not choose both at the same time:
+                    the backend accepts exactly one mode or exactly one scanner.
                 </p>
                 <table>
-                    <thead><tr><th>Mode</th><th>Doel</th><th>Wat Darkstar uitvoert</th></tr></thead>
+                    <thead><tr><th>Mode</th><th>Purpose</th><th>What Darkstar Runs</th></tr></thead>
                     <tbody>
-                        <tr><td>Passive</td><td>Lichte verkenning</td><td>BBOT passive en email/security domain checks, zonder brede actieve DAST.</td></tr>
-                        <tr><td>Normal</td><td>Standaard vulnerability scan</td><td>BBOT normal, RustScan, OpenVAS, Nuclei standaard, Nuclei network, WordPress Nuclei en Asteroid normal.</td></tr>
-                        <tr><td>Aggressive</td><td>Breder en actiever testen</td><td>BBOT aggressive, RustScan, OpenVAS, Nuclei, WordPress Nuclei, Asteroid aggressive en OWASP ZAP.</td></tr>
-                        <tr><td>Attack Surface</td><td>ASM mapping</td><td>BBOT attack_surface en portscan op ontdekte IP's om assets en exposure op te bouwen.</td></tr>
+                        <tr><td>Passive</td><td>Light reconnaissance</td><td>BBOT passive and email/security domain checks without broad active DAST.</td></tr>
+                        <tr><td>Normal</td><td>Standard vulnerability scan</td><td>BBOT normal, RustScan, OpenVAS, standard Nuclei, Nuclei network, WordPress Nuclei and Asteroid normal.</td></tr>
+                        <tr><td>Aggressive</td><td>Broader and more active testing</td><td>BBOT aggressive, RustScan, OpenVAS, Nuclei, WordPress Nuclei, Asteroid aggressive and OWASP ZAP.</td></tr>
+                        <tr><td>Attack Surface</td><td>ASM mapping</td><td>BBOT attack_surface and port scanning on discovered IPs to build assets and exposure data.</td></tr>
                     </tbody>
                 </table>
-                <h3>Individuele scanners</h3>
+                <h3>Individual Scanners</h3>
                 <p>
-                    Voor gerichte taken kun je een individuele scanner kiezen, bijvoorbeeld `nuclei`, `openvas`, `rustscan`,
-                    `nikto`, `wapiti`, `zap`, `dalfox`, `testssl`, `retirejs` of `vulnscan`.
+                    For targeted tasks, choose an individual scanner such as <code>nuclei</code>, <code>openvas</code>,
+                    <code>rustscan</code>, <code>nikto</code>, <code>wapiti</code>, <code>zap</code>, <code>dalfox</code>,
+                    <code>testssl</code>, <code>retirejs</code> or <code>vulnscan</code>.
                 </p>
             </section>
 
             <section id="asm" class="doc-section">
                 <h2>Attack Surface Management (ASM)</h2>
                 <p>
-                    ASM in Darkstar is bedoeld om externe assets en exposure zichtbaar te maken. Darkstar gebruikt BBOT
-                    voor domein- en subdomeinverkenning, DNS en OSINT-bronnen, en combineert dit met portinformatie uit
-                    RustScan. Ontdekte subdomeinen worden als potentiele targets bewaard, zodat je gericht vervolgscans
-                    kunt starten.
+                    ASM in Darkstar is intended to make external assets and exposure visible. Darkstar uses BBOT for
+                    domain and subdomain reconnaissance, DNS and OSINT sources, and combines that with port information
+                    from RustScan. Discovered subdomains are stored as potential targets so you can start focused
+                    follow-up scans.
                 </p>
                 <h3>Workflow</h3>
                 <ol>
-                    <li>Start een Attack Surface scan op een hoofddomein of scopebestand.</li>
-                    <li>Controleer de Attack Surface pagina op hosts, subdomeinen, IP's, poorten en technologie hints.</li>
-                    <li>Filter subdomeinen op parent domain of zoekterm.</li>
-                    <li>Selecteer subdomeinen en start een vervolgscan vanuit dezelfde pagina.</li>
-                    <li>Exporteer attack-surface data als CSV, XLSX of HTML voor scope- en exposure reviews.</li>
+                    <li>Start an Attack Surface scan on a root domain or scope file.</li>
+                    <li>Review the Attack Surface page for hosts, subdomains, IPs, ports and technology hints.</li>
+                    <li>Filter subdomains by parent domain or search term.</li>
+                    <li>Select subdomains and start a follow-up scan from the same page.</li>
+                    <li>Export attack-surface data as CSV, XLSX or HTML for scope and exposure reviews.</li>
                 </ol>
                 <div class="callout">
                     <strong>Scope discipline</strong>
-                    <p>ASM kan veel targets vinden die niet allemaal binnen toestemming vallen. Valideer scope voordat je actieve DAST of agressieve scans start.</p>
+                    <p>ASM can find many targets that are not all within permission. Validate scope before starting active DAST or aggressive scans.</p>
                 </div>
             </section>
 
             <section id="dast" class="doc-section">
                 <h2>Dynamic Application Security Testing (DAST)</h2>
                 <p>
-                    DAST test draaiende webapplicaties vanaf buiten de codebase. Darkstar combineert template-based checks,
-                    crawlers, fuzzers en webscanners. Resultaten worden genormaliseerd naar Darkstar findings met host,
-                    affected item, severity, confidence, summary, oplossing en referenties.
+                    DAST tests running web applications from outside the codebase. Darkstar combines template-based
+                    checks, crawlers, fuzzers and web scanners. Results are normalized into Darkstar findings with host,
+                    affected item, severity, confidence, summary, remediation and references.
                 </p>
                 <div class="info-grid">
                     <div>
-                        <h3>Template-based</h3>
-                        <p>Nuclei draait standaard, netwerk en WordPress templates. Asteroid gebruikt daarnaast eigen Nuclei DAST templates.</p>
+                        <h3>Template-Based</h3>
+                        <p>Nuclei runs standard, network and WordPress templates. Asteroid also uses its own Nuclei DAST templates.</p>
                     </div>
                     <div>
-                        <h3>Crawling en discovery</h3>
-                        <p>Katana, Gau, httpx en Feroxbuster verzamelen URLs, formulieren en verborgen paden voor verdere checks.</p>
+                        <h3>Crawling and Discovery</h3>
+                        <p>Katana, Gau, httpx and Feroxbuster collect URLs, forms and hidden paths for further checks.</p>
                     </div>
                     <div>
-                        <h3>Actieve scanners</h3>
-                        <p>OWASP ZAP, Wapiti, Nikto, Dalfox en testssl.sh voeren gerichte web-, XSS- en TLS-controles uit.</p>
+                        <h3>Active Scanners</h3>
+                        <p>OWASP ZAP, Wapiti, Nikto, Dalfox and testssl.sh perform targeted web, XSS and TLS checks.</p>
                     </div>
                 </div>
-                <h3>Wanneer gebruik je welke DAST?</h3>
+                <h3>Which DAST Should You Use?</h3>
                 <table>
-                    <thead><tr><th>Situatie</th><th>Aanpak</th></tr></thead>
+                    <thead><tr><th>Situation</th><th>Approach</th></tr></thead>
                     <tbody>
-                        <tr><td>Snelle baseline op staging</td><td>Nuclei standaard of ZAP baseline.</td></tr>
-                        <tr><td>Webapp met veel routes</td><td>Asteroid normal/aggressive voor crawling, URL normalisatie en template checks.</td></tr>
-                        <tr><td>XSS-focus</td><td>Dalfox of Nuclei XSS templates.</td></tr>
-                        <tr><td>TLS of certificaten</td><td>testssl.sh via de `testssl` scanner.</td></tr>
-                        <tr><td>Server misconfiguraties</td><td>Nikto, Wapiti en Nuclei misconfiguration templates.</td></tr>
+                        <tr><td>Fast baseline on staging</td><td>Standard Nuclei or ZAP baseline.</td></tr>
+                        <tr><td>Web app with many routes</td><td>Asteroid normal/aggressive for crawling, URL normalization and template checks.</td></tr>
+                        <tr><td>XSS focus</td><td>Dalfox or Nuclei XSS templates.</td></tr>
+                        <tr><td>TLS or certificates</td><td>testssl.sh through the <code>testssl</code> scanner.</td></tr>
+                        <tr><td>Server misconfigurations</td><td>Nikto, Wapiti and Nuclei misconfiguration templates.</td></tr>
                     </tbody>
                 </table>
             </section>
 
             <section id="internal-scanners" class="doc-section">
-                <h2>Interne netwerken scannen via containers</h2>
+                <h2>Scan Internal Networks With Containers</h2>
                 <p>
-                    Darkstar kan scanner-only containers koppelen aan de centrale orchestrator. Zo kan een scanner draaien
-                    in een intern netwerk, op een klantlocatie, in een VPN of in dezelfde Docker network namespace als
-                    interne services. De orchestrator blijft centraal; de scan draait vanaf de plek waar de worker netwerktoegang heeft.
+                    Darkstar can connect scanner-only containers to the central orchestrator. This lets a scanner run in
+                    an internal network, at a customer site, in a VPN or in the same Docker network namespace as internal
+                    services. The orchestrator remains central; the scan runs from the place where the worker has network
+                    access.
                 </p>
-                <h3>Wat de scanner worker doet</h3>
+                <h3>What The Scanner Worker Does</h3>
                 <ul>
-                    <li>Authenticeert met een eenmalig aangemaakte `dscan_...` token.</li>
-                    <li>Stuurt heartbeats naar de orchestrator.</li>
-                    <li>Claimt queued scanjobs via `/api/scanner-workers/jobs/claim`.</li>
-                    <li>Voert `python3 -m darkstar.main` uit met targets, mode en scannerkeuze.</li>
-                    <li>Streamt logs terug naar de Debug pagina.</li>
-                    <li>Schrijft resultaten naar de centrale Darkstar database.</li>
+                    <li>Authenticates with a one-time generated <code>dscan_...</code> token.</li>
+                    <li>Sends heartbeats to the orchestrator.</li>
+                    <li>Claims queued scan jobs through <code>/api/scanner-workers/jobs/claim</code>.</li>
+                    <li>Executes <code>python3 -m darkstar.main</code> with targets, mode and scanner choice.</li>
+                    <li>Streams logs back to the Debug page.</li>
+                    <li>Writes results to the central Darkstar database.</li>
                 </ul>
-                <h3>Lokale scanner container activeren</h3>
-                <p>Maak eerst een scanner node en attach token aan in de orchestrator container:</p>
+                <h3>Activate A Local Scanner Container</h3>
+                <p>First create a scanner node and attach token in the orchestrator container:</p>
                 <pre><code>docker compose exec darkstar-web python3 -m darkstar.scanner_attach create \
   --name local-scanner \
   --url http://darkstar-web:8080 \
   --network darkstar_vuln_net \
   --max-parallel-jobs 2</code></pre>
                 <p>
-                    De CLI schrijft de scanner token en worker instellingen naar een beschermd env bestand
-                    (<code>0600</code>) en toont een <code>docker run --env-file ...</code> command.
-                    Kopieer tokens alleen naar de worker host of een secret manager. Voor een lokale Compose
-                    worker zet je dezelfde waarden in <code>.env</code>:
+                    The CLI writes the scanner token and worker settings to a protected env file
+                    (<code>0600</code>) and prints a <code>docker run --env-file ...</code> command.
+                    Copy tokens only to the worker host or a secret manager. For a local Compose worker,
+                    put the same values in <code>.env</code>:
                 </p>
                 <pre><code>DARKSTAR_ORCHESTRATOR_URL='http://darkstar-web:8080'
 DARKSTAR_SCANNER_TOKEN='dscan_...'
 DARKSTAR_SCANNER_NAME='local-scanner'
 DARKSTAR_WORKER_MAX_PARALLEL='2'</code></pre>
-                <p>Start daarna de scanner worker:</p>
+                <p>Then start the scanner worker:</p>
                 <pre><code>docker compose --profile scanner up -d darkstar-scanner</code></pre>
-                <h3>Remote of klantnetwerk scanner</h3>
+                <h3>Remote Or Customer-Network Scanner</h3>
                 <p>
-                    Voor een remote netwerk gebruik je het `docker run` attach command dat Darkstar toont in Settings.
-                    De worker heeft outbound toegang nodig naar de orchestrator API en naar de centrale MariaDB endpoint,
-                    of naar een VPN/tunnel die die verbinding levert.
+                    For a remote network, use the <code>docker run</code> attach command that Darkstar shows in Settings.
+                    The worker needs outbound access to the orchestrator API and to the central MariaDB endpoint, or to a
+                    VPN/tunnel that provides that connection.
                 </p>
-                <h3>Scanner kiezen in de UI</h3>
+                <h3>Choose A Scanner In The UI</h3>
                 <ol>
-                    <li>Open `Scan Center`.</li>
-                    <li>Vul targets in die bereikbaar zijn vanuit het interne netwerk van de worker.</li>
-                    <li>Kies bij `Scanner appliance` de juiste worker, of laat `Auto` staan.</li>
-                    <li>Start de scan. Logs verschijnen in `Debug`; resultaten komen in dezelfde tenantdatabase.</li>
+                    <li>Open <code>Scan Center</code>.</li>
+                    <li>Enter targets reachable from the worker's internal network.</li>
+                    <li>Choose the right worker under <code>Scanner appliance</code>, or keep <code>Auto</code>.</li>
+                    <li>Start the scan. Logs appear in <code>Debug</code>; results land in the same tenant database.</li>
                 </ol>
             </section>
 
             <section id="tools" class="doc-section">
-                <h2>Tools en licenties</h2>
+                <h2>Tools and Licenses</h2>
                 <p>
-                    Deze matrix beschrijft de belangrijkste tools die Darkstar installeert of aanroept. Licenties zijn
-                    gebaseerd op upstream projectinformatie en de lokale Asteroid-documentatie. Controleer upstream
-                    voordat je Docker images of samengestelde binaries extern verspreidt.
+                    This matrix describes the main tools that Darkstar installs or invokes. Licenses are based on
+                    upstream project information and the local Asteroid documentation. Check upstream terms before
+                    distributing Docker images or combined binaries externally.
                 </p>
                 <table class="wide-table">
-                    <thead><tr><th>Tool</th><th>Gebruik in Darkstar</th><th>Licentie</th><th>Bron</th></tr></thead>
+                    <thead><tr><th>Tool</th><th>Use In Darkstar</th><th>License</th><th>Source</th></tr></thead>
                     <tbody>
                         <tr><td>Darkstar</td><td>Dashboard, orchestrator, queue, API, data model</td><td>GNU GPLv3</td><td><a href="https://www.gnu.org/licenses/gpl-3.0.html">GPLv3</a></td></tr>
-                        <tr><td>Asteroid</td><td>Modulaire web application scanner</td><td>GNU AGPLv3</td><td>Lokale `darkstar/scanners/asteroid/LICENSE`</td></tr>
+                        <tr><td>Asteroid</td><td>Modular web application scanner</td><td>GNU AGPLv3</td><td>Local <code>darkstar/scanners/asteroid/LICENSE</code></td></tr>
                         <tr><td>BBOT</td><td>Recon, subdomains, ASM, OSINT, DNS discovery</td><td>GPL-3.0</td><td><a href="https://github.com/blacklanternsecurity/bbot">Upstream</a></td></tr>
-                        <tr><td>RustScan</td><td>Snelle port discovery</td><td>GPL-3.0</td><td><a href="https://github.com/bee-san/RustScan">Upstream</a></td></tr>
-                        <tr><td>Nmap</td><td>Service detection via RustScan pipeline</td><td>Nmap Public Source License</td><td><a href="https://nmap.org/npsl/">NPSL</a></td></tr>
-                        <tr><td>OpenVAS Scanner / Greenbone CE</td><td>Netwerk vulnerability scanning</td><td>GPLv2 voor scannercomponenten; Greenbone feed/data objecten hebben eigen voorwaarden</td><td><a href="https://github.com/greenbone/openvas-scanner">OpenVAS scanner</a></td></tr>
-                        <tr><td>Nuclei</td><td>Template-based vulnerability scanning, network en WordPress checks</td><td>MIT</td><td><a href="https://github.com/projectdiscovery/nuclei">Upstream</a></td></tr>
+                        <tr><td>RustScan</td><td>Fast port discovery</td><td>GPL-3.0</td><td><a href="https://github.com/bee-san/RustScan">Upstream</a></td></tr>
+                        <tr><td>Nmap</td><td>Service detection through RustScan pipeline</td><td>Nmap Public Source License</td><td><a href="https://nmap.org/npsl/">NPSL</a></td></tr>
+                        <tr><td>OpenVAS Scanner / Greenbone CE</td><td>Network vulnerability scanning</td><td>GPLv2 for scanner components; Greenbone feed/data objects have their own terms</td><td><a href="https://github.com/greenbone/openvas-scanner">OpenVAS scanner</a></td></tr>
+                        <tr><td>Nuclei</td><td>Template-based vulnerability scanning, network and WordPress checks</td><td>MIT</td><td><a href="https://github.com/projectdiscovery/nuclei">Upstream</a></td></tr>
                         <tr><td>OWASP ZAP</td><td>DAST baseline/spider/passive alerts</td><td>Apache-2.0</td><td><a href="https://www.zaproxy.org/">ZAP</a></td></tr>
-                        <tr><td>Nikto</td><td>Webserver misconfiguration checks</td><td>GPL; raadpleeg upstream licensing voor code en testdatabase</td><td><a href="https://github.com/sullo/nikto/wiki/Nikto-Licensing">Nikto licensing</a></td></tr>
+                        <tr><td>Nikto</td><td>Webserver misconfiguration checks</td><td>GPL; consult upstream licensing for code and test database</td><td><a href="https://github.com/sullo/nikto/wiki/Nikto-Licensing">Nikto licensing</a></td></tr>
                         <tr><td>Wapiti</td><td>Black-box web vulnerability scanner</td><td>GPL-2.0</td><td><a href="https://github.com/wapiti-scanner/wapiti">Upstream</a></td></tr>
                         <tr><td>Dalfox</td><td>XSS scanning</td><td>MIT</td><td><a href="https://dalfox.com/">Dalfox</a></td></tr>
-                        <tr><td>testssl.sh</td><td>TLS/SSL protocol, cipher en certificate checks</td><td>GPL-2.0</td><td><a href="https://github.com/testssl/testssl.sh">Upstream</a></td></tr>
-                        <tr><td>THC-Hydra</td><td>Optionele bruteforce op ontdekte services</td><td>GPL-3.0-or-later</td><td><a href="https://github.com/vanhauser-thc/thc-hydra">Upstream</a></td></tr>
-                        <tr><td>massdns</td><td>DNS brute-force modules via BBOT</td><td>GPL-3.0</td><td><a href="https://github.com/blechschmidt/massdns">Upstream</a></td></tr>
+                        <tr><td>testssl.sh</td><td>TLS/SSL protocol, cipher and certificate checks</td><td>GPL-2.0</td><td><a href="https://github.com/testssl/testssl.sh">Upstream</a></td></tr>
+                        <tr><td>THC-Hydra</td><td>Optional brute force against discovered services</td><td>GPL-3.0-or-later</td><td><a href="https://github.com/vanhauser-thc/thc-hydra">Upstream</a></td></tr>
+                        <tr><td>massdns</td><td>DNS brute-force modules through BBOT</td><td>GPL-3.0</td><td><a href="https://github.com/blechschmidt/massdns">Upstream</a></td></tr>
                         <tr><td>Katana</td><td>Crawling in Asteroid</td><td>MIT</td><td><a href="https://github.com/projectdiscovery/katana">Upstream</a></td></tr>
-                        <tr><td>httpx</td><td>HTTP probing en filtering</td><td>MIT</td><td><a href="https://github.com/projectdiscovery/httpx">Upstream</a></td></tr>
-                        <tr><td>Gau</td><td>URL discovery via Wayback, Common Crawl en OTX</td><td>MIT</td><td><a href="https://github.com/lc/gau">Upstream</a></td></tr>
-                        <tr><td>Feroxbuster</td><td>Directory en file enumeration</td><td>MIT</td><td><a href="https://feroxbuster.com/">Feroxbuster</a></td></tr>
+                        <tr><td>httpx</td><td>HTTP probing and filtering</td><td>MIT</td><td><a href="https://github.com/projectdiscovery/httpx">Upstream</a></td></tr>
+                        <tr><td>Gau</td><td>URL discovery through Wayback, Common Crawl and OTX</td><td>MIT</td><td><a href="https://github.com/lc/gau">Upstream</a></td></tr>
+                        <tr><td>Feroxbuster</td><td>Directory and file enumeration</td><td>MIT</td><td><a href="https://feroxbuster.com/">Feroxbuster</a></td></tr>
                         <tr><td>Arjun</td><td>Parameter discovery in Asteroid</td><td>AGPL-3.0</td><td><a href="https://github.com/s0md3v/Arjun">Upstream</a></td></tr>
                         <tr><td>TruffleHog</td><td>Secret scanning in Asteroid modules</td><td>AGPL-3.0</td><td><a href="https://github.com/trufflesecurity/trufflehog">Upstream</a></td></tr>
                         <tr><td>wappalyzer-next</td><td>Technology detection in Vulnscan</td><td>GPL-3.0</td><td><a href="https://github.com/s0md3v/wappalyzer-next">Upstream</a></td></tr>
-                        <tr><td>RetireJS</td><td>Kwetsbare JavaScript libraries detecteren</td><td>Apache-2.0</td><td><a href="https://github.com/RetireJS/retire.js">Upstream</a></td></tr>
-                        <tr><td>uro</td><td>URL normalisatie/filtering in web scanning workflow</td><td>Apache-2.0</td><td><a href="https://github.com/s0md3v/uro">Upstream</a></td></tr>
+                        <tr><td>RetireJS</td><td>Vulnerable JavaScript library detection</td><td>Apache-2.0</td><td><a href="https://github.com/RetireJS/retire.js">Upstream</a></td></tr>
+                        <tr><td>uro</td><td>URL normalization/filtering in web scanning workflow</td><td>Apache-2.0</td><td><a href="https://github.com/s0md3v/uro">Upstream</a></td></tr>
                     </tbody>
                 </table>
-                <h3>Data en externe services</h3>
+                <h3>Data and External Services</h3>
                 <p>
-                    Darkstar kan ook data gebruiken zoals CISA KEV, EPSS en Have I Been Pwned. Dit zijn data- of API-bronnen
-                    met eigen gebruiksvoorwaarden. Behandel API keys als secrets en documenteer welke datasets in jouw deployment
-                    zijn ingeschakeld.
+                    Darkstar can also use data such as CISA KEV, EPSS and Have I Been Pwned. These are data or API
+                    sources with their own terms of use. Treat API keys as secrets and document which datasets are
+                    enabled in your deployment.
                 </p>
             </section>
 
             <section id="authentication" class="doc-section">
-                <h2>MFA en SSO</h2>
-                <h3>MFA instellen</h3>
+                <h2>MFA and SSO</h2>
+                <h3>Set Up MFA</h3>
                 <ol>
-                    <li>Log in en open `Settings`.</li>
-                    <li>Open `Authentication` en klik `Setup MFA`.</li>
-                    <li>Scan de QR-code met een authenticator app of kopieer de secret handmatig.</li>
-                    <li>Voer de 6-cijferige code in en klik `Enable MFA`.</li>
-                    <li>Als tenant admin kun je daarna `Require MFA for this organization` inschakelen.</li>
+                    <li>Log in and open <code>Settings</code>.</li>
+                    <li>Open <code>Authentication</code> and click <code>Setup MFA</code>.</li>
+                    <li>Scan the QR code with an authenticator app or copy the secret manually.</li>
+                    <li>Enter the 6-digit code and click <code>Enable MFA</code>.</li>
+                    <li>As a tenant admin, you can then enable <code>Require MFA for this organization</code>.</li>
                 </ol>
                 <p>
-                    Darkstar gebruikt TOTP. Als MFA verplicht is en een gebruiker nog geen MFA heeft, wordt bij login
-                    eerst setup afgedwongen voordat de sessie wordt afgerond.
+                    Darkstar uses TOTP. If MFA is required and a user does not yet have MFA, setup is enforced during
+                    login before the session is completed.
                 </p>
-                <h3>SSO instellen</h3>
+                <h3>Set Up SSO</h3>
                 <ol>
-                    <li>Maak bij je identity provider een OIDC application/client aan.</li>
-                    <li>Gebruik als redirect URI: <code>/api/auth/sso/callback</code> op de publieke Darkstar URL.</li>
-                    <li>Open in Darkstar `Settings` -> `Authentication` -> `Setup SSO`.</li>
-                    <li>Vul de issuer URL, client ID, client secret en eventueel allowed email domain in.</li>
-                    <li>Zet `Enable SSO` aan en sla op.</li>
-                    <li>Test login via het SSO veld op het login scherm.</li>
-                    <li>Schakel pas daarna `Require SSO for this organization` in.</li>
+                    <li>Create an OIDC application/client with your identity provider.</li>
+                    <li>Use this redirect URI on the public Darkstar URL: <code>/api/auth/sso/callback</code>.</li>
+                    <li>Open <code>Settings</code> -> <code>Authentication</code> -> <code>Setup SSO</code> in Darkstar.</li>
+                    <li>Enter the issuer URL, client ID, client secret and optional allowed email domain.</li>
+                    <li>Enable <code>Enable SSO</code> and save.</li>
+                    <li>Test login through the SSO field on the login screen.</li>
+                    <li>Only then enable <code>Require SSO for this organization</code>.</li>
                 </ol>
                 <div class="callout">
-                    <strong>Publieke URL</strong>
-                    <p>Gebruik <code>SSO_REDIRECT_URI</code> wanneer Darkstar achter een reverse proxy draait en de automatisch gegenereerde callback URL niet overeenkomt met de publieke URL.</p>
+                    <strong>Public URL</strong>
+                    <p>Use <code>SSO_REDIRECT_URI</code> when Darkstar runs behind a reverse proxy and the generated callback URL does not match the public URL.</p>
                 </div>
             </section>
 
             <section id="notifications" class="doc-section">
-                <h2>Emailnotificaties</h2>
+                <h2>Email Notifications</h2>
                 <p>
-                    Darkstar kan scanresultaten per email melden. De UI-configuratie bepaalt wie mail krijgt en bij welke severity,
-                    terwijl SMTP via environment variabelen wordt ingesteld.
+                    Darkstar can report scan results by email. The UI configuration controls who receives mail and at
+                    which severity, while SMTP is configured through environment variables.
                 </p>
-                <h3>SMTP configureren</h3>
+                <h3>Configure SMTP</h3>
                 <pre><code>SMTP_HOST='smtp.example.org'
 SMTP_PORT='587'
 SMTP_FROM='darkstar@example.org'
 SMTP_USER='darkstar@example.org'
 SMTP_PASSWORD='...'
 SMTP_TLS='true'</code></pre>
-                <h3>Notificaties in de UI instellen</h3>
+                <h3>Configure Notifications In The UI</h3>
                 <ol>
-                    <li>Open `Settings` -> `Email Notifications`.</li>
-                    <li>Zet `Enable email notifications` aan.</li>
-                    <li>Voeg een of meer ontvangers toe.</li>
-                    <li>Kies de minimale severity: critical, high, medium of low.</li>
-                    <li>Kies of success, failure en stopped scans ook gemeld moeten worden.</li>
-                    <li>Klik `Save Notifications` en daarna eventueel `Send Test`.</li>
+                    <li>Open <code>Settings</code> -> <code>Email Notifications</code>.</li>
+                    <li>Enable <code>Enable email notifications</code>.</li>
+                    <li>Add one or more recipients.</li>
+                    <li>Choose the minimum severity: critical, high, medium or low.</li>
+                    <li>Choose whether success, failure and stopped scans should also be reported.</li>
+                    <li>Click <code>Save Notifications</code> and optionally <code>Send Test</code>.</li>
                 </ol>
-                <p>Als <code>SMTP_HOST</code> ontbreekt, slaat Darkstar emailverzending over en schrijft dit naar de logs.</p>
+                <p>If <code>SMTP_HOST</code> is missing, Darkstar skips email delivery and writes this to the logs.</p>
             </section>
 
             <section id="api" class="doc-section">
-                <h2>API keys, exports en rapportage</h2>
+                <h2>API Keys, Exports and Reporting</h2>
                 <p>
-                    Tenant admins kunnen API keys maken voor integraties, rapportage of CI/CD. Gebruik altijd de laagste rol
-                    die nodig is en bewaar keys alleen in een secret manager of CI/CD secret storage.
+                    Tenant admins can create API keys for integrations, reporting or CI/CD. Always use the lowest role
+                    needed and store keys only in a secret manager or CI/CD secret storage.
                 </p>
                 <pre><code>Authorization: Bearer dstar_...</code></pre>
                 <h3>Exports</h3>
                 <ul>
-                    <li>Vulnerabilities: CSV, XLSX en HTML report.</li>
-                    <li>Attack Surface: CSV, XLSX en HTML report.</li>
-                    <li>Debug logs: beschikbaar per scan in de Debug pagina en via API.</li>
+                    <li>Vulnerabilities: CSV, XLSX and HTML report.</li>
+                    <li>Attack Surface: CSV, XLSX and HTML report.</li>
+                    <li>Debug logs: available per scan in the Debug page and through the API.</li>
                 </ul>
-                <p>FastAPI exposeert daarnaast OpenAPI metadata via <code>/openapi.json</code> en API docs via <code>/docs</code>.</p>
+                <p>FastAPI also exposes OpenAPI metadata through <code>/openapi.json</code> and API docs through <code>/docs</code>.</p>
             </section>
 
             <section id="pipeline" class="doc-section">
-                <h2>Sec/DevOps pipeline</h2>
+                <h2>Sec/DevOps Pipeline</h2>
                 <p>
-                    Security testing hoort onderdeel te zijn van de ontwikkel- en releasepipeline. Darkstar past daarin als
-                    centrale plek voor DAST, ASM, netwerk vulnerability scans, evidence en exporteerbare rapportages.
+                    Security testing should be part of the development and release pipeline. Darkstar fits into that
+                    pipeline as the central place for DAST, ASM, network vulnerability scans, evidence and exportable
+                    reports.
                 </p>
                 <div class="pipeline">
-                    <div><span>1</span><strong>Code</strong><p>Unit tests, linting, SAST en secrets scanning.</p></div>
-                    <div><span>2</span><strong>Dependencies</strong><p>OSV, Trivy, Grype of vergelijkbare SCA checks.</p></div>
-                    <div><span>3</span><strong>Build</strong><p>Container image scanning en config/IaC controles.</p></div>
-                    <div><span>4</span><strong>Staging</strong><p>Darkstar DAST tegen tijdelijke staging URL.</p></div>
-                    <div><span>5</span><strong>Gate</strong><p>Release blokkeren bij niet-geaccepteerde critical/high findings.</p></div>
+                    <div><span>1</span><strong>Code</strong><p>Unit tests, linting, SAST and secrets scanning.</p></div>
+                    <div><span>2</span><strong>Dependencies</strong><p>OSV, Trivy, Grype or similar SCA checks.</p></div>
+                    <div><span>3</span><strong>Build</strong><p>Container image scanning and config/IaC checks.</p></div>
+                    <div><span>4</span><strong>Staging</strong><p>Darkstar DAST against a temporary staging URL.</p></div>
+                    <div><span>5</span><strong>Gate</strong><p>Block releases for unaccepted critical/high findings.</p></div>
                 </div>
-                <h3>Aanbevolen gates</h3>
+                <h3>Recommended Gates</h3>
                 <ul>
-                    <li>Nieuwe critical findings blokkeren de release.</li>
-                    <li>High findings vereisen ticket, eigenaar en streefdatum.</li>
-                    <li>Scanrapporten worden als build artifacts bewaard.</li>
-                    <li>DAST draait standaard tegen staging, niet tegen productie zonder akkoord.</li>
-                    <li>API keys worden periodiek geroteerd.</li>
+                    <li>New critical findings block the release.</li>
+                    <li>High findings require a ticket, owner and target date.</li>
+                    <li>Scan reports are stored as build artifacts.</li>
+                    <li>DAST runs against staging by default, not against production without approval.</li>
+                    <li>API keys are rotated periodically.</li>
                 </ul>
             </section>
 
             <section id="testing" class="doc-section">
-                <h2>Testing en testautomatisering</h2>
+                <h2>Testing and Test Automation</h2>
                 <p>
-                    Darkstar gebruikt een gelaagde testaanpak: snelle unit tests voor pure logica, smoke tests voor
-                    belangrijke webapp-contracten en Playwright tests voor browsergedrag, responsive documentatie en
-                    normale applicatieflows.
-                    De GitHub Actions workflow draait unit/smoke en Playwright als aparte jobs.
+                    Darkstar uses a layered testing approach: fast unit tests for pure logic, smoke tests for important
+                    web app contracts and Playwright tests for browser behavior, responsive documentation and normal
+                    application flows. The GitHub Actions workflow runs unit/smoke and Playwright as separate jobs.
                 </p>
                 <div class="info-grid">
                     <div>
-                        <h3>Unit tests</h3>
-                        <p>Valideren scanpayloads, MFA/TOTP helpers, endpoint matching, scanner workers en scanner output parsing.</p>
+                        <h3>Unit Tests</h3>
+                        <p>Validate scan payloads, MFA/TOTP helpers, endpoint matching, scanner workers and scanner output parsing.</p>
                     </div>
                     <div>
-                        <h3>Smoke tests</h3>
-                        <p>Controleren `/documentation`, static assets, OpenAPI, auth boundaries en API-contracten voor vulnerabilities, ASM, scans, schedules en notificaties.</p>
+                        <h3>Smoke Tests</h3>
+                        <p>Check <code>/documentation</code>, static assets, OpenAPI, auth boundaries and API contracts for vulnerabilities, ASM, scans, schedules and notifications.</p>
                     </div>
                     <div>
                         <h3>Playwright</h3>
-                        <p>Start een tijdelijke Uvicorn server en test documentatie plus applicatieflows in Chromium. Scanacties worden gemockt en starten geen echte scanners.</p>
+                        <p>Starts a temporary Uvicorn server and tests documentation plus application flows in Chromium. Scan actions are mocked and do not start real scanners.</p>
                     </div>
                 </div>
-                <h3>Dependencies installeren</h3>
+                <h3>Install Dependencies</h3>
                 <pre><code>python3 -m pip install -r requirements-dev.txt</code></pre>
-                <h3>Unit en smoke tests draaien</h3>
+                <h3>Run Unit and Smoke Tests</h3>
                 <pre><code>python3 -m pytest -m "not playwright"</code></pre>
-                <h3>Alleen smoke tests draaien</h3>
+                <h3>Run Only Smoke Tests</h3>
                 <pre><code>python3 -m pytest -m smoke</code></pre>
-                <h3>Playwright tests draaien</h3>
+                <h3>Run Playwright Tests</h3>
                 <pre><code>python3 -m playwright install chromium
 RUN_PLAYWRIGHT=1 python3 -m pytest -m playwright</code></pre>
                 <p>
-                    Playwright screenshots worden opgeslagen in <code>test-results/playwright/</code>. De volledige
-                    testdocumentatie staat in <code>docs/testing.md</code>.
+                    Playwright screenshots are stored in <code>test-results/playwright/</code>. The full test
+                    documentation is in <code>docs/testing.md</code>.
                 </p>
             </section>
 
             <section id="runbook" class="doc-section">
-                <h2>Operationeel runbook</h2>
+                <h2>Operational Runbook</h2>
                 <div class="info-grid">
                     <div>
-                        <h3>Dagelijks</h3>
+                        <h3>Daily</h3>
                         <ul>
-                            <li>Mislukte of vastgelopen scans controleren.</li>
-                            <li>Nieuwe critical/high findings triageren.</li>
-                            <li>Scanner node heartbeats controleren.</li>
+                            <li>Check failed or stuck scans.</li>
+                            <li>Triage new critical/high findings.</li>
+                            <li>Check scanner node heartbeats.</li>
                         </ul>
                     </div>
                     <div>
-                        <h3>Wekelijks</h3>
+                        <h3>Weekly</h3>
                         <ul>
-                            <li>Vulnerability en attack-surface exports reviewen.</li>
-                            <li>Scanplanning en scope bijwerken.</li>
-                            <li>Offline endpoint agents nalopen.</li>
+                            <li>Review vulnerability and attack-surface exports.</li>
+                            <li>Update scan schedules and scope.</li>
+                            <li>Review offline endpoint agents.</li>
                         </ul>
                     </div>
                     <div>
-                        <h3>Maandelijks</h3>
+                        <h3>Monthly</h3>
                         <ul>
-                            <li>API keys en scanner tokens opschonen.</li>
-                            <li>MFA/SSO enforcement controleren.</li>
-                            <li>Pipeline artifacts en retention controleren.</li>
+                            <li>Clean up API keys and scanner tokens.</li>
+                            <li>Check MFA/SSO enforcement.</li>
+                            <li>Check pipeline artifacts and retention.</li>
                         </ul>
                     </div>
                 </div>
@@ -520,14 +524,14 @@ RUN_PLAYWRIGHT=1 python3 -m pytest -m playwright</code></pre>
             <section id="troubleshooting" class="doc-section">
                 <h2>Troubleshooting</h2>
                 <table>
-                    <thead><tr><th>Probleem</th><th>Controle</th><th>Actie</th></tr></thead>
+                    <thead><tr><th>Problem</th><th>Check</th><th>Action</th></tr></thead>
                     <tbody>
-                        <tr><td>Scanner worker blijft offline</td><td>Token, orchestrator URL, netwerk, worker logs</td><td>Maak een nieuwe attach key, controleer `DARKSTAR_ORCHESTRATOR_URL` en start de worker opnieuw.</td></tr>
-                        <tr><td>Scan blijft queued</td><td>Beschikbare scanner nodes en max parallel jobs</td><td>Zet een worker online of kies `Auto` bij scanner appliance.</td></tr>
-                        <tr><td>SSO callback faalt</td><td>Redirect URI, issuer, client secret, allowed domain</td><td>Vergelijk provider callback met `SSO_REDIRECT_URI` en test OIDC discovery.</td></tr>
-                        <tr><td>MFA code wordt geweigerd</td><td>Tijdsync telefoon/server, secret opnieuw gescand</td><td>Synchroniseer tijd en genereer desnoods een nieuwe MFA secret.</td></tr>
-                        <tr><td>Email komt niet aan</td><td>SMTP env, TLS, credentials, spamfilter</td><td>Gebruik `Send Test`, controleer container logs en SMTP server policy.</td></tr>
-                        <tr><td>Geen OpenVAS resultaten</td><td>GVM containers, feeds, credentials, target bereikbaarheid</td><td>Controleer `docker compose ps`, GSA op poort 9392 en OpenVAS API op poort 8008.</td></tr>
+                        <tr><td>Scanner worker stays offline</td><td>Token, orchestrator URL, network, worker logs</td><td>Create a new attach key, check <code>DARKSTAR_ORCHESTRATOR_URL</code> and restart the worker.</td></tr>
+                        <tr><td>Scan stays queued</td><td>Available scanner nodes and max parallel jobs</td><td>Bring a worker online or choose <code>Auto</code> under scanner appliance.</td></tr>
+                        <tr><td>SSO callback fails</td><td>Redirect URI, issuer, client secret, allowed domain</td><td>Compare the provider callback with <code>SSO_REDIRECT_URI</code> and test OIDC discovery.</td></tr>
+                        <tr><td>MFA code is rejected</td><td>Phone/server time sync, secret rescanned</td><td>Synchronize time and generate a new MFA secret if needed.</td></tr>
+                        <tr><td>Email does not arrive</td><td>SMTP env, TLS, credentials, spam filter</td><td>Use <code>Send Test</code>, check container logs and SMTP server policy.</td></tr>
+                        <tr><td>No OpenVAS results</td><td>GVM containers, feeds, credentials, target reachability</td><td>Check <code>docker compose ps</code>, GSA on port 9392 and OpenVAS API on port 8008.</td></tr>
                     </tbody>
                 </table>
             </section>

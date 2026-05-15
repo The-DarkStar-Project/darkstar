@@ -1,100 +1,98 @@
-# Darkstar testing
+# Darkstar Testing
 
-Deze pagina beschrijft hoe je de Darkstar testset lokaal en in CI/CD draait.
-De testopzet is bedoeld voor snelle feedback tijdens ontwikkeling en voor
-herhaalbare evidence in de Sec/DevOps pipeline.
+This page describes how to run the Darkstar test suite locally and in CI/CD.
+The test setup is intended for fast feedback during development and for
+repeatable evidence in the Sec/DevOps pipeline.
 
-## Testlagen
+## Test Layers
 
-| Laag | Doel | Command |
+| Layer | Purpose | Command |
 | --- | --- | --- |
-| Unit tests | Pure functies, scanner parsers, scanpayload-validatie, endpoint matching en worker command building | `python -m pytest -m "not smoke and not playwright"` |
-| Smoke tests | Snelle webapp-controle van documentatie, static assets, OpenAPI, auth boundaries en API-contracten voor scans, ASM, schedules en notificaties | `python -m pytest -m smoke` |
-| Playwright tests | Browsercontrole van documentatie en normale applicatieflows met gemockte API's | `RUN_PLAYWRIGHT=1 python -m pytest -m playwright` |
-| CI tests | Unit, smoke en Playwright in GitHub Actions | `.github/workflows/tests.yml` |
+| Unit tests | Pure functions, scanner parsers, scan payload validation, endpoint matching and worker command building | `python -m pytest -m "not smoke and not playwright"` |
+| Smoke tests | Fast web app checks for documentation, static assets, OpenAPI, auth boundaries and API contracts for scans, ASM, schedules and notifications | `python -m pytest -m smoke` |
+| Playwright tests | Browser checks for documentation and normal application flows with mocked APIs | `RUN_PLAYWRIGHT=1 python -m pytest -m playwright` |
+| CI tests | Unit, smoke and Playwright in GitHub Actions | `.github/workflows/tests.yml` |
 
-## Dependencies installeren
+## Install Dependencies
 
-Gebruik de dev requirements voor lokale testomgevingen:
+Use the dev requirements for local test environments:
 
 ```bash
 python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements-dev.txt
 ```
 
-Voor Playwright moet Chromium eenmalig worden geinstalleerd:
+For Playwright, Chromium must be installed once:
 
 ```bash
 python3 -m playwright install chromium
 ```
 
-Op een Linux runner waar systeemlibraries ontbreken:
+On a Linux runner that lacks system libraries:
 
 ```bash
 python3 -m playwright install --with-deps chromium
 ```
 
-## Unit tests draaien
+## Run Unit Tests
 
-Alle niet-browser tests:
+All non-browser tests:
 
 ```bash
 python3 -m pytest -m "not playwright"
 ```
 
-Alleen snelle unit/contract tests zonder smoke:
+Only fast unit/contract tests without smoke:
 
 ```bash
 python3 -m pytest -m "not smoke and not playwright"
 ```
 
-Met coverage:
+With coverage:
 
 ```bash
 python3 -m pytest -m "not playwright" --cov=darkstar --cov-report=term-missing
 ```
 
-## Smoke tests draaien
+## Run Smoke Tests
 
-Smoke tests gebruiken FastAPI `TestClient` en starten geen echte scanner tools.
-Ze controleren dat belangrijke webapp-routes nog renderen, correct afschermen en
-de juiste contracten met de backend helpers gebruiken.
+Smoke tests use FastAPI `TestClient` and do not start real scanner tools. They
+verify that important web app routes still render, enforce access correctly and
+use the right contracts with backend helpers.
 
 ```bash
 python3 -m pytest -m smoke
 ```
 
-De smoke tests controleren onder andere:
+The smoke tests check, among other things:
 
 - `/documentation`
 - `/static/css/documentation.css`
 - sponsor/logo assets
-- `/api/me` zonder login
-- afscherming van een beschermde API route
-- aanwezigheid van relevante OpenAPI routes
-- vulnerability filtering, detailweergave en groepering
-- attack-surface en BBot-subdomain target endpoints
-- scan queueing naar scanner workers, zonder scanner binaries te starten
-- schedule create/update/delete/run-contracten
-- notificatie-instellingen en testnotificatie-route
+- `/api/me` without login
+- protection for a secured API route
+- presence of relevant OpenAPI routes
+- vulnerability filtering, detail view and grouping
+- attack-surface and BBot subdomain target endpoints
+- scan queueing to scanner workers without starting scanner binaries
+- schedule create/update/delete/run contracts
+- notification settings and test notification route
 
-## Playwright tests draaien
+## Run Playwright Tests
 
-Playwright tests starten een tijdelijke Uvicorn server op een vrije lokale poort
-en openen de applicatie met Chromium. Ze draaien alleen wanneer
-`RUN_PLAYWRIGHT=1` is gezet, zodat reguliere unit runs geen browser hoeven te
-starten.
+Playwright tests start a temporary Uvicorn server on a free local port and open
+the application with Chromium. They run only when `RUN_PLAYWRIGHT=1` is set, so
+regular unit runs do not need to start a browser.
 
-De applicatieflows mocken de API-responses in de browser. Daardoor kan de test
-vulnerabilities bekijken, targets selecteren, scanpayloads submitten en
-notificatie-instellingen opslaan zonder echte targets te scannen of externe
-scanner tools te starten.
+The application flows mock API responses in the browser. This lets the test view
+vulnerabilities, select targets, submit scan payloads and save notification
+settings without scanning real targets or starting external scanner tools.
 
 ```bash
 RUN_PLAYWRIGHT=1 python3 -m pytest -m playwright
 ```
 
-De browsertests maken screenshots als artifact:
+The browser tests create screenshots as artifacts:
 
 ```text
 test-results/playwright/documentation-desktop.png
@@ -104,16 +102,16 @@ test-results/playwright/attack-surface-workflow.png
 test-results/playwright/settings-notifications-workflow.png
 ```
 
-Gebruik deze screenshots bij visuele regressies of wanneer layoutproblemen in
-de documentatie worden onderzocht.
+Use these screenshots for visual regressions or when investigating layout
+problems in the documentation.
 
-## Alles draaien
+## Run Everything
 
 ```bash
 RUN_PLAYWRIGHT=1 python3 -m pytest
 ```
 
-Voor CI-achtige output:
+For CI-like output:
 
 ```bash
 mkdir -p test-results
@@ -123,50 +121,50 @@ RUN_PLAYWRIGHT=1 python3 -m pytest -m playwright --junitxml=test-results/pytest-
 
 ## GitHub Actions
 
-De workflow `.github/workflows/tests.yml` draait op push naar `main` en op pull
+The workflow `.github/workflows/tests.yml` runs on pushes to `main` and on pull
 requests.
 
 Jobs:
 
-- `unit-smoke`: installeert `requirements-dev.txt` en draait alle tests behalve
+- `unit-smoke`: installs `requirements-dev.txt` and runs all tests except
   Playwright.
-- `playwright`: installeert Chromium met Playwright en draait de browsertests.
+- `playwright`: installs Chromium with Playwright and runs the browser tests.
 
 Artifacts:
 
-- `pytest-unit-smoke`: JUnit XML van unit en smoke tests.
+- `pytest-unit-smoke`: JUnit XML from unit and smoke tests.
 - `playwright-results`: JUnit XML plus desktop/mobile screenshots.
 
-## Testregels voor nieuwe features
+## Test Rules For New Features
 
-- Pure parsing, normalisatie en validatie krijgen unit tests.
-- Nieuwe API routes krijgen minimaal een contracttest of smoke test.
-- Nieuwe scanflows krijgen tests voor command building en output parsing, niet
-  alleen een happy path.
-- Nieuwe frontend/documentatiepagina's krijgen een Playwright test wanneer
-  layout, navigatie of responsive gedrag belangrijk is.
-- Playwright mag scanacties testen door API-payloads te mocken en te asserten,
-  maar mag geen langdurige of echte scanner-run starten.
-- Tests mogen geen echte targets scannen en geen secrets vereisen.
-- Netwerkafhankelijke services zoals OSV, MSRC, OpenVAS, ZAP en scanner binaries
-  worden in unit tests gemockt.
+- Pure parsing, normalization and validation get unit tests.
+- New API routes get at least a contract test or smoke test.
+- New scan flows get tests for command building and output parsing, not only a
+  happy path.
+- New frontend/documentation pages get a Playwright test when layout,
+  navigation or responsive behavior matters.
+- Playwright may test scan actions by mocking and asserting API payloads, but it
+  must not start long-running or real scanner runs.
+- Tests must not scan real targets and must not require secrets.
+- Network-dependent services such as OSV, MSRC, OpenVAS, ZAP and scanner
+  binaries are mocked in unit tests.
 
 ## Troubleshooting
 
-Ontbreekt `pytest_mock`, `fastapi` of `playwright`, installeer dan opnieuw:
+If `pytest_mock`, `fastapi` or `playwright` is missing, install again:
 
 ```bash
 python3 -m pip install -r requirements-dev.txt
 ```
 
-Ontbreekt Chromium voor Playwright:
+If Chromium is missing for Playwright:
 
 ```bash
 python3 -m playwright install chromium
 ```
 
-Als een Playwright test lokaal faalt, open dan de screenshots in
-`test-results/playwright/` en draai dezelfde test opnieuw met:
+If a Playwright test fails locally, open the screenshots in
+`test-results/playwright/` and run the same test again with:
 
 ```bash
 RUN_PLAYWRIGHT=1 python3 -m pytest -m playwright -vv
