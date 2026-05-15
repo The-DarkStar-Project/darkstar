@@ -2517,8 +2517,9 @@ function connectDebugWebSocket(scanId) {
     attemptConnect();
 }
 
-function appendDebugLog(message) {
-    state.debugLogs.push(escapeHtml(message));
+function appendDebugLog(message, level = "info") {
+    const normalizedLevel = severityClass(level);
+    state.debugLogs.push(`<span class="log-level ${normalizedLevel}">${escapeHtml(normalizedLevel.toUpperCase())}</span> ${escapeHtml(message)}`);
     renderDebugLogs();
 }
 

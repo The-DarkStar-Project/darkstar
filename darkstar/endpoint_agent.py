@@ -1473,6 +1473,36 @@ def collect_inventory(peer_targets: list[dict[str, Any]] | None = None) -> dict[
     }
 
 
+def collect_printable_inventory() -> dict[str, Any]:
+    """Collect a terminal-safe diagnostic inventory without posture findings."""
+    os_info = _os_info()
+    system = platform.system().lower()
+    software = []
+    if system == "windows":
+        software.extend(_windows_programs(os_info))
+    elif system == "darwin":
+        software.extend(_macos_apps())
+    else:
+        software.extend(_deb_packages(os_info))
+        software.extend(_rpm_packages(os_info))
+    software.extend(_python_packages())
+    software.extend(_npm_global_packages())
+    ips, macs = _network_ids()
+    return {
+        "os": os_info,
+        "software": software,
+        "ip_addresses": ips,
+        "mac_addresses": macs,
+        "metadata": {
+            "hostname": os_info.get("hostname") or socket.gethostname(),
+            "collector": "darkstar_endpoint_agent",
+            "collector_version": AGENT_VERSION,
+            "osquery": bool(shutil.which("osqueryi")),
+            "redacted_for_terminal_output": True,
+        },
+    }
+
+
 def redact_inventory_for_output(value: Any) -> Any:
     """Return an inventory copy that is safe to print to a terminal or logs."""
     if isinstance(value, dict):
@@ -1568,7 +1598,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.print_inventory:
         try:
-            inventory = redact_inventory_for_output(collect_inventory())
+            inventory = redact_inventory_for_output(collect_printable_inventory())
             print(json.dumps(inventory, indent=2))
         except BrokenPipeError:
             return 0
