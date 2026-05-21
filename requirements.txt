@@ -26,3 +26,4 @@ pytest
 pytest-asyncio
 pytest-mock
 qrcode==8.2
+PyJWT[crypto]==2.11.0

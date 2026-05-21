@@ -2616,9 +2616,11 @@ document.getElementById("loginForm").addEventListener("submit", async (event) =>
 
     const emailInput = document.getElementById("emailInput");
     const passwordInput = document.getElementById("passwordInput");
+    const setupTokenInput = document.getElementById("setupTokenInput");
     const mfaCodeInput = document.getElementById("mfaCodeInput");
     const email = emailInput ? emailInput.value.trim() : "";
     const password = passwordInput ? passwordInput.value : "";
+    const setupToken = setupTokenInput ? setupTokenInput.value.trim() : "";
     const mfaCode = mfaCodeInput ? mfaCodeInput.value.trim() : "";
 
     try {
@@ -2634,7 +2636,7 @@ document.getElementById("loginForm").addEventListener("submit", async (event) =>
             })
             : await requestJson("/api/auth/login", {
                 method: "POST",
-                body: JSON.stringify({ email, password }),
+                body: JSON.stringify({ email, password, setup_token: setupToken || null }),
             });
         if (handleAuthStep(result)) {
             return;

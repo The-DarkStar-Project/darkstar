@@ -125,11 +125,6 @@ class worker:
         self.targets = targets
 
         self.all_targets = targets
-        # Read from file if it exists
-        if os.path.exists(self.targets):
-            with open(self.targets, "r") as f:
-                self.all_targets = ",".join([line.strip() for line in f])
-
         self.target_df = parse_targets(targets)
         self.mode = mode
         self.scanner = scanner
@@ -556,6 +551,12 @@ def parse_targets(targets_str: str) -> pd.DataFrame:
     return create_target_dataframe(categorized)
 
 
+def load_targets_from_file(path: str) -> str:
+    """Read explicit CLI target files. Web/API scans must pass normalized target strings."""
+    with open(path, "r") as target_file:
+        return ",".join([line.strip() for line in target_file if line.strip()])
+
+
 def setup_parser():
     """
     Set up the command line argument parser for DarkStar.
@@ -564,11 +565,15 @@ def setup_parser():
         argparse.ArgumentParser: Configured argument parser
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument(
+    target_group = parser.add_mutually_exclusive_group(required=True)
+    target_group.add_argument(
         "-t",
         "--target",
-        required=True,
-        help="Fill in the CIDR, IP or domain (without http/https) to scan. Separate multiple targets by comma's. Can also be a file with a list of targets (one per line).",
+        help="Fill in the CIDR, IP, domain or URL to scan. Separate multiple targets by comma's.",
+    )
+    target_group.add_argument(
+        "--target-file",
+        help="Explicit file with a list of scan targets, one per line. CLI only; web/API scans do not read local files.",
     )
     parser.add_argument(
         "-d",
@@ -648,7 +653,7 @@ def display_banner(args):
     logger.info(f"{Fore.BLUE}{'=' * 60}")
     logger.info(f"{Fore.CYAN}DARKSTAR SECURITY SCANNING FRAMEWORK")
     logger.info(
-        f"{Fore.CYAN}Mode: {Fore.YELLOW}{args.mode}{Fore.CYAN} | Target(s): {Fore.YELLOW}{args.target}{Fore.CYAN} | Organization: {Fore.YELLOW}{args.domain}"
+        f"{Fore.CYAN}Mode: {Fore.YELLOW}{args.mode}{Fore.CYAN} | Target(s): {Fore.YELLOW}{args.target or args.target_file}{Fore.CYAN} | Organization: {Fore.YELLOW}{args.domain}"
     )
     logger.info(f"{Fore.BLUE}{'=' * 60}{Style.RESET_ALL}")
 
@@ -695,10 +700,12 @@ def main(args=None):
         logger.info(f"Initializing scan in {mode_info[args.mode]}")
 
     # Run the scanner
+    targets = load_targets_from_file(args.target_file) if args.target_file else args.target
+
     scanner = worker(
         mode=args.mode,
         scanner=args.scanner,
-        targets=args.target,
+        targets=targets,
         org_name=args.domain,
         bruteforce=args.bruteforce,
         bruteforce_timeout=args.bruteforce_timeout,

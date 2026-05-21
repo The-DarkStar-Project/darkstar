@@ -93,6 +93,7 @@ logins use the stored organization account and configured auth policy.
 - [Application documentation](./docs/application-documentation.md)
 - [Testing guide](./docs/testing.md)
 - [Security testing and Sec/DevOps pipeline](./docs/security-testing-pipeline.md)
+- [CycloneDX SBOM](./docs/sbom/darkstar.cdx.json)
 - [Distributed scanner workers](./docs/distributed-scanners.md)
 - [Debian endpoint agent](./agents/darkstar-debian-agent/README.md)
 - [Windows endpoint agent](./agents/darkstar-windows-agent/README.md)

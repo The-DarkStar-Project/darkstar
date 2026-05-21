@@ -1,0 +1,2761 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "darkstar-manifest-sbom-generator",
+          "version": "1.0.0"
+        }
+      ]
+    },
+    "component": {
+      "type": "application",
+      "bom-ref": "pkg:github/The-DarkStar-Project/darkstar",
+      "name": "darkstar",
+      "purl": "pkg:github/The-DarkStar-Project/darkstar"
+    },
+    "properties": [
+      {
+        "name": "darkstar:generator",
+        "value": "scripts/generate_sbom.py"
+      },
+      {
+        "name": "darkstar:format",
+        "value": "CycloneDX 1.5 JSON"
+      },
+      {
+        "name": "darkstar:coverage",
+        "value": "requirements.txt, pyproject.toml, Go modules, Docker images, Dockerfile-installed tools"
+      },
+      {
+        "name": "darkstar:deterministic",
+        "value": "true; timestamps and git commit identifiers are intentionally omitted"
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "application",
+      "bom-ref": "pkg:cargo/rustscan",
+      "name": "rustscan",
+      "scope": "required",
+      "purl": "pkg:cargo/rustscan",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "cargo-tool"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:installer",
+          "value": "cargo install"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/bash",
+      "name": "bash",
+      "scope": "required",
+      "purl": "pkg:deb/debian/bash",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/bind9-dnsutils",
+      "name": "bind9-dnsutils",
+      "scope": "required",
+      "purl": "pkg:deb/debian/bind9-dnsutils",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/bsdmainutils",
+      "name": "bsdmainutils",
+      "scope": "required",
+      "purl": "pkg:deb/debian/bsdmainutils",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/build-essential",
+      "name": "build-essential",
+      "scope": "required",
+      "purl": "pkg:deb/debian/build-essential",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/ca-certificates",
+      "name": "ca-certificates",
+      "scope": "required",
+      "purl": "pkg:deb/debian/ca-certificates",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/clean",
+      "name": "clean",
+      "scope": "required",
+      "purl": "pkg:deb/debian/clean",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/curl",
+      "name": "curl",
+      "scope": "required",
+      "purl": "pkg:deb/debian/curl",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/dnsutils",
+      "name": "dnsutils",
+      "scope": "required",
+      "purl": "pkg:deb/debian/dnsutils",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/firebird-dev",
+      "name": "firebird-dev",
+      "scope": "required",
+      "purl": "pkg:deb/debian/firebird-dev",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/gcc",
+      "name": "gcc",
+      "scope": "required",
+      "purl": "pkg:deb/debian/gcc",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/git",
+      "name": "git",
+      "scope": "required",
+      "purl": "pkg:deb/debian/git",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libfbclient2",
+      "name": "libfbclient2",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libfbclient2",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libgtk2.0-0",
+      "name": "libgtk2.0-0",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libgtk2.0-0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libgtk2.0-dev",
+      "name": "libgtk2.0-dev",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libgtk2.0-dev",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libidn11-dev",
+      "name": "libidn11-dev",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libidn11-dev",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libidn12",
+      "name": "libidn12",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libidn12",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libmysqlclient-dev",
+      "name": "libmysqlclient-dev",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libmysqlclient-dev",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libmysqlclient21",
+      "name": "libmysqlclient21",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libmysqlclient21",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libncurses5",
+      "name": "libncurses5",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libncurses5",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libncurses5-dev",
+      "name": "libncurses5-dev",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libncurses5-dev",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libpcre3",
+      "name": "libpcre3",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libpcre3",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libpcre3-dev",
+      "name": "libpcre3-dev",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libpcre3-dev",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libpq-dev",
+      "name": "libpq-dev",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libpq-dev",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libpq5",
+      "name": "libpq5",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libpq5",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libssh-dev",
+      "name": "libssh-dev",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libssh-dev",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libssl-dev",
+      "name": "libssl-dev",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libssl-dev",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libsvn-dev",
+      "name": "libsvn-dev",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libsvn-dev",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/libsvn1",
+      "name": "libsvn1",
+      "scope": "required",
+      "purl": "pkg:deb/debian/libsvn1",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/mariadb-client",
+      "name": "mariadb-client",
+      "scope": "required",
+      "purl": "pkg:deb/debian/mariadb-client",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/nano",
+      "name": "nano",
+      "scope": "required",
+      "purl": "pkg:deb/debian/nano",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/nikto",
+      "name": "nikto",
+      "scope": "required",
+      "purl": "pkg:deb/debian/nikto",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/nmap",
+      "name": "nmap",
+      "scope": "required",
+      "purl": "pkg:deb/debian/nmap",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/openjdk-17-jre-headless",
+      "name": "openjdk-17-jre-headless",
+      "scope": "required",
+      "purl": "pkg:deb/debian/openjdk-17-jre-headless",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/openssl",
+      "name": "openssl",
+      "scope": "required",
+      "purl": "pkg:deb/debian/openssl",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/pipx",
+      "name": "pipx",
+      "scope": "required",
+      "purl": "pkg:deb/debian/pipx",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/python3",
+      "name": "python3",
+      "scope": "required",
+      "purl": "pkg:deb/debian/python3",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/python3-pip",
+      "name": "python3-pip",
+      "scope": "required",
+      "purl": "pkg:deb/debian/python3-pip",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/rm",
+      "name": "rm",
+      "scope": "required",
+      "purl": "pkg:deb/debian/rm",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/sudo",
+      "name": "sudo",
+      "scope": "required",
+      "purl": "pkg:deb/debian/sudo",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/wget",
+      "name": "wget",
+      "scope": "required",
+      "purl": "pkg:deb/debian/wget",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/darkstar-darkstar-web",
+      "name": "darkstar-darkstar-web",
+      "scope": "required",
+      "purl": "pkg:docker/darkstar-darkstar-web",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "darkstar-darkstar-web"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/debian@testing",
+      "name": "debian",
+      "scope": "required",
+      "version": "testing",
+      "purl": "pkg:docker/debian@testing",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/Dockerfile"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "debian:testing"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/golang@1.24-bullseye",
+      "name": "golang",
+      "scope": "required",
+      "version": "1.24-bullseye",
+      "purl": "pkg:docker/golang@1.24-bullseye",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "golang:1.24-bullseye"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/mariadb@10.5",
+      "name": "mariadb",
+      "scope": "required",
+      "version": "10.5",
+      "purl": "pkg:docker/mariadb@10.5",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "mariadb:10.5"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/python@3.13-slim",
+      "name": "python",
+      "scope": "required",
+      "version": "3.13-slim",
+      "purl": "pkg:docker/python@3.13-slim",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "openvas_api/Dockerfile"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "python:3.13-slim"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/cert-bund-data",
+      "name": "registry.community.greenbone.net/community/cert-bund-data",
+      "scope": "required",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/cert-bund-data",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/cert-bund-data"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/data-objects",
+      "name": "registry.community.greenbone.net/community/data-objects",
+      "scope": "required",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/data-objects",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/data-objects"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/dfn-cert-data",
+      "name": "registry.community.greenbone.net/community/dfn-cert-data",
+      "scope": "required",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/dfn-cert-data",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/dfn-cert-data"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/gpg-data",
+      "name": "registry.community.greenbone.net/community/gpg-data",
+      "scope": "required",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/gpg-data",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/gpg-data"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/gsa@stable",
+      "name": "registry.community.greenbone.net/community/gsa",
+      "scope": "required",
+      "version": "stable",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/gsa@stable",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/gsa:stable"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/gvm-tools",
+      "name": "registry.community.greenbone.net/community/gvm-tools",
+      "scope": "required",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/gvm-tools",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/gvm-tools"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/gvmd@stable",
+      "name": "registry.community.greenbone.net/community/gvmd",
+      "scope": "required",
+      "version": "stable",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/gvmd@stable",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/gvmd:stable"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/notus-data",
+      "name": "registry.community.greenbone.net/community/notus-data",
+      "scope": "required",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/notus-data",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/notus-data"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/openvas-scanner@stable",
+      "name": "registry.community.greenbone.net/community/openvas-scanner",
+      "scope": "required",
+      "version": "stable",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/openvas-scanner@stable",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/openvas-scanner:stable"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/ospd-openvas@stable",
+      "name": "registry.community.greenbone.net/community/ospd-openvas",
+      "scope": "required",
+      "version": "stable",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/ospd-openvas@stable",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/ospd-openvas:stable"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/pg-gvm@stable",
+      "name": "registry.community.greenbone.net/community/pg-gvm",
+      "scope": "required",
+      "version": "stable",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/pg-gvm@stable",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/pg-gvm:stable"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/redis-server",
+      "name": "registry.community.greenbone.net/community/redis-server",
+      "scope": "required",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/redis-server",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/redis-server"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/report-formats",
+      "name": "registry.community.greenbone.net/community/report-formats",
+      "scope": "required",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/report-formats",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/report-formats"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/scap-data",
+      "name": "registry.community.greenbone.net/community/scap-data",
+      "scope": "required",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/scap-data",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/scap-data"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/vulnerability-tests",
+      "name": "registry.community.greenbone.net/community/vulnerability-tests",
+      "scope": "required",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/vulnerability-tests",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/vulnerability-tests"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/rust@1.81-slim-bullseye",
+      "name": "rust",
+      "scope": "required",
+      "version": "1.81-slim-bullseye",
+      "purl": "pkg:docker/rust@1.81-slim-bullseye",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "rust:1.81-slim-bullseye"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:docker/ubuntu@22.04",
+      "name": "ubuntu",
+      "scope": "required",
+      "version": "22.04",
+      "purl": "pkg:docker/ubuntu@22.04",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "ubuntu:22.04"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:git-tool:94c28716f5e23ffd",
+      "name": "massdns",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "git-tool"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:installer",
+          "value": "git clone"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/blechschmidt/massdns.git"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:git-tool:538636f75c21aab0",
+      "name": "testssl.sh",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "git-tool"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:installer",
+          "value": "git clone"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/drwetter/testssl.sh.git"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:git-tool:8380c681501fe930",
+      "name": "thc-hydra",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "git-tool"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:installer",
+          "value": "git clone"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/vanhauser-thc/thc-hydra.git"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:git-tool:0732f8affa83aa21",
+      "name": "zaproxy",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "git-tool"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:installer",
+          "value": "git clone"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/zaproxy/zaproxy.git"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:github-release:461f4bdeb9972b23",
+      "name": "zaproxy",
+      "scope": "required",
+      "version": "2.16.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "github-release"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:installer",
+          "value": "GitHub release archive"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/zaproxy/zaproxy.git"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:golang/golang.org/x/sys@v0.32.0",
+      "name": "golang.org/x/sys",
+      "scope": "required",
+      "version": "v0.32.0",
+      "purl": "pkg:golang/golang.org/x/sys@v0.32.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "golang"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "agents/darkstar-windows-agent/go.mod"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "agents/darkstar-windows-agent/go.sum"
+        },
+        {
+          "name": "darkstar:goChecksum",
+          "value": "h1:BJP2sWEmIv4KK5OTEluFJCKSidICx8ciO85XgH3Ak8k="
+        },
+        {
+          "name": "darkstar:goChecksum",
+          "value": "h1:s77OFDvIQeibCmezSnk/q6iAfkdiQaJi4VzroCFrN20="
+        },
+        {
+          "name": "darkstar:goDirect",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:golang/github.com/hahwul/dalfox/v2@latest",
+      "name": "github.com/hahwul/dalfox/v2",
+      "scope": "required",
+      "version": "latest",
+      "purl": "pkg:golang/github.com/hahwul/dalfox/v2@latest",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "golang-tool"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:installer",
+          "value": "go install"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:golang/github.com/lc/gau/v2/cmd/gau@latest",
+      "name": "github.com/lc/gau/v2/cmd/gau",
+      "scope": "required",
+      "version": "latest",
+      "purl": "pkg:golang/github.com/lc/gau/v2/cmd/gau@latest",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "golang-tool"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:installer",
+          "value": "go install"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:golang/github.com/projectdiscovery/httpx/cmd/httpx@latest",
+      "name": "github.com/projectdiscovery/httpx/cmd/httpx",
+      "scope": "required",
+      "version": "latest",
+      "purl": "pkg:golang/github.com/projectdiscovery/httpx/cmd/httpx@latest",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "golang-tool"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:installer",
+          "value": "go install"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:golang/github.com/projectdiscovery/katana/cmd/katana@latest",
+      "name": "github.com/projectdiscovery/katana/cmd/katana",
+      "scope": "required",
+      "version": "latest",
+      "purl": "pkg:golang/github.com/projectdiscovery/katana/cmd/katana@latest",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "golang-tool"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:installer",
+          "value": "go install"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/aiohttp",
+      "name": "aiohttp",
+      "scope": "required",
+      "purl": "pkg:pypi/aiohttp",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/pyproject.toml"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": ">=3.11.18"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/aiolimiter",
+      "name": "aiolimiter",
+      "scope": "required",
+      "purl": "pkg:pypi/aiolimiter",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/pyproject.toml"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": ">=1.2.1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/beautifulsoup4",
+      "name": "beautifulsoup4",
+      "scope": "required",
+      "purl": "pkg:pypi/beautifulsoup4",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/pyproject.toml"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": ">=4.13.4"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/beautifulsoup4@4.13.4",
+      "name": "beautifulsoup4",
+      "scope": "required",
+      "version": "4.13.4",
+      "purl": "pkg:pypi/beautifulsoup4@4.13.4",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/modules/55-retirejs/requirements.txt"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/modules/65-file-upload/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==4.13.4"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/certifi@2024.12.14",
+      "name": "certifi",
+      "scope": "required",
+      "version": "2024.12.14",
+      "purl": "pkg:pypi/certifi@2024.12.14",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==2024.12.14"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/charset-normalizer@3.4.0",
+      "name": "charset-normalizer",
+      "scope": "required",
+      "version": "3.4.0",
+      "purl": "pkg:pypi/charset-normalizer@3.4.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==3.4.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/colorama@0.4.6",
+      "name": "colorama",
+      "scope": "required",
+      "version": "0.4.6",
+      "purl": "pkg:pypi/colorama@0.4.6",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==0.4.6"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/coloredlogs",
+      "name": "coloredlogs",
+      "scope": "required",
+      "purl": "pkg:pypi/coloredlogs",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/pyproject.toml"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": ">=15.0.1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/cvss",
+      "name": "cvss",
+      "scope": "required",
+      "purl": "pkg:pypi/cvss",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/pyproject.toml"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": ">=3.4"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/dnspython@2.7.0",
+      "name": "dnspython",
+      "scope": "required",
+      "version": "2.7.0",
+      "purl": "pkg:pypi/dnspython@2.7.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==2.7.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/fastapi",
+      "name": "fastapi",
+      "scope": "required",
+      "purl": "pkg:pypi/fastapi",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "openvas_api/requirements.txt"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/fastapi@0.121.3",
+      "name": "fastapi",
+      "scope": "required",
+      "version": "0.121.3",
+      "purl": "pkg:pypi/fastapi@0.121.3",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==0.121.3"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/httpx@0.28.1",
+      "name": "httpx",
+      "scope": "required",
+      "version": "0.28.1",
+      "purl": "pkg:pypi/httpx@0.28.1",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==0.28.1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/idna@3.10",
+      "name": "idna",
+      "scope": "required",
+      "version": "3.10",
+      "purl": "pkg:pypi/idna@3.10",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==3.10"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/itsdangerous@2.2.0",
+      "name": "itsdangerous",
+      "scope": "required",
+      "version": "2.2.0",
+      "purl": "pkg:pypi/itsdangerous@2.2.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==2.2.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/jinja2@3.1.6",
+      "name": "jinja2",
+      "scope": "required",
+      "version": "3.1.6",
+      "purl": "pkg:pypi/jinja2@3.1.6",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==3.1.6"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/markdown",
+      "name": "markdown",
+      "scope": "required",
+      "purl": "pkg:pypi/markdown",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/pyproject.toml"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": ">=3.8"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/mysql-connector-python@9.1.0",
+      "name": "mysql-connector-python",
+      "scope": "required",
+      "version": "9.1.0",
+      "purl": "pkg:pypi/mysql-connector-python@9.1.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==9.1.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/netaddr@1.3.0",
+      "name": "netaddr",
+      "scope": "required",
+      "version": "1.3.0",
+      "purl": "pkg:pypi/netaddr@1.3.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==1.3.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/numpy@2.2.0",
+      "name": "numpy",
+      "scope": "required",
+      "version": "2.2.0",
+      "purl": "pkg:pypi/numpy@2.2.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==2.2.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/packaging",
+      "name": "packaging",
+      "scope": "required",
+      "purl": "pkg:pypi/packaging",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/pyproject.toml"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": ">=25.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/packaging@25.0",
+      "name": "packaging",
+      "scope": "required",
+      "version": "25.0",
+      "purl": "pkg:pypi/packaging@25.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/modules/55-retirejs/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==25.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pandas@2.2.3",
+      "name": "pandas",
+      "scope": "required",
+      "version": "2.2.3",
+      "purl": "pkg:pypi/pandas@2.2.3",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==2.2.3"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/playwright@1.58.0",
+      "name": "playwright",
+      "scope": "required",
+      "version": "1.58.0",
+      "purl": "pkg:pypi/playwright@1.58.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements-dev.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==1.58.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pyjwt@2.11.0",
+      "name": "pyjwt",
+      "scope": "required",
+      "version": "2.11.0",
+      "purl": "pkg:pypi/pyjwt@2.11.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==2.11.0"
+        },
+        {
+          "name": "darkstar:extra",
+          "value": "crypto"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pytest",
+      "name": "pytest",
+      "scope": "required",
+      "purl": "pkg:pypi/pytest",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pytest-asyncio",
+      "name": "pytest-asyncio",
+      "scope": "required",
+      "purl": "pkg:pypi/pytest-asyncio",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pytest-cov@6.0.0",
+      "name": "pytest-cov",
+      "scope": "required",
+      "version": "6.0.0",
+      "purl": "pkg:pypi/pytest-cov@6.0.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements-dev.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==6.0.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pytest-mock",
+      "name": "pytest-mock",
+      "scope": "required",
+      "purl": "pkg:pypi/pytest-mock",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/python-dateutil@2.9.0.post0",
+      "name": "python-dateutil",
+      "scope": "required",
+      "version": "2.9.0.post0",
+      "purl": "pkg:pypi/python-dateutil@2.9.0.post0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==2.9.0.post0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/python-dotenv@1.2.2",
+      "name": "python-dotenv",
+      "scope": "required",
+      "version": "1.2.2",
+      "purl": "pkg:pypi/python-dotenv@1.2.2",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==1.2.2"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/python-gvm",
+      "name": "python-gvm",
+      "scope": "required",
+      "purl": "pkg:pypi/python-gvm",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "openvas_api/requirements.txt"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pytz@2024.2",
+      "name": "pytz",
+      "scope": "required",
+      "version": "2024.2",
+      "purl": "pkg:pypi/pytz@2024.2",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==2024.2"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pyyaml@6.0.2",
+      "name": "pyyaml",
+      "scope": "required",
+      "version": "6.0.2",
+      "purl": "pkg:pypi/pyyaml@6.0.2",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==6.0.2"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/qrcode@8.2",
+      "name": "qrcode",
+      "scope": "required",
+      "version": "8.2",
+      "purl": "pkg:pypi/qrcode@8.2",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==8.2"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/requests",
+      "name": "requests",
+      "scope": "required",
+      "purl": "pkg:pypi/requests",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/pyproject.toml"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": ">=2.32.3"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/requests@2.32.3",
+      "name": "requests",
+      "scope": "required",
+      "version": "2.32.3",
+      "purl": "pkg:pypi/requests@2.32.3",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/modules/55-retirejs/requirements.txt"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/modules/60-nuclei/requirements.txt"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/modules/65-file-upload/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==2.32.3"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/requests@2.32.4",
+      "name": "requests",
+      "scope": "required",
+      "version": "2.32.4",
+      "purl": "pkg:pypi/requests@2.32.4",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/modules/50-vulnscan/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==2.32.4"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/requests@2.34.1",
+      "name": "requests",
+      "scope": "required",
+      "version": "2.34.1",
+      "purl": "pkg:pypi/requests@2.34.1",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==2.34.1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/requests-ratelimiter",
+      "name": "requests-ratelimiter",
+      "scope": "required",
+      "purl": "pkg:pypi/requests-ratelimiter",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/pyproject.toml"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": ">=0.7.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/ruff",
+      "name": "ruff",
+      "scope": "required",
+      "purl": "pkg:pypi/ruff",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/pyproject.toml"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": ">=0.11.10"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/six@1.17.0",
+      "name": "six",
+      "scope": "required",
+      "version": "1.17.0",
+      "purl": "pkg:pypi/six@1.17.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==1.17.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/tqdm",
+      "name": "tqdm",
+      "scope": "required",
+      "purl": "pkg:pypi/tqdm",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/pyproject.toml"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": ">=4.67.1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/tqdm@4.67.1",
+      "name": "tqdm",
+      "scope": "required",
+      "version": "4.67.1",
+      "purl": "pkg:pypi/tqdm@4.67.1",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==4.67.1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/tzdata@2024.2",
+      "name": "tzdata",
+      "scope": "required",
+      "version": "2024.2",
+      "purl": "pkg:pypi/tzdata@2024.2",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==2024.2"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/ujson",
+      "name": "ujson",
+      "scope": "required",
+      "purl": "pkg:pypi/ujson",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/pyproject.toml"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": ">=5.10.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/urllib3@2.7.0",
+      "name": "urllib3",
+      "scope": "required",
+      "version": "2.7.0",
+      "purl": "pkg:pypi/urllib3@2.7.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==2.7.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/uvicorn",
+      "name": "uvicorn",
+      "scope": "required",
+      "purl": "pkg:pypi/uvicorn",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "openvas_api/requirements.txt"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/uvicorn@0.35.0",
+      "name": "uvicorn",
+      "scope": "required",
+      "version": "0.35.0",
+      "purl": "pkg:pypi/uvicorn@0.35.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==0.35.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/websockets@14.1",
+      "name": "websockets",
+      "scope": "required",
+      "version": "14.1",
+      "purl": "pkg:pypi/websockets@14.1",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==14.1"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:pypi/bbot",
+      "name": "bbot",
+      "scope": "required",
+      "purl": "pkg:pypi/bbot",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi-tool"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:installer",
+          "value": "pipx install"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:pypi/wapiti3",
+      "name": "wapiti3",
+      "scope": "required",
+      "purl": "pkg:pypi/wapiti3",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi-tool"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:installer",
+          "value": "pipx install"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:github/The-DarkStar-Project/darkstar",
+      "dependsOn": [
+        "pkg:cargo/rustscan",
+        "pkg:deb/debian/bash",
+        "pkg:deb/debian/bind9-dnsutils",
+        "pkg:deb/debian/bsdmainutils",
+        "pkg:deb/debian/build-essential",
+        "pkg:deb/debian/ca-certificates",
+        "pkg:deb/debian/clean",
+        "pkg:deb/debian/curl",
+        "pkg:deb/debian/dnsutils",
+        "pkg:deb/debian/firebird-dev",
+        "pkg:deb/debian/gcc",
+        "pkg:deb/debian/git",
+        "pkg:deb/debian/libfbclient2",
+        "pkg:deb/debian/libgtk2.0-0",
+        "pkg:deb/debian/libgtk2.0-dev",
+        "pkg:deb/debian/libidn11-dev",
+        "pkg:deb/debian/libidn12",
+        "pkg:deb/debian/libmysqlclient-dev",
+        "pkg:deb/debian/libmysqlclient21",
+        "pkg:deb/debian/libncurses5",
+        "pkg:deb/debian/libncurses5-dev",
+        "pkg:deb/debian/libpcre3",
+        "pkg:deb/debian/libpcre3-dev",
+        "pkg:deb/debian/libpq-dev",
+        "pkg:deb/debian/libpq5",
+        "pkg:deb/debian/libssh-dev",
+        "pkg:deb/debian/libssl-dev",
+        "pkg:deb/debian/libsvn-dev",
+        "pkg:deb/debian/libsvn1",
+        "pkg:deb/debian/mariadb-client",
+        "pkg:deb/debian/nano",
+        "pkg:deb/debian/nikto",
+        "pkg:deb/debian/nmap",
+        "pkg:deb/debian/openjdk-17-jre-headless",
+        "pkg:deb/debian/openssl",
+        "pkg:deb/debian/pipx",
+        "pkg:deb/debian/python3",
+        "pkg:deb/debian/python3-pip",
+        "pkg:deb/debian/rm",
+        "pkg:deb/debian/sudo",
+        "pkg:deb/debian/wget",
+        "pkg:docker/darkstar-darkstar-web",
+        "pkg:docker/debian@testing",
+        "pkg:docker/golang@1.24-bullseye",
+        "pkg:docker/mariadb@10.5",
+        "pkg:docker/python@3.13-slim",
+        "pkg:docker/registry.community.greenbone.net/community/cert-bund-data",
+        "pkg:docker/registry.community.greenbone.net/community/data-objects",
+        "pkg:docker/registry.community.greenbone.net/community/dfn-cert-data",
+        "pkg:docker/registry.community.greenbone.net/community/gpg-data",
+        "pkg:docker/registry.community.greenbone.net/community/gsa@stable",
+        "pkg:docker/registry.community.greenbone.net/community/gvm-tools",
+        "pkg:docker/registry.community.greenbone.net/community/gvmd@stable",
+        "pkg:docker/registry.community.greenbone.net/community/notus-data",
+        "pkg:docker/registry.community.greenbone.net/community/openvas-scanner@stable",
+        "pkg:docker/registry.community.greenbone.net/community/ospd-openvas@stable",
+        "pkg:docker/registry.community.greenbone.net/community/pg-gvm@stable",
+        "pkg:docker/registry.community.greenbone.net/community/redis-server",
+        "pkg:docker/registry.community.greenbone.net/community/report-formats",
+        "pkg:docker/registry.community.greenbone.net/community/scap-data",
+        "pkg:docker/registry.community.greenbone.net/community/vulnerability-tests",
+        "pkg:docker/rust@1.81-slim-bullseye",
+        "pkg:docker/ubuntu@22.04",
+        "pkg:golang/github.com/hahwul/dalfox/v2@latest",
+        "pkg:golang/github.com/lc/gau/v2/cmd/gau@latest",
+        "pkg:golang/github.com/projectdiscovery/httpx/cmd/httpx@latest",
+        "pkg:golang/github.com/projectdiscovery/katana/cmd/katana@latest",
+        "pkg:golang/golang.org/x/sys@v0.32.0",
+        "pkg:pypi/aiohttp",
+        "pkg:pypi/aiolimiter",
+        "pkg:pypi/bbot",
+        "pkg:pypi/beautifulsoup4",
+        "pkg:pypi/beautifulsoup4@4.13.4",
+        "pkg:pypi/certifi@2024.12.14",
+        "pkg:pypi/charset-normalizer@3.4.0",
+        "pkg:pypi/colorama@0.4.6",
+        "pkg:pypi/coloredlogs",
+        "pkg:pypi/cvss",
+        "pkg:pypi/dnspython@2.7.0",
+        "pkg:pypi/fastapi",
+        "pkg:pypi/fastapi@0.121.3",
+        "pkg:pypi/httpx@0.28.1",
+        "pkg:pypi/idna@3.10",
+        "pkg:pypi/itsdangerous@2.2.0",
+        "pkg:pypi/jinja2@3.1.6",
+        "pkg:pypi/markdown",
+        "pkg:pypi/mysql-connector-python@9.1.0",
+        "pkg:pypi/netaddr@1.3.0",
+        "pkg:pypi/numpy@2.2.0",
+        "pkg:pypi/packaging",
+        "pkg:pypi/packaging@25.0",
+        "pkg:pypi/pandas@2.2.3",
+        "pkg:pypi/playwright@1.58.0",
+        "pkg:pypi/pyjwt@2.11.0",
+        "pkg:pypi/pytest",
+        "pkg:pypi/pytest-asyncio",
+        "pkg:pypi/pytest-cov@6.0.0",
+        "pkg:pypi/pytest-mock",
+        "pkg:pypi/python-dateutil@2.9.0.post0",
+        "pkg:pypi/python-dotenv@1.2.2",
+        "pkg:pypi/python-gvm",
+        "pkg:pypi/pytz@2024.2",
+        "pkg:pypi/pyyaml@6.0.2",
+        "pkg:pypi/qrcode@8.2",
+        "pkg:pypi/requests",
+        "pkg:pypi/requests-ratelimiter",
+        "pkg:pypi/requests@2.32.3",
+        "pkg:pypi/requests@2.32.4",
+        "pkg:pypi/requests@2.34.1",
+        "pkg:pypi/ruff",
+        "pkg:pypi/six@1.17.0",
+        "pkg:pypi/tqdm",
+        "pkg:pypi/tqdm@4.67.1",
+        "pkg:pypi/tzdata@2024.2",
+        "pkg:pypi/ujson",
+        "pkg:pypi/urllib3@2.7.0",
+        "pkg:pypi/uvicorn",
+        "pkg:pypi/uvicorn@0.35.0",
+        "pkg:pypi/wapiti3",
+        "pkg:pypi/websockets@14.1",
+        "tool:git-tool:0732f8affa83aa21",
+        "tool:git-tool:538636f75c21aab0",
+        "tool:git-tool:8380c681501fe930",
+        "tool:git-tool:94c28716f5e23ffd",
+        "tool:github-release:461f4bdeb9972b23"
+      ]
+    }
+  ]
+}

@@ -631,7 +631,7 @@ def _ensure_organizations_registry(cursor):
     )
 
 
-def ensure_organization(org_name: str, password: str) -> tuple[str, bool]:
+def ensure_organization(org_name: str, password: str, create_missing: bool = False) -> tuple[str, bool]:
     """
     Ensure organization record and per-org database exist.
 
@@ -652,24 +652,22 @@ def ensure_organization(org_name: str, password: str) -> tuple[str, bool]:
             (org_name,),
         )
         row = cursor.fetchone()
-        default_admin_org = os.environ.get("PLATFORM_ADMIN_ORG", "platform_admin")
-        role = "platform_admin" if org_name.strip().lower() == default_admin_org.lower() else "tenant_admin"
 
         if row:
             if not _verify_password(password, row["password_salt"], row["password_hash"]):
                 raise ValueError("Invalid organization credentials")
             org_db = row["org_db_name"]
-            if role == "platform_admin" and row.get("role") != "platform_admin":
-                cursor.execute(
-                    "UPDATE organizations SET role = %s, last_login_at = %s WHERE org_name = %s",
-                    (role, created_at, org_name),
-                )
-            else:
-                cursor.execute(
-                    "UPDATE organizations SET last_login_at = %s WHERE org_name = %s",
-                    (created_at, org_name),
-                )
+            cursor.execute(
+                "UPDATE organizations SET last_login_at = %s WHERE org_name = %s",
+                (created_at, org_name),
+            )
         else:
+            if not create_missing:
+                raise ValueError("Organization does not exist")
+            default_admin_org = os.environ.get("PLATFORM_ADMIN_ORG", "platform_admin")
+            if org_name.strip().lower() == default_admin_org.lower():
+                raise ValueError("Platform admin organization cannot be created through legacy login")
+            role = "tenant_admin"
             salt, digest = _hash_password(password)
             cursor.execute(
                 "INSERT INTO organizations (org_name, org_db_name, password_salt, password_hash, role, last_login_at, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
@@ -765,7 +763,7 @@ def _membership_rows(cursor, user_id: int) -> list[dict]:
     return cursor.fetchall() or []
 
 
-def authenticate_user(email: str, password: str) -> dict:
+def authenticate_user(email: str, password: str, allow_bootstrap: bool = False) -> dict:
     """
     Authenticate a user by email/password.
 
@@ -786,6 +784,9 @@ def authenticate_user(email: str, password: str) -> dict:
         user = cursor.fetchone()
 
         if not user and user_count == 0:
+            if not allow_bootstrap:
+                cursor.close()
+                raise ValueError("Initial platform admin setup requires an explicit setup token")
             default_admin_org = os.environ.get("PLATFORM_ADMIN_ORG", "platform_admin")
             org_db = _ensure_organization_record(cursor, default_admin_org, password, "platform_admin")
             salt, digest = _hash_password(password)

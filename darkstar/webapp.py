@@ -1,5 +1,6 @@
 import logging
 import os
+import ipaddress
 import re
 import signal
 import shlex
@@ -18,12 +19,14 @@ import struct
 import time
 import requests
 import zipfile
+import jwt
+from jwt import InvalidTokenError
 from email.message import EmailMessage
 from datetime import datetime
 from html import escape as html_escape
 from pathlib import Path
 from collections import defaultdict
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -155,11 +158,39 @@ WEB_DIR = BASE_DIR / "web"
 if (PROJECT_ROOT / ".env").exists():
     load_dotenv(PROJECT_ROOT / ".env")
 
+TRUTHY_ENV = {"1", "true", "yes", "on"}
+INSECURE_SESSION_SECRETS = {
+    "",
+    "darkstar-dev-secret-change-me",
+    "change-me-in-production",
+    "changeme",
+    "change-me",
+}
+
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in TRUTHY_ENV
+
+
+def _resolve_session_secret() -> str:
+    configured = os.environ.get("WEB_SESSION_SECRET", "").strip()
+    if configured in INSECURE_SESSION_SECRETS:
+        logger.warning(
+            "WEB_SESSION_SECRET is missing or uses a known placeholder; using an ephemeral secret. "
+            "Set a random 32+ character WEB_SESSION_SECRET for stable sessions."
+        )
+        return secrets.token_urlsafe(48)
+    if len(configured) < 32:
+        logger.warning("WEB_SESSION_SECRET is shorter than 32 characters; use a stronger random value.")
+    return configured
+
+
 app = FastAPI(title="Darkstar Dashboard", version="1.0.0")
 app.add_middleware(
     SessionMiddleware,
-    secret_key=os.environ.get("WEB_SESSION_SECRET", "darkstar-dev-secret-change-me"),
+    secret_key=_resolve_session_secret(),
     same_site="lax",
+    https_only=_env_truthy("WEB_SESSION_COOKIE_SECURE"),
 )
 app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
@@ -305,6 +336,7 @@ class LoginRequest(BaseModel):
     email: str | None = Field(default=None, max_length=255)
     organization: str | None = Field(default=None, min_length=3, max_length=100)
     password: str = Field(min_length=8, max_length=128)
+    setup_token: str | None = Field(default=None, max_length=256)
 
 
 class SelectOrganizationRequest(BaseModel):
@@ -581,6 +613,14 @@ def _get_endpoint_agent_context(request: Request) -> dict:
     if not agent:
         raise HTTPException(status_code=401, detail="Valid endpoint agent Bearer token required")
     return agent
+
+
+def _bootstrap_login_allowed(setup_token: str | None) -> bool:
+    if _env_truthy("DARKSTAR_ALLOW_PUBLIC_USER_BOOTSTRAP"):
+        return True
+    expected = os.environ.get("DARKSTAR_SETUP_TOKEN", "").strip()
+    provided = (setup_token or "").strip()
+    return bool(expected and provided and hmac.compare_digest(expected, provided))
 
 
 ROLE_RANK = {
@@ -884,6 +924,75 @@ def _start_user_login(request: Request, user: dict, membership: dict) -> dict:
     return _finish_user_login(request, user, membership, auth_method="password")
 
 
+DOMAIN_TARGET_RE = re.compile(
+    r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$",
+    re.IGNORECASE,
+)
+
+
+def _split_scan_targets(targets: str) -> list[str]:
+    return [item.strip() for item in re.split(r"[,\r\n]+", str(targets or "")) if item.strip()]
+
+
+def _target_looks_like_file_path(target: str) -> bool:
+    value = target.strip()
+    lower = value.lower()
+    if lower.startswith("file:"):
+        return True
+    if value.startswith(("/", "\\", "./", "../", "~")):
+        return True
+    if re.match(r"^[a-zA-Z]:[\\/]", value):
+        return True
+    parsed = urlparse(value)
+    if parsed.scheme:
+        return parsed.scheme.lower() not in {"http", "https", "ftp"} or not parsed.hostname
+    try:
+        ipaddress.ip_network(value, strict=False)
+        return False
+    except ValueError:
+        pass
+    return "/" in value or "\\" in value
+
+
+def _host_part_is_valid(host: str) -> bool:
+    host = host.strip().strip("[]").lower()
+    if not host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return bool(DOMAIN_TARGET_RE.match(host))
+
+
+def _target_has_supported_shape(target: str) -> bool:
+    parsed = urlparse(target)
+    if parsed.scheme:
+        return parsed.scheme.lower() in {"http", "https", "ftp"} and bool(parsed.hostname)
+    try:
+        ipaddress.ip_network(target, strict=False)
+        return True
+    except ValueError:
+        pass
+    if ":" in target and target.count(":") == 1:
+        host, port = target.rsplit(":", 1)
+        return port.isdigit() and _host_part_is_valid(host)
+    return _host_part_is_valid(target)
+
+
+def _normalize_scan_targets(targets: str) -> str:
+    items = _split_scan_targets(targets)
+    if not items:
+        raise HTTPException(status_code=400, detail="Targets cannot be empty")
+    rejected_paths = [item for item in items if _target_looks_like_file_path(item)]
+    if rejected_paths:
+        raise HTTPException(status_code=400, detail="Targets must be hosts, IPs, CIDRs, or URLs, not file paths")
+    invalid = [item for item in items if not _target_has_supported_shape(item)]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Invalid scan target: {invalid[0]}")
+    return ",".join(items)
+
+
 def _validate_scan_payload(body: ScanStartRequest):
     has_mode = body.mode is not None
     has_scanner = bool(body.scanner)
@@ -900,8 +1009,7 @@ def _validate_scan_payload(body: ScanStartRequest):
     if body.scanner and body.scanner not in ALLOWED_SCANNERS:
         raise HTTPException(status_code=400, detail="Unsupported scanner")
 
-    if not body.targets.strip():
-        raise HTTPException(status_code=400, detail="Targets cannot be empty")
+    _normalize_scan_targets(body.targets)
 
     if body.preferred_node_id:
         node = get_scanner_node_record(body.preferred_node_id)
@@ -915,8 +1023,7 @@ def _scan_signature(mode: int | None, scanner: str | None, targets: str) -> tupl
         sorted(
             {
                 item.strip().lower().rstrip("/")
-                for item in str(targets or "").split(",")
-                if item.strip()
+                for item in _split_scan_targets(targets)
             }
         )
     )
@@ -951,7 +1058,8 @@ def _queue_scan(org_db: str, body: ScanStartRequest, schedule_id: int | None = N
                 ),
             )
 
-    targets = body.targets.strip()
+    targets = _normalize_scan_targets(body.targets)
+    body.targets = targets
     scan_name = body.scan_name or f"Scan {body.mode or body.scanner}"
     scan_id = create_scan_record(
         org_db,
@@ -1367,7 +1475,11 @@ def me(request: Request):
 def login(body: LoginRequest, request: Request):
     if body.email:
         try:
-            auth = authenticate_user(body.email, body.password)
+            auth = authenticate_user(
+                body.email,
+                body.password,
+                allow_bootstrap=_bootstrap_login_allowed(body.setup_token),
+            )
         except ValueError as exc:
             raise HTTPException(status_code=401, detail=str(exc))
 
@@ -1605,16 +1717,43 @@ def _oidc_discovery(issuer: str) -> dict:
     response = requests.get(f"{issuer.rstrip('/')}/.well-known/openid-configuration", timeout=15)
     if response.status_code >= 400:
         raise HTTPException(status_code=502, detail=f"OIDC discovery failed: {response.text[:300]}")
-    return response.json()
+    discovery = response.json()
+    if not discovery.get("issuer") or not discovery.get("token_endpoint") or not discovery.get("authorization_endpoint"):
+        raise HTTPException(status_code=502, detail="OIDC discovery response is missing required endpoints")
+    return discovery
 
 
-def _decode_jwt_payload(token: str) -> dict:
+def _verify_oidc_id_token(id_token: str, discovery: dict, settings: dict, nonce: str | None) -> dict:
+    if not id_token:
+        raise HTTPException(status_code=401, detail="OIDC id_token is missing")
+    jwks_uri = discovery.get("jwks_uri")
+    if not jwks_uri:
+        raise HTTPException(status_code=502, detail="OIDC discovery response is missing jwks_uri")
+    supported_algs = discovery.get("id_token_signing_alg_values_supported") or ["RS256"]
+    allowed_algs = [
+        alg
+        for alg in supported_algs
+        if alg in {"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"}
+    ]
+    if not allowed_algs:
+        raise HTTPException(status_code=502, detail="OIDC provider does not advertise a supported signing algorithm")
     try:
-        payload = token.split(".")[1]
-        padded = payload + "=" * ((4 - len(payload) % 4) % 4)
-        return json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
-    except Exception:
-        return {}
+        signing_key = jwt.PyJWKClient(jwks_uri).get_signing_key_from_jwt(id_token).key
+        claims = jwt.decode(
+            id_token,
+            signing_key,
+            algorithms=allowed_algs,
+            audience=settings["sso_client_id"],
+            issuer=discovery["issuer"],
+            options={"require": ["exp", "iat", "sub"]},
+        )
+    except InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail=f"Invalid OIDC id_token: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"OIDC id_token validation failed: {exc}") from exc
+    if nonce and claims.get("nonce") != nonce:
+        raise HTTPException(status_code=401, detail="Invalid OIDC nonce")
+    return claims
 
 
 @app.get("/api/auth/sso/start")
@@ -1627,7 +1766,9 @@ def start_sso(request: Request, organization: str):
 
     discovery = _oidc_discovery(settings["sso_issuer"])
     state = secrets.token_urlsafe(24)
+    nonce = secrets.token_urlsafe(24)
     request.session["sso_state"] = state
+    request.session["sso_nonce"] = nonce
     request.session["sso_org"] = organization
     redirect_uri = os.environ.get("SSO_REDIRECT_URI") or str(request.url_for("sso_callback"))
     query = urlencode({
@@ -1636,6 +1777,7 @@ def start_sso(request: Request, organization: str):
         "redirect_uri": redirect_uri,
         "scope": "openid email profile",
         "state": state,
+        "nonce": nonce,
     })
     return RedirectResponse(f"{discovery['authorization_endpoint']}?{query}")
 
@@ -1668,7 +1810,12 @@ def sso_callback(request: Request, code: str | None = None, state: str | None = 
     if token_response.status_code >= 400:
         raise HTTPException(status_code=502, detail=f"OIDC token exchange failed: {token_response.text[:300]}")
     token_payload = token_response.json()
-    claims = _decode_jwt_payload(token_payload.get("id_token", ""))
+    claims = _verify_oidc_id_token(
+        token_payload.get("id_token", ""),
+        discovery,
+        settings,
+        request.session.get("sso_nonce"),
+    )
     if token_payload.get("access_token") and discovery.get("userinfo_endpoint"):
         userinfo_response = requests.get(
             discovery["userinfo_endpoint"],
@@ -1988,7 +2135,7 @@ def create_scanner_node_api(request: Request, body: ScannerNodeRequest):
     _require_min_role(request, "platform_admin")
     node = create_scanner_node(
         body.name,
-        capabilities=["*"],
+        capabilities=body.capabilities,
         max_parallel_jobs=body.max_parallel_jobs,
     )
     node["attach_command"] = _scanner_attach_command(node, request)
@@ -2016,7 +2163,6 @@ def scanner_worker_heartbeat(request: Request, body: ScannerHeartbeatRequest):
     node = _get_scanner_node(request)
     heartbeat_scanner_node(
         node["node_id"],
-        capabilities=body.capabilities,
         status=body.status or "online",
     )
     return {"ok": True, "node_id": node["node_id"], "max_parallel_jobs": node.get("max_parallel_jobs") or 1}
@@ -2025,10 +2171,9 @@ def scanner_worker_heartbeat(request: Request, body: ScannerHeartbeatRequest):
 @app.post("/api/scanner-workers/jobs/claim")
 def scanner_worker_claim(request: Request, body: ScannerClaimRequest):
     node = _get_scanner_node(request)
-    capabilities = body.capabilities or node.get("capabilities") or ["*"]
     job = claim_next_scanner_job(
         node["node_id"],
-        capabilities=capabilities,
+        capabilities=node.get("capabilities") or ["*"],
         lease_seconds=body.lease_seconds,
     )
     return {"job": job}
@@ -3211,9 +3356,12 @@ def admin_overview(request: Request):
 @app.websocket("/ws/scan/{scan_id}")
 async def websocket_endpoint(websocket: WebSocket, scan_id: int):
     """WebSocket endpoint for real-time scan debug output."""
+    org_db = getattr(websocket, "session", {}).get("org_db")
+    if not org_db or not get_scan_record(org_db, scan_id):
+        await websocket.close(code=1008)
+        return
     await manager.connect(websocket, scan_id)
     try:
-        # Note: In production, verify org_db from session
         while True:
             try:
                 await asyncio.wait_for(websocket.receive_text(), timeout=30)

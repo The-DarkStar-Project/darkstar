@@ -178,7 +178,8 @@ docker compose --profile darkstar up -d --build</code></pre>
                     <thead><tr><th>Variable</th><th>Use</th></tr></thead>
                     <tbody>
                         <tr><td><code>DB_HOST</code>, <code>DB_NAME</code>, <code>DB_USER</code>, <code>DB_PASSWORD</code></td><td>Database connection for the orchestrator and scanner workers.</td></tr>
-                        <tr><td><code>WEB_SESSION_SECRET</code></td><td>Session signing secret. Always replace it in production.</td></tr>
+                        <tr><td><code>WEB_SESSION_SECRET</code></td><td>Session signing secret. Use a random 32+ character value for stable sessions.</td></tr>
+                        <tr><td><code>DARKSTAR_SETUP_TOKEN</code></td><td>One-time token required for first platform-admin setup unless public bootstrap is explicitly enabled.</td></tr>
                         <tr><td><code>OPENVAS_USER</code>, <code>OPENVAS_PASS</code></td><td>Credentials for the OpenVAS/GVM integration.</td></tr>
                         <tr><td><code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_FROM</code></td><td>Send email notifications.</td></tr>
                         <tr><td><code>SSO_REDIRECT_URI</code></td><td>Public OIDC callback URL when the auto-detected URL is not correct.</td></tr>
