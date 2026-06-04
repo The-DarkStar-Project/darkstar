@@ -1,5 +1,5 @@
 # ========== BUILD STAGE FOR GO/NUCLEI ==========
-FROM golang:1.24-bullseye AS go-builder
+FROM golang:1.25-bullseye AS go-builder
 ENV GOTOOLCHAIN=auto
 
 # Install nuclei

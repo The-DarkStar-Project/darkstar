@@ -85,7 +85,7 @@ def test_sbom_covers_declared_runtime_surfaces():
         "pkg:pypi/pyjwt@2.13.0",
         "pkg:pypi/requests@2.34.1",
         "pkg:pypi/aiohttp",
-        "pkg:golang/golang.org/x/sys@v0.32.0",
+        "pkg:golang/golang.org/x/sys@v0.45.0",
         "pkg:docker/ubuntu@22.04",
         "pkg:docker/mariadb@10.5",
         "pkg:deb/debian/openjdk-17-jre-headless",
@@ -101,7 +101,7 @@ def test_sbom_covers_declared_runtime_surfaces():
     assert _property_values(pyjwt, "darkstar:extra") == {"crypto"}
     assert "requirements.txt" in _property_values(pyjwt, "darkstar:sourceManifest")
 
-    go_sys = components["pkg:golang/golang.org/x/sys@v0.32.0"]
+    go_sys = components["pkg:golang/golang.org/x/sys@v0.45.0"]
     assert "agents/darkstar-windows-agent/go.mod" in _property_values(
         go_sys,
         "darkstar:sourceManifest",

@@ -784,11 +784,11 @@
     },
     {
       "type": "container",
-      "bom-ref": "pkg:docker/golang@1.24-bullseye",
+      "bom-ref": "pkg:docker/golang@1.25-bullseye",
       "name": "golang",
       "scope": "required",
-      "version": "1.24-bullseye",
-      "purl": "pkg:docker/golang@1.24-bullseye",
+      "version": "1.25-bullseye",
+      "purl": "pkg:docker/golang@1.25-bullseye",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -800,7 +800,7 @@
         },
         {
           "name": "darkstar:imageReference",
-          "value": "golang:1.24-bullseye"
+          "value": "golang:1.25-bullseye"
         }
       ]
     },
@@ -1345,11 +1345,11 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:golang/golang.org/x/sys@v0.32.0",
+      "bom-ref": "pkg:golang/golang.org/x/sys@v0.45.0",
       "name": "golang.org/x/sys",
       "scope": "required",
-      "version": "v0.32.0",
-      "purl": "pkg:golang/golang.org/x/sys@v0.32.0",
+      "version": "v0.45.0",
+      "purl": "pkg:golang/golang.org/x/sys@v0.45.0",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -1365,11 +1365,11 @@
         },
         {
           "name": "darkstar:goChecksum",
-          "value": "h1:BJP2sWEmIv4KK5OTEluFJCKSidICx8ciO85XgH3Ak8k="
+          "value": "h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw="
         },
         {
           "name": "darkstar:goChecksum",
-          "value": "h1:s77OFDvIQeibCmezSnk/q6iAfkdiQaJi4VzroCFrN20="
+          "value": "h1:dO4czNzziLiiXplLQgBCEpCvXQ3dnkn0SdaZSYdQ+FY="
         },
         {
           "name": "darkstar:goDirect",
@@ -2637,7 +2637,7 @@
         "pkg:deb/debian/wget",
         "pkg:docker/darkstar-darkstar-web",
         "pkg:docker/debian@testing",
-        "pkg:docker/golang@1.24-bullseye",
+        "pkg:docker/golang@1.25-bullseye",
         "pkg:docker/mariadb@10.5",
         "pkg:docker/python@3.13-slim",
         "pkg:docker/registry.community.greenbone.net/community/cert-bund-data",
@@ -2661,7 +2661,7 @@
         "pkg:golang/github.com/lc/gau/v2/cmd/gau@latest",
         "pkg:golang/github.com/projectdiscovery/httpx/cmd/httpx@latest",
         "pkg:golang/github.com/projectdiscovery/katana/cmd/katana@latest",
-        "pkg:golang/golang.org/x/sys@v0.32.0",
+        "pkg:golang/golang.org/x/sys@v0.45.0",
         "pkg:pypi/aiohttp",
         "pkg:pypi/aiolimiter",
         "pkg:pypi/bbot",
