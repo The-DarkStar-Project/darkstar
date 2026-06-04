@@ -1723,11 +1723,11 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/fastapi@0.121.3",
+      "bom-ref": "pkg:pypi/fastapi@0.136.3",
       "name": "fastapi",
       "scope": "required",
-      "version": "0.121.3",
-      "purl": "pkg:pypi/fastapi@0.121.3",
+      "version": "0.136.3",
+      "purl": "pkg:pypi/fastapi@0.136.3",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -1739,7 +1739,7 @@
         },
         {
           "name": "darkstar:versionSpecifier",
-          "value": "==0.121.3"
+          "value": "==0.136.3"
         }
       ]
     },
@@ -1767,11 +1767,11 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/idna@3.10",
+      "bom-ref": "pkg:pypi/idna@3.18",
       "name": "idna",
       "scope": "required",
-      "version": "3.10",
-      "purl": "pkg:pypi/idna@3.10",
+      "version": "3.18",
+      "purl": "pkg:pypi/idna@3.18",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -1783,7 +1783,7 @@
         },
         {
           "name": "darkstar:versionSpecifier",
-          "value": "==3.10"
+          "value": "==3.18"
         }
       ]
     },
@@ -2015,11 +2015,11 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pyjwt@2.11.0",
+      "bom-ref": "pkg:pypi/pyjwt@2.13.0",
       "name": "pyjwt",
       "scope": "required",
-      "version": "2.11.0",
-      "purl": "pkg:pypi/pyjwt@2.11.0",
+      "version": "2.13.0",
+      "purl": "pkg:pypi/pyjwt@2.13.0",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -2031,7 +2031,7 @@
         },
         {
           "name": "darkstar:versionSpecifier",
-          "value": "==2.11.0"
+          "value": "==2.13.0"
         },
         {
           "name": "darkstar:extra",
@@ -2674,9 +2674,9 @@
         "pkg:pypi/cvss",
         "pkg:pypi/dnspython@2.7.0",
         "pkg:pypi/fastapi",
-        "pkg:pypi/fastapi@0.121.3",
+        "pkg:pypi/fastapi@0.136.3",
         "pkg:pypi/httpx@0.28.1",
-        "pkg:pypi/idna@3.10",
+        "pkg:pypi/idna@3.18",
         "pkg:pypi/itsdangerous@2.2.0",
         "pkg:pypi/jinja2@3.1.6",
         "pkg:pypi/markdown",
@@ -2687,7 +2687,7 @@
         "pkg:pypi/packaging@25.0",
         "pkg:pypi/pandas@2.2.3",
         "pkg:pypi/playwright@1.58.0",
-        "pkg:pypi/pyjwt@2.11.0",
+        "pkg:pypi/pyjwt@2.13.0",
         "pkg:pypi/pytest",
         "pkg:pypi/pytest-asyncio",
         "pkg:pypi/pytest-cov@6.0.0",

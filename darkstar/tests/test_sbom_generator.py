@@ -82,7 +82,7 @@ def test_sbom_covers_declared_runtime_surfaces():
     components = _component_by_ref(sbom)
 
     expected_refs = {
-        "pkg:pypi/pyjwt@2.11.0",
+        "pkg:pypi/pyjwt@2.13.0",
         "pkg:pypi/requests@2.34.1",
         "pkg:pypi/aiohttp",
         "pkg:golang/golang.org/x/sys@v0.32.0",
@@ -97,7 +97,7 @@ def test_sbom_covers_declared_runtime_surfaces():
         for component in components.values()
     )
 
-    pyjwt = components["pkg:pypi/pyjwt@2.11.0"]
+    pyjwt = components["pkg:pypi/pyjwt@2.13.0"]
     assert _property_values(pyjwt, "darkstar:extra") == {"crypto"}
     assert "requirements.txt" in _property_values(pyjwt, "darkstar:sourceManifest")
 
