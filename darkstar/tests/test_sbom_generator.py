@@ -41,6 +41,31 @@ def test_requirement_parser_handles_pins_extras_and_includes():
     assert generate_sbom.parse_requirement_line("-r requirements.txt") is None
 
 
+def test_pyproject_loader_falls_back_without_tomllib(monkeypatch):
+    monkeypatch.setattr(generate_sbom, "tomllib", None)
+
+    parsed = generate_sbom._load_pyproject(
+        """
+[project]
+dependencies = [
+    "requests>=2.32.3",
+    "PyJWT[crypto]==2.11.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11.10",
+]
+"""
+    )
+
+    assert parsed["project"]["dependencies"] == [
+        "requests>=2.32.3",
+        "PyJWT[crypto]==2.11.0",
+    ]
+    assert parsed["dependency-groups"]["dev"] == ["ruff>=0.11.10"]
+
+
 def test_sbom_generation_is_deterministic_and_current():
     generated = generate_sbom.render_sbom(REPO_ROOT)
     assert generated == generate_sbom.render_sbom(REPO_ROOT)
@@ -59,7 +84,6 @@ def test_sbom_covers_declared_runtime_surfaces():
     expected_refs = {
         "pkg:pypi/pyjwt@2.11.0",
         "pkg:pypi/requests@2.34.1",
-        "pkg:pypi/requests@2.32.4",
         "pkg:pypi/aiohttp",
         "pkg:golang/golang.org/x/sys@v0.32.0",
         "pkg:docker/ubuntu@22.04",

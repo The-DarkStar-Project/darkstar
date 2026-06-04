@@ -31,7 +31,7 @@ echo "Installing general dependencies"
 dashes
 
 apt-get update
-install_apt_packages python3 curl unzip software-properties-common sudo git
+install_apt_packages python3 curl unzip software-properties-common gnupg sudo git
 
 if ! dpkg-query -W firefox-esr >/dev/null 2>&1; then
     add-apt-repository -y ppa:mozillateam/ppa

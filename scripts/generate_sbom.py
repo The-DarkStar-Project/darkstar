@@ -4,16 +4,21 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import re
 import shlex
 import sys
-import tomllib
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - covered by explicit fallback tests.
+    tomllib = None
 
 
 APPLICATION_REF = "pkg:github/The-DarkStar-Project/darkstar"
@@ -230,10 +235,49 @@ def collect_requirements(root: Path, catalog: ComponentCatalog) -> None:
                 add_python_requirement(catalog, rel_path, requirement)
 
 
+def _quoted_toml_strings(value: str) -> list[str]:
+    return [
+        ast.literal_eval(match.group(0))
+        for match in re.finditer(r'"(?:[^"\\]|\\.)*"', value)
+    ]
+
+
+def _collect_toml_array(lines: list[str], start: int) -> tuple[str, int]:
+    block = [lines[start]]
+    index = start
+    while "]" not in lines[index] and index + 1 < len(lines):
+        index += 1
+        block.append(lines[index])
+    return "\n".join(block), index
+
+
+def _load_pyproject(text: str) -> dict[str, object]:
+    if tomllib is not None:
+        return tomllib.loads(text)
+
+    data: dict[str, object] = {"project": {}, "dependency-groups": {}}
+    lines = text.splitlines()
+    section = ""
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped.strip("[]")
+        elif section == "project" and stripped.startswith("dependencies"):
+            value, index = _collect_toml_array(lines, index)
+            data["project"]["dependencies"] = _quoted_toml_strings(value)
+        elif section == "dependency-groups" and "=" in stripped:
+            group_name, _, _ = stripped.partition("=")
+            value, index = _collect_toml_array(lines, index)
+            data["dependency-groups"][group_name.strip()] = _quoted_toml_strings(value)
+        index += 1
+    return data
+
+
 def collect_pyproject_dependencies(root: Path, catalog: ComponentCatalog) -> None:
     pyproject_files = discover_files(root, lambda path: path.name == "pyproject.toml")
     for rel_path in pyproject_files:
-        data = tomllib.loads((root / rel_path).read_text(encoding="utf-8"))
+        data = _load_pyproject((root / rel_path).read_text(encoding="utf-8"))
         dependencies = list(data.get("project", {}).get("dependencies", []))
         for group_dependencies in data.get("dependency-groups", {}).values():
             dependencies.extend(group_dependencies)

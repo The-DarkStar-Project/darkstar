@@ -2266,15 +2266,19 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/requests@2.32.3",
+      "bom-ref": "pkg:pypi/requests@2.34.1",
       "name": "requests",
       "scope": "required",
-      "version": "2.32.3",
-      "purl": "pkg:pypi/requests@2.32.3",
+      "version": "2.34.1",
+      "purl": "pkg:pypi/requests@2.34.1",
       "properties": [
         {
           "name": "darkstar:ecosystem",
           "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "darkstar/scanners/asteroid/modules/50-vulnscan/requirements.txt"
         },
         {
           "name": "darkstar:sourceManifest",
@@ -2287,46 +2291,6 @@
         {
           "name": "darkstar:sourceManifest",
           "value": "darkstar/scanners/asteroid/modules/65-file-upload/requirements.txt"
-        },
-        {
-          "name": "darkstar:versionSpecifier",
-          "value": "==2.32.3"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:pypi/requests@2.32.4",
-      "name": "requests",
-      "scope": "required",
-      "version": "2.32.4",
-      "purl": "pkg:pypi/requests@2.32.4",
-      "properties": [
-        {
-          "name": "darkstar:ecosystem",
-          "value": "pypi"
-        },
-        {
-          "name": "darkstar:sourceManifest",
-          "value": "darkstar/scanners/asteroid/modules/50-vulnscan/requirements.txt"
-        },
-        {
-          "name": "darkstar:versionSpecifier",
-          "value": "==2.32.4"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:pypi/requests@2.34.1",
-      "name": "requests",
-      "scope": "required",
-      "version": "2.34.1",
-      "purl": "pkg:pypi/requests@2.34.1",
-      "properties": [
-        {
-          "name": "darkstar:ecosystem",
-          "value": "pypi"
         },
         {
           "name": "darkstar:sourceManifest",
@@ -2736,8 +2700,6 @@
         "pkg:pypi/qrcode@8.2",
         "pkg:pypi/requests",
         "pkg:pypi/requests-ratelimiter",
-        "pkg:pypi/requests@2.32.3",
-        "pkg:pypi/requests@2.32.4",
         "pkg:pypi/requests@2.34.1",
         "pkg:pypi/ruff",
         "pkg:pypi/six@1.17.0",

@@ -148,6 +148,17 @@ COPY --from=rust-builder /usr/local/cargo/bin/rustscan /usr/local/bin/
 COPY --from=c-builder /usr/local/bin/hydra* /usr/local/bin/
 COPY --from=c-builder /usr/local/bin/massdns /usr/local/bin/
 
+# Copy only Asteroid before the expensive scanner install. The full app is
+# copied after Wapiti so app/test-only changes do not invalidate scanner layers.
+COPY ./darkstar/scanners/asteroid-install.sh /app/darkstar/scanners/asteroid-install.sh
+COPY ./darkstar/scanners/asteroid /app/darkstar/scanners/asteroid
+
+# Install Asteroid
+RUN cd /app/darkstar && bash scanners/asteroid-install.sh
+
+# Install Wapiti isolated from DarkStar and Asteroid Python dependencies.
+RUN pipx install wapiti3
+
 # Copy application code as a proper Python package. Compose bind mounts use the
 # same path, so scanner-only containers can run without the source tree mounted.
 COPY ./darkstar /app/darkstar
@@ -157,11 +168,16 @@ COPY ./logo_nlnet.png /app/logo_nlnet.png
 
 RUN gcc -o /app/darkstar/tools/scripts/search_epss /app/darkstar/tools/scripts/search_epss.c
 
-# Install Asteroid
-RUN cd /app/darkstar && bash scanners/asteroid-install.sh
-
-# Install Wapiti isolated from DarkStar and Asteroid Python dependencies.
-RUN pipx install wapiti3
+# Copy repository manifest/support files used by the in-container SBOM tests.
+# Keep these after the heavyweight scanner installs so manifest-only changes do
+# not invalidate Asteroid, Wapiti, ZAP, Go, or Rust build layers.
+COPY ./requirements-dev.txt /app/requirements-dev.txt
+COPY ./docker-compose.yaml /app/docker-compose.yaml
+COPY ./docker /app/docker
+COPY ./openvas_api /app/openvas_api
+COPY ./scripts /app/scripts
+COPY ./docs/sbom /app/docs/sbom
+COPY ./agents /app/agents
 
 # Setup shell environment
 RUN echo 'source ~/.bashrc' > /etc/bash.bashrc && \

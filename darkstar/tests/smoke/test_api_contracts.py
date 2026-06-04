@@ -195,9 +195,11 @@ def test_start_scan_enqueues_worker_job_without_running_scanner(api_client, monk
         "org_db": "tenant_db",
         "scan_name": "Normal app scan",
         "scan_mode": "2",
-        "targets": "app.example.com, portal.example.com",
+        "targets": "app.example.com,portal.example.com",
     }
     assert enqueued["scanner"] is None
+    assert enqueued["targets"] == "app.example.com,portal.example.com"
+    assert enqueued["payload"]["targets"] == "app.example.com,portal.example.com"
     assert enqueued["payload"]["mode"] == 2
     assert enqueued["preferred_node_id"] == "node-1"
     assert logs == [("tenant_db", 701, "Queued for selected scanner appliance node-1", "info")]

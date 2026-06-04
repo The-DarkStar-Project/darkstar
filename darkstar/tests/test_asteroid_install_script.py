@@ -70,6 +70,11 @@ INSTALLER
 
     command_log = log_file.read_text(encoding="utf-8")
     assert "apt-get update" in command_log
+    assert (
+        "apt-get install -y --no-install-recommends "
+        "python3 curl unzip software-properties-common gnupg sudo git"
+        in command_log
+    )
     assert "add-apt-repository -y ppa:mozillateam/ppa" in command_log
     assert "pip3 install --no-cache-dir -r requirements.txt" in command_log
     assert (
