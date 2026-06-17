@@ -6,9 +6,9 @@ aggressive reconnaissance, and processing the results for database insertion.
 """
 
 import ast
-import hashlib
 import logging
 import os
+import secrets
 import signal
 import subprocess
 import threading
@@ -89,7 +89,7 @@ class BBotScanner:
     def __init__(self, target: str, org_name: str):
         self.target = target
         self.folder = "/app/bbot_output"
-        self.foldername = hashlib.md5(os.urandom(10)).hexdigest()
+        self.foldername = secrets.token_hex(10)
         self.org_name = org_name
         self.ips_file = f"{self.folder}/{self.foldername}/ips.txt"
 

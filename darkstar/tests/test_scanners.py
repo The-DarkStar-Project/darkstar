@@ -19,8 +19,7 @@ class TestBBotScanner:
         """Test initializing the bbot scanner."""
         mock_makedirs = mocker.patch("scanners.bbot.os.makedirs")
         mocker.patch("scanners.bbot.os.path.exists", return_value=False)
-        mock_md5 = mocker.patch("scanners.bbot.hashlib.md5")
-        mock_md5().hexdigest.return_value = "abc123"
+        mocker.patch("scanners.bbot.secrets.token_hex", return_value="abc123")
 
         scanner = BBotScanner("example.com", "test_org")
 

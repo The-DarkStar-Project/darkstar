@@ -4,6 +4,7 @@ services:
     image: mariadb:10.5
     container_name: mariadb
     profiles: ["core", "gvm", "darkstar"]
+    entrypoint: ["/bin/bash", "/usr/local/bin/darkstar-mariadb-entrypoint.sh"]
     env_file:
       - .env
     environment:
@@ -12,7 +13,9 @@ services:
       MARIADB_USER: ${DB_USER}
       MARIADB_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./docker/mariadb-entrypoint.sh:/usr/local/bin/darkstar-mariadb-entrypoint.sh:ro
+      - ./sql/init-darkstar.sh:/docker-entrypoint-initdb.d/10-init-darkstar.sh:ro
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/darkstar-schema.sql.template:ro
       - mariadb_data:/var/lib/mysql
     ports:
       - "3307:3306"
@@ -24,6 +27,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   # Core OpenVAS infrastructure - essential for GVM operations
   redis-server:

@@ -78,6 +78,17 @@ Or start the Docker Compose stack directly:
 docker compose --profile darkstar up -d --build
 ```
 
+If MariaDB fails during first startup with an Aria message such as
+`Size of control file is smaller than expected`, the local MariaDB volume likely
+contains files from an interrupted bootstrap. Reset only the local database
+volume and start again:
+
+```bash
+docker compose --profile darkstar down
+docker volume rm darkstar_mariadb_data
+docker compose --profile darkstar up -d --build
+```
+
 Open the dashboard:
 
 ```text

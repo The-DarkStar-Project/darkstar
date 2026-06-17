@@ -1,7 +1,3 @@
-CREATE DATABASE IF NOT EXISTS test;
-
-USE test;
-
 CREATE TABLE IF NOT EXISTS vulnerability (
     id INT(11) NOT NULL AUTO_INCREMENT,
     cve VARCHAR(255), -- CVE identifier (unique vulnerability ID)
@@ -214,8 +210,3 @@ CREATE TABLE IF NOT EXISTS scanner_jobs (
     INDEX idx_scanner_jobs_node (locked_by_node_id, status),
     INDEX idx_scanner_jobs_lease (lease_until)
 );
-
--- Grant permissions to allow data_miner to create org databases
-GRANT ALL PRIVILEGES ON `org_%`.* TO 'data_miner'@'%';
-GRANT CREATE, ALTER, DROP ON *.* TO 'data_miner'@'%';
-FLUSH PRIVILEGES;
