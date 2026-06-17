@@ -187,7 +187,7 @@ Run dependency and high-severity security checks:
 ```bash
 python3 -m pip_audit -r requirements.txt
 python3 -m pip_audit -r requirements-dev.txt
-python3 -m bandit -q -lll darkstar
+python3 -m bandit -q -lll -r darkstar
 ```
 
 More detail is in [docs/testing.md](./docs/testing.md).
