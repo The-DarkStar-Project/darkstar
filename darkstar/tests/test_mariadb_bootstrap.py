@@ -18,6 +18,7 @@ def test_mariadb_compose_uses_darkstar_bootstrap_scripts():
         "/bin/bash",
         "/usr/local/bin/darkstar-mariadb-entrypoint.sh",
     ]
+    assert mariadb["command"] == ["mysqld"]
     assert (
         "./docker/mariadb-entrypoint.sh:/usr/local/bin/darkstar-mariadb-entrypoint.sh:ro"
         in mariadb["volumes"]

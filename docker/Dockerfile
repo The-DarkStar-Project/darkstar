@@ -174,6 +174,7 @@ RUN gcc -o /app/darkstar/tools/scripts/search_epss /app/darkstar/tools/scripts/s
 COPY ./requirements-dev.txt /app/requirements-dev.txt
 COPY ./docker-compose.yaml /app/docker-compose.yaml
 COPY ./docker /app/docker
+COPY ./sql /app/sql
 COPY ./openvas_api /app/openvas_api
 COPY ./scripts /app/scripts
 COPY ./docs/sbom /app/docs/sbom

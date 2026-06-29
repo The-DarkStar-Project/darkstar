@@ -5,6 +5,7 @@ services:
     container_name: mariadb
     profiles: ["core", "gvm", "darkstar"]
     entrypoint: ["/bin/bash", "/usr/local/bin/darkstar-mariadb-entrypoint.sh"]
+    command: ["mysqld"]
     env_file:
       - .env
     environment:
@@ -338,6 +339,12 @@ services:
       PYTHONPATH: /app:/app/darkstar
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/documentation"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     depends_on:
       mariadb:
         condition: service_healthy
