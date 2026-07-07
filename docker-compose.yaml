@@ -360,17 +360,18 @@ services:
     restart: unless-stopped
     command: uvicorn darkstar.webapp:app --host 0.0.0.0 --port 8080
 
-  # Scanner-only worker. Create a token first:
-  #   docker compose exec darkstar-web python3 -m darkstar.scanner_attach create \
-  #     --name local-scanner --url http://darkstar-web:8080 --network darkstar_vuln_net
-  # Then put DARKSTAR_SCANNER_TOKEN in .env and start this service.
+  # Bundled scanner worker. Runs by default so scans execute out of the box
+  # instead of sitting "Queued for scanner workers". When DARKSTAR_SCANNER_TOKEN
+  # is empty it auto-provisions a local "local-scanner" node and caches the token
+  # in the scanner_state volume. Set DARKSTAR_SCANNER_TOKEN (e.g. via
+  # scanner_attach) to pin a specific token or run this as a remote worker.
   darkstar-scanner:
     image: darkstar-darkstar-web
     build:
       context: .
       dockerfile: docker/Dockerfile
     container_name: darkstar-scanner
-    profiles: ["scanner"]
+    profiles: ["core", "gvm", "darkstar", "scanner"]
     working_dir: /app
     env_file:
       - .env
@@ -380,6 +381,10 @@ services:
       DARKSTAR_SCANNER_TOKEN: ${DARKSTAR_SCANNER_TOKEN:-}
       DARKSTAR_SCANNER_NAME: ${DARKSTAR_SCANNER_NAME:-local-scanner}
       DARKSTAR_WORKER_MAX_PARALLEL: ${DARKSTAR_WORKER_MAX_PARALLEL:-1}
+      DARKSTAR_SCANNER_TOKEN_FILE: ${DARKSTAR_SCANNER_TOKEN_FILE:-/var/lib/darkstar-scanner/local-scanner.token}
+    depends_on:
+      mariadb:
+        condition: service_healthy
     networks:
       - vuln_net
     volumes:
@@ -389,15 +394,20 @@ services:
       - ./logo_sidn.png:/app/logo_sidn.png:ro
       - ./logo_nlnet.png:/app/logo_nlnet.png:ro
       - ./.env:/app/.env:ro
+      - scanner_state_vol:/var/lib/darkstar-scanner
     restart: unless-stopped
     command: >
       /bin/bash -lc 'if [ -z "$$DARKSTAR_SCANNER_TOKEN" ];
-      then echo "DARKSTAR_SCANNER_TOKEN missing. Create one with python3 -m darkstar.scanner_attach create."; sleep infinity;
-      else python3 -m darkstar.scanner_worker;
+      then export DARKSTAR_SCANNER_TOKEN="$$(python3 -m darkstar.scanner_bootstrap)";
+      fi;
+      if [ -z "$$DARKSTAR_SCANNER_TOKEN" ];
+      then echo "Scanner token bootstrap failed; see logs above."; sleep infinity;
+      else exec python3 -m darkstar.scanner_worker;
       fi'
 
 volumes:
   mariadb_data:
+  scanner_state_vol:
   gpg_data_vol:
   scap_data_vol:
   cert_data_vol:

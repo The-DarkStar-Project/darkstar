@@ -3,6 +3,7 @@ import sys
 
 import pytest
 
+from darkstar import scanner_bootstrap
 from darkstar.scanner_attach import (
     _attach_command,
     _env_file_attach_command,
@@ -130,3 +131,55 @@ def test_attach_command_can_reference_secret_env_file_without_printing_secrets(t
     assert "DARKSTAR_SCANNER_TOKEN" not in command
     assert "DARKSTAR_SCANNER_TOKEN=dscan_secret" in written_path.read_text()
     assert stat.S_IMODE(written_path.stat().st_mode) == 0o600
+
+
+def test_bootstrap_prefers_explicit_env_token(monkeypatch, tmp_path):
+    monkeypatch.setenv("DARKSTAR_SCANNER_TOKEN", "dscan_env")
+
+    def _fail(*_args, **_kwargs):  # pragma: no cover - must not be called
+        raise AssertionError("should not create a node when a token is set")
+
+    monkeypatch.setattr(scanner_bootstrap, "create_scanner_node", _fail)
+    monkeypatch.setattr(scanner_bootstrap, "authenticate_scanner_node", _fail)
+
+    token = scanner_bootstrap.provision_token("local-scanner", tmp_path / "t.token")
+
+    assert token == "dscan_env"
+    assert not (tmp_path / "t.token").exists()
+
+
+def test_bootstrap_reuses_valid_cached_token(monkeypatch, tmp_path):
+    monkeypatch.delenv("DARKSTAR_SCANNER_TOKEN", raising=False)
+    token_file = tmp_path / "local-scanner.token"
+    token_file.write_text("dscan_cached\n")
+
+    monkeypatch.setattr(scanner_bootstrap, "authenticate_scanner_node", lambda token: {"node_id": "n1"} if token == "dscan_cached" else None)
+
+    def _fail(*_args, **_kwargs):  # pragma: no cover - must not be called
+        raise AssertionError("should not create a node when cache is valid")
+
+    monkeypatch.setattr(scanner_bootstrap, "create_scanner_node", _fail)
+
+    assert scanner_bootstrap.provision_token("local-scanner", token_file) == "dscan_cached"
+
+
+def test_bootstrap_creates_and_caches_when_no_valid_token(monkeypatch, tmp_path):
+    monkeypatch.delenv("DARKSTAR_SCANNER_TOKEN", raising=False)
+    token_file = tmp_path / "local-scanner.token"
+    token_file.write_text("dscan_revoked\n")
+
+    monkeypatch.setattr(scanner_bootstrap, "authenticate_scanner_node", lambda token: None)
+    created = {}
+
+    def _create(name, capabilities=None, max_parallel_jobs=1):
+        created["args"] = (name, capabilities, max_parallel_jobs)
+        return {"node_id": "n2", "token": "dscan_new"}
+
+    monkeypatch.setattr(scanner_bootstrap, "create_scanner_node", _create)
+
+    token = scanner_bootstrap.provision_token("local-scanner", token_file, max_parallel_jobs=2)
+
+    assert token == "dscan_new"
+    assert token_file.read_text().strip() == "dscan_new"
+    assert stat.S_IMODE(token_file.stat().st_mode) == 0o600
+    assert created["args"] == ("local-scanner", ["*"], 2)

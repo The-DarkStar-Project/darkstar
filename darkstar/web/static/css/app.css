@@ -273,6 +273,12 @@ body {
     color: #166534;
 }
 
+.form-message-warning {
+    background-color: #fef3c7;
+    color: #92400e;
+    margin-bottom: var(--space-md);
+}
+
 /* ===== MAIN DASHBOARD ===== */
 
 .main-dashboard {

@@ -3,6 +3,9 @@ venv
 .env
 env
 
+darkstar-scanner-*.env
+*.token
+
 __pycache__
 __pycache__/
 .pytest_cache/

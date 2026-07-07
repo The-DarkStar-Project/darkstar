@@ -171,6 +171,7 @@
 cd darkstar
 cp .env.example .env
 docker compose --profile darkstar up -d --build</code></pre>
+                <p>The default stack starts a bundled local scanner worker, so queued scans run without any extra steps. Add distributed workers only when you need to scan from other networks (see Internal Scanners).</p>
                 <p>Then open the dashboard at:</p>
                 <pre><code>http://localhost:8080</code></pre>
                 <h3>Important Environment Variables</h3>

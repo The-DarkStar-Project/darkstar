@@ -176,6 +176,26 @@ function scannerApplianceName(nodeId) {
     return node ? (node.name || node.node_id) : nodeId;
 }
 
+function scannerNodeIsActive(node) {
+    // A queued scan only runs when a worker is actually alive. Nodes created
+    // without a running worker stay 'registered'; a worker that died keeps a
+    // stale 'online' status, so also require a recent heartbeat.
+    if (!node || (node.status !== "online" && node.status !== "busy")) return false;
+    if (!node.last_seen_at) return false;
+    // last_seen_at is a naive UTC timestamp ("YYYY-MM-DD HH:MM:SS").
+    const seen = new Date(String(node.last_seen_at).replace(" ", "T") + "Z");
+    if (Number.isNaN(seen.getTime())) return false;
+    const STALE_AFTER_MS = 3 * 60 * 1000;
+    return Date.now() - seen.getTime() < STALE_AFTER_MS;
+}
+
+function updateScanWorkerWarning() {
+    const warning = document.getElementById("scanWorkerWarning");
+    if (!warning) return;
+    const hasActiveWorker = (state.scannerAppliances || []).some(scannerNodeIsActive);
+    warning.classList.toggle("hidden", hasActiveWorker);
+}
+
 async function loadScannerApplianceOptions() {
     const select = document.getElementById("applianceInput");
     if (!select || !state.authenticated || roleRank(state.role) < roleRank("security_analyst")) return;
@@ -195,7 +215,9 @@ async function loadScannerApplianceOptions() {
     } catch (error) {
         console.warn("Failed to load scanner appliances:", error);
         select.innerHTML = '<option value="">Auto - any available appliance</option>';
+        state.scannerAppliances = [];
     }
+    updateScanWorkerWarning();
 }
 
 function formatIntervalMinutes(minutes) {

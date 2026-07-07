@@ -653,6 +653,10 @@
                 <div class="grid-2">
                     <div class="card">
                         <div class="card-header">Launch Scan</div>
+                        <div id="scanWorkerWarning" class="form-message form-message-warning hidden" role="alert">
+                            No scanner workers are online. Queued scans will not run until a worker is attached
+                            (see Settings &rarr; Scanner appliances, or the Internal Scanners documentation).
+                        </div>
                         <form id="scanForm" class="form-vertical">
                             <div class="form-group">
                                 <label for="targetsInput">Targets</label>

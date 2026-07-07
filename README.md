@@ -98,6 +98,12 @@ http://localhost:8080
 On first login, Darkstar creates the tenant database for the organization. Later
 logins use the stored organization account and configured auth policy.
 
+The default stack includes a bundled local scanner worker, so queued scans run
+out of the box. When `DARKSTAR_SCANNER_TOKEN` is empty the `darkstar-scanner`
+service auto-provisions a `local-scanner` node and caches its token in the
+`scanner_state` volume. To scan from other networks, add distributed workers as
+described in [Distributed Scanner Workers](#distributed-scanner-workers).
+
 ## Documentation
 
 - In-app documentation: `http://localhost:8080/documentation`
