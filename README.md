@@ -53,6 +53,12 @@ Required for the main stack:
 - Docker Compose
 - Git
 
+To install these tools mentioned above (Tested on Ubuntu 24.04.4):
+```sh
+sudo apt update 
+sudo apt install docker.io curl docker-compose-v2 -y
+```
+
 Useful for local development:
 
 - Python 3.11+
@@ -69,7 +75,7 @@ and license overview.
 git clone --recurse-submodules git@github.com:The-DarkStar-Project/darkstar.git
 cd darkstar
 chmod +x run.sh
-./run.sh
+sudo ./run.sh
 ```
 
 Or start the Docker Compose stack directly:
