@@ -72,7 +72,7 @@ and license overview.
 ## Quick Start
 
 ```bash
-git clone --recurse-submodules git@github.com:The-DarkStar-Project/darkstar.git
+git clone --recurse-submodules https://github.com/The-DarkStar-Project/darkstar.git
 cd darkstar
 chmod +x run.sh
 sudo ./run.sh
