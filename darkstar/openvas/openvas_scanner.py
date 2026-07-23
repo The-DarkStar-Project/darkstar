@@ -174,10 +174,15 @@ class OpenVASScanner:
 
         async with OpenVASAPIClient(base_url=self.base_url) as openvas:
             try:
-                await openvas.list_targets()
+                health = await openvas.health()
+                logger.info(
+                    "OpenVAS API is ready (GMP version: %s)",
+                    health.get("gmp_version", "unknown"),
+                )
             except Exception as exc:
                 logger.warning(
-                    f"OpenVAS API is not reachable at {self.base_url}; skipping OpenVAS stage: {exc}"
+                    f"OpenVAS API health check failed at {self.base_url}; "
+                    f"skipping OpenVAS stage: {exc}"
                 )
                 return
 

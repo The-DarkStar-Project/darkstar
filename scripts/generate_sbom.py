@@ -464,32 +464,67 @@ def collect_dockerfile_tools(root: Path, catalog: ComponentCatalog) -> None:
     dockerfiles = discover_files(root, lambda path: path.name == "Dockerfile")
     for rel_path in dockerfiles:
         content = (root / rel_path).read_text(encoding="utf-8")
-        for module, version in re.findall(r"\bgo\s+install\s+(\S+?)@([^\s&]+)", content):
+        build_args = dict(
+            re.findall(
+                r"^\s*ARG\s+([A-Za-z_][A-Za-z0-9_]*)=([^\s]+)",
+                content,
+                flags=re.MULTILINE,
+            )
+        )
+
+        def resolve_build_args(value: str) -> str:
+            value = value.strip("\"'")
+            return re.sub(
+                r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)",
+                lambda match: build_args.get(match.group(1) or match.group(2), match.group(0)),
+                value,
+            )
+
+        for module, version in re.findall(
+            r"\bgo\s+install(?:\s+-\S+)*\s+[\"']?([^@\"'\s]+)@([^\"'\s&]+)[\"']?",
+            content,
+        ):
             add_tool_component(
                 catalog,
                 rel_path,
                 module,
                 ecosystem="golang-tool",
                 package_type="golang",
-                version=version,
+                version=resolve_build_args(version),
                 installer="go install",
             )
-        for package in re.findall(r"\bpipx\s+install\s+([A-Za-z0-9_.-]+)", content):
+        for requirement in re.findall(
+            r"\bpipx\s+install\s+[\"']?([^\"'\s&]+)", content
+        ):
+            parsed = parse_requirement_line(resolve_build_args(requirement))
+            if parsed is None:
+                continue
+            package, version, _extras, _specifier = parsed
             add_tool_component(
                 catalog,
                 rel_path,
                 normalize_python_name(package),
                 ecosystem="pypi-tool",
                 package_type="pypi",
+                version=version,
                 installer="pipx install",
             )
-        for package in re.findall(r"\bcargo\s+install\s+([A-Za-z0-9_.-]+)", content):
+        for package, arguments in re.findall(
+            r"\bcargo\s+install\s+([A-Za-z0-9_.-]+)([^\n;&]*)", content
+        ):
+            version_match = re.search(
+                r"--version\s+[\"']?([^\"'\s]+)", arguments
+            )
+            version = (
+                resolve_build_args(version_match.group(1)) if version_match else None
+            )
             add_tool_component(
                 catalog,
                 rel_path,
                 package,
                 ecosystem="cargo-tool",
                 package_type="cargo",
+                version=version,
                 installer="cargo install",
             )
         for url in re.findall(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", content):
@@ -503,14 +538,14 @@ def collect_dockerfile_tools(root: Path, catalog: ComponentCatalog) -> None:
                 vcs_url=url if url.endswith(".git") else f"{url}.git",
             )
 
-        zap_version = re.search(r"^\s*ARG\s+ZAP_VERSION=([^\s]+)", content, flags=re.MULTILINE)
+        zap_version = build_args.get("ZAP_VERSION")
         if zap_version:
             add_tool_component(
                 catalog,
                 rel_path,
                 "zaproxy",
                 ecosystem="github-release",
-                version=zap_version.group(1),
+                version=resolve_build_args(zap_version),
                 installer="GitHub release archive",
                 vcs_url="https://github.com/zaproxy/zaproxy.git",
             )

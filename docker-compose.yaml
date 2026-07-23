@@ -34,7 +34,7 @@ services:
   redis-server:
     image: registry.community.greenbone.net/community/redis-server
     profiles: ["core", "gvm", "darkstar"]
-    restart: on-failure
+    restart: unless-stopped
     volumes:
       - redis_socket_vol:/run/redis/
     networks:
@@ -43,7 +43,28 @@ services:
   pg-gvm:
     image: registry.community.greenbone.net/community/pg-gvm:stable
     profiles: ["gvm", "darkstar"]
-    restart: on-failure
+    restart: unless-stopped
+    volumes:
+      - psql_data_vol:/var/lib/postgresql
+      - psql_socket_vol:/var/run/postgresql
+    depends_on:
+      pg-gvm-migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -h /var/run/postgresql -d gvmd"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks:
+      - vuln_net
+
+  # Required by current pg-gvm images when an existing volume uses an older
+  # PostgreSQL major version. It exits without changes when no migration is due.
+  pg-gvm-migrator:
+    image: registry.community.greenbone.net/community/pg-gvm-migrator:stable
+    profiles: ["gvm", "darkstar"]
+    restart: "no"
     volumes:
       - psql_data_vol:/var/lib/postgresql
       - psql_socket_vol:/var/run/postgresql
@@ -129,7 +150,7 @@ services:
   gvmd:
     image: registry.community.greenbone.net/community/gvmd:stable
     profiles: ["gvm", "darkstar"]
-    restart: on-failure
+    restart: unless-stopped
     volumes:
       - gvmd_data_vol:/var/lib/gvm
       - scap_data_vol:/var/lib/gvm/scap-data/
@@ -142,7 +163,7 @@ services:
       - psql_socket_vol:/var/run/postgresql
     depends_on:
       pg-gvm:
-        condition: service_started
+        condition: service_healthy
       scap-data:
         condition: service_completed_successfully
       cert-bund-data:
@@ -154,11 +175,13 @@ services:
       report-formats:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "id"]
-      interval: 1m30s
-      timeout: 30s
-      retries: 5
-      start_period: 30s
+      # A stale socket file survives in the shared volume when gvmd cannot
+      # reach PostgreSQL.  Connect to it instead of merely checking it exists.
+      test: ["CMD", "python3", "-c", "import socket; s = socket.socket(socket.AF_UNIX); s.settimeout(5); s.connect('/run/gvmd/gvmd.sock'); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
     networks:
       - vuln_net
 
@@ -186,7 +209,7 @@ services:
   openvasd:
     image: registry.community.greenbone.net/community/openvas-scanner:stable
     profiles: ["darkstar"]
-    restart: on-failure
+    restart: unless-stopped
     environment:
       OPENVASD_MODE: service_notus
       GNUPGHOME: /etc/openvas/gnupg
@@ -212,7 +235,7 @@ services:
   ospd-openvas:
     image: registry.community.greenbone.net/community/ospd-openvas:stable
     profiles: ["darkstar"]
-    restart: on-failure
+    restart: unless-stopped
     hostname: ospd-openvas.local
     cap_add:
       - NET_ADMIN
@@ -286,6 +309,12 @@ services:
     container_name: openvas-api
     profiles: ["gvm", "darkstar"]
     restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      GVM_USER: ${OPENVAS_USER:-admin}
+      GVM_PASSWORD: ${OPENVAS_PASS:-admin}
+      GMP_SOCKET: /run/gvmd/gvmd.sock
     ports:
       - "8008:8008"
     volumes:
@@ -294,11 +323,18 @@ services:
     depends_on:
       gvmd:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8008/health', timeout=5)"]
+      interval: 15s
+      timeout: 8s
+      retries: 20
+      start_period: 30s
     networks:
       - vuln_net
 
   # Main Darkstar application
   darkstar:
+    image: darkstar-darkstar
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -327,6 +363,7 @@ services:
 
   # Darkstar web dashboard
   darkstar-web:
+    image: darkstar-darkstar
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -366,7 +403,7 @@ services:
   # in the scanner_state volume. Set DARKSTAR_SCANNER_TOKEN (e.g. via
   # scanner_attach) to pin a specific token or run this as a remote worker.
   darkstar-scanner:
-    image: darkstar-darkstar-web
+    image: darkstar-darkstar
     build:
       context: .
       dockerfile: docker/Dockerfile

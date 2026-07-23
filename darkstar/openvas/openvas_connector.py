@@ -19,6 +19,10 @@ import httpx
 BASE_URL = os.getenv("OPENVAS_API_URL", "http://openvas-api:8008")
 
 
+class OpenVASAPIError(httpx.HTTPStatusError):
+    """HTTP error that includes the useful detail returned by OpenVAS API."""
+
+
 class OpenVASAPIClient:
     """
     Async client to interact with the OpenVAS FastAPI HTTP API.
@@ -35,6 +39,35 @@ class OpenVASAPIClient:
     async def __aexit__(self, exc_type, exc, tb):
         await self._client.aclose()
 
+    @staticmethod
+    def _raise_for_status(response: httpx.Response) -> None:
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = None
+            try:
+                body = response.json()
+                if isinstance(body, dict):
+                    detail = body.get("detail")
+                elif isinstance(body, str):
+                    detail = body
+            except (TypeError, ValueError):
+                detail = response.text.strip() or None
+
+            message = str(exc)
+            if detail:
+                message = f"{message}: {detail}"
+            raise OpenVASAPIError(
+                message,
+                request=exc.request,
+                response=response,
+            ) from exc
+
+    async def health(self) -> Dict[str, Any]:
+        response = await self._client.get("/health")
+        self._raise_for_status(response)
+        return response.json()
+
     async def create_target(
         self,
         name: str,
@@ -46,44 +79,44 @@ class OpenVASAPIClient:
         if port_list_id:
             payload["port_list_id"] = port_list_id
         resp = await self._client.post("/targets", json=payload)
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     async def list_targets(self) -> List[Dict[str, Any]]:
         resp = await self._client.get("/targets")
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     async def create_task(self, name: str, target_id: str) -> Dict[str, Any]:
         payload: Dict[str, Any] = {"name": name, "target_id": target_id}
         resp = await self._client.post("/tasks", json=payload)
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     async def list_tasks(self) -> List[Dict[str, Any]]:
         resp = await self._client.get("/tasks")
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     async def start_task(self, task_id: str) -> Dict[str, Any]:
         resp = await self._client.post(f"/tasks/{task_id}/start")
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     async def stop_task(self, task_id: str) -> Dict[str, Any]:
         resp = await self._client.post(f"/tasks/{task_id}/stop")
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     async def get_task_status(self, task_id: str) -> Dict[str, Any]:
         resp = await self._client.get(f"/tasks/{task_id}/status")
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     async def get_report(self, report_id: str) -> str:
         url = f"/reports/{report_id}"
         resp = await self._client.get(url)
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.text
 
 

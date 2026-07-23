@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import pandas as pd
@@ -18,7 +19,7 @@ class TestBBotScanner:
     def test_bbot_initialization(self, mocker: MockerFixture):
         """Test initializing the bbot scanner."""
         mock_makedirs = mocker.patch("scanners.bbot.os.makedirs")
-        mocker.patch("scanners.bbot.os.path.exists", return_value=False)
+        mocker.patch("scanners.bbot.shutil.which", return_value=None)
         mocker.patch("scanners.bbot.secrets.token_hex", return_value="abc123")
 
         scanner = BBotScanner("example.com", "test_org")
@@ -27,7 +28,9 @@ class TestBBotScanner:
         assert scanner.org_name == "test_org"
         assert scanner.folder == "/app/bbot_output"
         assert scanner.foldername == "abc123"
-        mock_makedirs.assert_called_once_with("/app/bbot_output", exist_ok=True)
+        assert scanner.scan_dir == "/app/bbot_output/abc123"
+        assert scanner.bbot_binary == "/root/.local/bin/bbot"
+        mock_makedirs.assert_called_once_with("/app/bbot_output/abc123", exist_ok=True)
 
     def test_vulns_to_db(self, mocker: MockerFixture):
         """Test adding vulnerabilities to the database."""
@@ -84,6 +87,7 @@ class TestBBotScanner:
         mock_open_func = mocker.mock_open()
         mocker.patch("builtins.open", mock_open_func)
         mocker.patch("scanners.bbot.os.path.exists", return_value=True)
+        mocker.patch("scanners.bbot.os.path.isfile", return_value=True)
 
         mock_process = mocker.Mock()
         mock_process.communicate.return_value = ("", "")
@@ -107,7 +111,9 @@ class TestBBotScanner:
 
         # Verify target name was written to file
         mock_open_func.assert_called_with(
-            f"{scanner.folder}/{scanner.foldername}/TARGET_NAME", "w"
+            f"{scanner.folder}/{scanner.foldername}/TARGET_NAME",
+            "w",
+            encoding="utf-8",
         )
 
         # Verify data was inserted into the database
@@ -117,11 +123,12 @@ class TestBBotScanner:
         "scan_mode,expected_flags",
         [
             ("passive", "safe,passive,cloud-enum,email-enum,social-enum,code-enum"),
-            ("normal", "safe,passive,subdomain-enum,cloud-enum,email-enum,social-enum,code-enum,web-basic,affiliates"),
+            ("normal", "safe,passive,subdomain-enum,cloud-enum,email-enum,social-enum,code-enum,web,affiliates"),
             ("attack_surface", "anubisdb"),
             (
                 "aggressive",
-                "safe,passive,subdomain-enum,active,deadly,aggressive,web-thorough,cloud-enum,email-enum,social-enum,code-enum,affiliates",
+                "safe,passive,subdomain-enum,active,loud,invasive,web-heavy,"
+                "cloud-enum,email-enum,social-enum,code-enum,affiliates",
             ),
         ],
     )
@@ -137,6 +144,7 @@ class TestBBotScanner:
         mocker.patch("scanners.bbot.insert_bbot_to_db")
         mock_open_func = mocker.mock_open()
         mocker.patch("builtins.open", mock_open_func)
+        mocker.patch("scanners.bbot.os.path.isfile", return_value=True)
 
         mock_process = mocker.Mock()
         mock_process.communicate.return_value = ("", "")
@@ -157,6 +165,67 @@ class TestBBotScanner:
             excluded_modules = call_args[call_args.index("-em") + 1:call_args.index("-ef")]
             assert "trufflehog" in excluded_modules
             assert "gowitness" in excluded_modules
+            assert "kreuzberg" in excluded_modules
+            assert "extractous" not in call_args
+            assert "http" in call_args
+            assert "httpx" not in call_args
+        if scan_mode == "aggressive":
+            enabled_modules = call_args[call_args.index("-m") + 1]
+            assert "webbrute" in enabled_modules
+            assert "ffuf" not in enabled_modules
+            assert "--allow-deadly" not in call_args
+
+    def test_zero_exit_without_csv_surfaces_bbot_validation_error(
+        self,
+        mocker: MockerFixture,
+    ):
+        """BBOT 3 may return zero after rejecting invalid CLI arguments."""
+        mocker.patch("scanners.bbot.os.makedirs")
+        mocker.patch("scanners.bbot.os.path.isfile", return_value=False)
+        mock_popen = mocker.patch("scanners.bbot.subprocess.Popen")
+        mock_insert = mocker.patch("scanners.bbot.insert_bbot_to_db")
+
+        mock_process = mocker.Mock()
+        mock_process.communicate.return_value = ("", "Invalid flag: web-basic")
+        mock_process.returncode = 0
+        mock_popen.return_value = mock_process
+
+        scanner = BBotScanner("example.com", "test_org")
+
+        with pytest.raises(RuntimeError, match="did not produce.*Invalid flag: web-basic"):
+            scanner.normal()
+
+        mock_insert.assert_not_called()
+
+    def test_nonzero_bbot_exit_is_not_processed(self, mocker: MockerFixture):
+        mocker.patch("scanners.bbot.os.makedirs")
+        mocker.patch("scanners.bbot.os.path.isfile", return_value=False)
+        mock_popen = mocker.patch("scanners.bbot.subprocess.Popen")
+        mock_insert = mocker.patch("scanners.bbot.insert_bbot_to_db")
+
+        mock_process = mocker.Mock()
+        mock_process.communicate.return_value = ("", "dependency setup failed")
+        mock_process.returncode = 2
+        mock_popen.return_value = mock_process
+
+        scanner = BBotScanner("example.com", "test_org")
+
+        with pytest.raises(RuntimeError, match="exited with code 2.*dependency setup failed"):
+            scanner.passive()
+
+        mock_insert.assert_not_called()
+
+    def test_bbot_environment_exposes_application_tzdata(self, tmp_path, mocker):
+        timezone_path = tmp_path / "zoneinfo"
+        timezone_path.mkdir()
+        mocker.patch("scanners.bbot.os.environ.copy", return_value={})
+        mocker.patch("scanners.bbot.files").return_value.joinpath.return_value = (
+            timezone_path
+        )
+
+        environment = BBotScanner._bbot_environment()
+
+        assert environment["PYTHONTZPATH"] == str(timezone_path)
 
 
 class TestNucleiScanner:
@@ -184,22 +253,25 @@ class TestNucleiScanner:
         assert scanner.org_name == "test_org"
         assert scanner.target_count == 1
 
-    def test_run_calls_parent_for_standard_nuclei(self, mocker: MockerFixture):
-        """Test that standard NucleiScanner run method starts a thread."""
-        mock_thread = mocker.patch("scanners.nuclei.threading.Thread")
+    def test_run_executes_without_redundant_nested_thread(self, mocker: MockerFixture):
+        mocker.patch("scanners.nuclei.os.path.exists", return_value=True)
+        mocker.patch("builtins.open", mocker.mock_open(read_data="example.com\n"))
 
         scanner = NucleiScanner("subdomains.txt", "test_org")
+        mock_scan = mocker.patch.object(scanner, "scan_nuclei")
 
         scanner.run()
 
-        mock_thread.assert_called_once()
-        mock_thread.return_value.start.assert_called_once()
+        mock_scan.assert_called_once_with()
 
     def test_scan_nuclei(self, mocker: MockerFixture):
         # Mock subprocess.Popen
         mock_popen = mocker.patch("scanners.nuclei.subprocess.Popen")
-        mocker.patch("scanners.nuclei.subprocess.run")
+        mock_update = mocker.patch(
+            "scanners.nuclei._update_nuclei_templates_if_due"
+        )
         mocker.patch("scanners.nuclei.os.path.isdir", return_value=True)
+        mocker.patch("scanners.nuclei._has_nuclei_templates", return_value=True)
         
         # Create mock process with proper stdout behavior
         mock_process = mocker.Mock()
@@ -230,18 +302,23 @@ class TestNucleiScanner:
         
         mock_popen.return_value = mock_process
 
-        mock_insert = mocker.patch("scanners.nuclei.insert_vulnerability_to_database")
+        mock_insert = mocker.patch(
+            "scanners.nuclei.insert_vulnerabilities_to_database",
+            return_value=1,
+        )
 
         scanner = NucleiScanner("subdomains.txt", "test_org")
         scanner.scan_nuclei()
 
+        mock_update.assert_called_once_with("/root/nuclei-templates")
+        scan_command = mock_popen.call_args.args[0]
+        severity_filter = scan_command[scan_command.index("-s") + 1].split(",")
+        assert "info" in severity_filter
         mock_insert.assert_called_once()
         
-        # Verify the vulnerability object passed to insert_vulnerability_to_database
-        # The function is called with keyword arguments: insert_vulnerability_to_database(vuln=..., org_name=...)
-        call_args = mock_insert.call_args
-        vuln = call_args.kwargs['vuln']  # Get vulnerability from keyword arguments
-        org_name = call_args.kwargs['org_name']  # Get org_name from keyword arguments
+        findings, org_name = mock_insert.call_args.args
+        assert len(findings) == 1
+        vuln = findings[0]
         
         assert vuln.title == "Error based SQL Injection"
         assert vuln.affected_item == "http://testphp.vulnweb.com/search.php?test=query"
@@ -250,6 +327,127 @@ class TestNucleiScanner:
         assert vuln.severity == "critical"
         assert vuln.host == "testphp.vulnweb.com"
         assert org_name == "test_org"
+
+    def test_scan_nuclei_persists_informational_findings(
+        self,
+        mocker: MockerFixture,
+    ):
+        mock_popen = mocker.patch("scanners.nuclei.subprocess.Popen")
+        mocker.patch("scanners.nuclei._update_nuclei_templates_if_due")
+        mocker.patch("scanners.nuclei._has_nuclei_templates", return_value=True)
+
+        output = json.dumps(
+            {
+                "template-id": "http-missing-security-headers",
+                "info": {
+                    "name": "HTTP Missing Security Headers",
+                    "description": "A security response header is missing.",
+                    "severity": "info",
+                },
+                "host": "testaspnet.vulnweb.com",
+                "url": "http://testaspnet.vulnweb.com/",
+                "severity": "info",
+            }
+        )
+        process = mocker.Mock()
+        process.stdout.readline.side_effect = [output, ""]
+        process.poll.return_value = 0
+        process.stderr.read.return_value = ""
+        process.wait.return_value = 0
+        mock_popen.return_value = process
+        mock_insert = mocker.patch(
+            "scanners.nuclei.insert_vulnerabilities_to_database",
+            return_value=1,
+        )
+
+        scanner = NucleiScanner("subdomains.txt", "test_org")
+        scanner.scan_nuclei()
+
+        mock_insert.assert_called_once()
+        findings, org_name = mock_insert.call_args.args
+        assert org_name == "test_org"
+        vulnerability = findings[0]
+        assert vulnerability.severity == "info"
+        assert vulnerability.title == "HTTP Missing Security Headers"
+        assert vulnerability.host == "testaspnet.vulnweb.com"
+
+    def test_empty_template_directory_does_not_launch_nuclei(
+        self,
+        mocker: MockerFixture,
+    ):
+        mocker.patch("scanners.nuclei._update_nuclei_templates_if_due")
+        mock_popen = mocker.patch("scanners.nuclei.subprocess.Popen")
+        mocker.patch("scanners.nuclei._has_nuclei_templates", return_value=False)
+
+        scanner = NucleiScanner("subdomains.txt", "test_org")
+        scanner.scan_nuclei()
+
+        mock_popen.assert_not_called()
+
+    def test_template_update_skips_recent_shared_update(self, tmp_path, mocker):
+        from scanners.nuclei import (
+            NUCLEI_UPDATE_MARKER,
+            _update_nuclei_templates_if_due,
+        )
+
+        marker = tmp_path / NUCLEI_UPDATE_MARKER
+        marker.touch()
+        os.utime(marker, (100, 100))
+        mock_run = mocker.patch("scanners.nuclei.subprocess.run")
+
+        updated = _update_nuclei_templates_if_due(
+            str(tmp_path), interval=60, now=120
+        )
+
+        assert updated is False
+        mock_run.assert_not_called()
+
+    def test_template_update_marks_success_for_other_scanners(self, tmp_path, mocker):
+        from scanners.nuclei import (
+            NUCLEI_UPDATE_MARKER,
+            _update_nuclei_templates_if_due,
+        )
+
+        mock_run = mocker.patch("scanners.nuclei.subprocess.run")
+        mock_run.return_value.returncode = 0
+
+        updated = _update_nuclei_templates_if_due(
+            str(tmp_path), interval=60, now=120
+        )
+
+        assert updated is True
+        assert (tmp_path / NUCLEI_UPDATE_MARKER).exists()
+        command = mock_run.call_args.args[0]
+        assert command[-2:] == [str(tmp_path), "-silent"]
+
+    def test_template_directory_requires_yaml(self, tmp_path):
+        from scanners.nuclei import (
+            _has_nuclei_templates,
+            _select_nuclei_templates_dir,
+        )
+
+        assert not _has_nuclei_templates(str(tmp_path))
+        (tmp_path / "README.md").write_text("metadata only", encoding="utf-8")
+        assert not _has_nuclei_templates(str(tmp_path))
+
+        network_dir = tmp_path / "network"
+        network_dir.mkdir()
+        (network_dir / "service.yaml").write_text("id: service", encoding="utf-8")
+        assert _has_nuclei_templates(str(tmp_path))
+
+        assert _select_nuclei_templates_dir(str(tmp_path)) == str(tmp_path)
+
+    def test_empty_existing_template_directory_uses_recovery_path(self, tmp_path):
+        from scanners.nuclei import _select_nuclei_templates_dir
+
+        templates_dir = tmp_path / "nuclei-templates"
+        templates_dir.mkdir()
+        (templates_dir / "README.md").write_text("metadata only", encoding="utf-8")
+
+        selected = _select_nuclei_templates_dir(str(templates_dir))
+
+        assert selected == f"{templates_dir}-darkstar"
+        assert not os.path.exists(selected)
 
 
 class TestAsteroidScanner:

@@ -5,23 +5,139 @@ This module provides common utilities and base classes for all Nuclei-based
 vulnerability scanners.
 """
 
-import logging
-import threading
-import os
 import enum
-import subprocess
+import fcntl
+import glob
 import json
+import logging
+import os
+from pathlib import Path
+import subprocess
 import tempfile
-from core.db_helper import insert_vulnerability_to_database
+import time
+
+from core.db_helper import insert_vulnerabilities_to_database
 from core.models.vulnerability import Vulnerability
 
 logger = logging.getLogger(__name__)
+
+
+def _env_nonnegative_int(name: str, default: int) -> int:
+    try:
+        return max(0, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
 NUCLEI_TEMPLATES_DIR = os.getenv("NUCLEI_TEMPLATES_DIR", "/root/nuclei-templates")
+NUCLEI_SEVERITIES = ("info", "unknown", "low", "medium", "high", "critical")
+NUCLEI_SEVERITY_FILTER = ",".join(NUCLEI_SEVERITIES)
+NUCLEI_TEMPLATE_UPDATE_INTERVAL = _env_nonnegative_int(
+    "NUCLEI_TEMPLATE_UPDATE_INTERVAL", 86400
+)
+NUCLEI_DB_BATCH_SIZE = max(1, _env_nonnegative_int("NUCLEI_DB_BATCH_SIZE", 100))
+NUCLEI_UPDATE_MARKER = ".darkstar-template-update"
+NUCLEI_UPDATE_LOCK = ".darkstar-template-update.lock"
+
+
+def _has_nuclei_templates(directory: str) -> bool:
+    """Return whether a directory contains at least one YAML template."""
+    if not os.path.isdir(directory):
+        return False
+    for _root, _directories, filenames in os.walk(directory):
+        if any(
+            filename.lower().endswith((".yaml", ".yml"))
+            for filename in filenames
+        ):
+            return True
+    return False
+
+
+def _select_nuclei_templates_dir(configured_directory: str) -> str:
+    """Select a valid tree or a non-existent recovery path for installation."""
+    configured_directory = os.path.abspath(configured_directory)
+    if not os.path.exists(configured_directory) or _has_nuclei_templates(
+        configured_directory
+    ):
+        return configured_directory
+
+    recovery_prefix = f"{configured_directory}-darkstar"
+    for candidate in sorted(glob.glob(f"{recovery_prefix}*")):
+        if _has_nuclei_templates(candidate):
+            return candidate
+
+    candidate = recovery_prefix
+    suffix = 1
+    while os.path.exists(candidate):
+        candidate = f"{recovery_prefix}-{suffix}"
+        suffix += 1
+
+    logger.warning(
+        "Configured Nuclei template directory %s contains no YAML; repairing into %s",
+        configured_directory,
+        candidate,
+    )
+    return candidate
+
+
+def _update_nuclei_templates_if_due(
+    templates_dir: str,
+    *,
+    interval: int = NUCLEI_TEMPLATE_UPDATE_INTERVAL,
+    now: float | None = None,
+) -> bool:
+    """Update one shared template tree at most once per configured interval."""
+    if interval <= 0:
+        logger.info("Runtime Nuclei template updates are disabled")
+        return False
+
+    directory = Path(templates_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    marker = directory / NUCLEI_UPDATE_MARKER
+    lock_path = directory / NUCLEI_UPDATE_LOCK
+    current_time = time.time() if now is None else now
+
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            if marker.exists() and current_time - marker.stat().st_mtime < interval:
+                logger.info(
+                    "Nuclei templates were updated recently; skipping duplicate update"
+                )
+                return False
+
+            logger.info("Updating Nuclei templates in %s", templates_dir)
+            update_result = subprocess.run(
+                [
+                    "nuclei",
+                    "-update-templates",
+                    "-update-template-dir",
+                    templates_dir,
+                    "-silent",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if update_result.returncode != 0:
+                logger.warning(
+                    "Nuclei template update exited with code %s: %s",
+                    update_result.returncode,
+                    (update_result.stderr or "")[:1000],
+                )
+                return False
+
+            marker.touch()
+            return True
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
 
 class NucleiMode(enum.Enum):
     STANDARD = "standard"
     WORDPRESS = "wordpress"
     NETWORK = "network"
+
 
 class NucleiScanner:
     """
@@ -34,11 +150,16 @@ class NucleiScanner:
         keywords (list): Severity levels to detect in the output
     """
 
-    def __init__(self, target: str, org_name: str, mode: NucleiMode = NucleiMode.STANDARD):
+    def __init__(
+        self,
+        target: str,
+        org_name: str,
+        mode: NucleiMode = NucleiMode.STANDARD,
+    ):
         self.target = target
         self.org_name = org_name
         self.mode = mode
-        self.severities = ["unknown", "low", "medium", "high", "critical"]
+        self.severities = set(NUCLEI_SEVERITIES)
 
         self._temp_target_file = None
         if not os.path.exists(self.target):
@@ -63,31 +184,34 @@ class NucleiScanner:
             self.target_count = 0
 
     def scan_nuclei(self) -> None:
-        """Execute the Nuclei scan and process results."""
         """
         Execute the Nuclei scan and process results.
 
         Runs Nuclei against the targets, parses the output to extract
         vulnerability information, and inserts findings into the database.
         """
-        logger.info(f"Starting Nuclei scan on targets from {self.target} in {self.mode.value} mode")
+        logger.info(
+            "Starting Nuclei scan on targets from %s in %s mode",
+            self.target,
+            self.mode.value,
+        )
         logger.info(f"Scanning {self.target_count} targets for vulnerabilities")
-        
-        # Keep templates fresh but never fail scan startup if update has issues.
-        logger.info("Updating Nuclei templates...")
+
+        templates_dir = _select_nuclei_templates_dir(NUCLEI_TEMPLATES_DIR)
+
+        # The image already contains templates. Refresh the shared tree at most
+        # once per interval so parallel Nuclei modes do not repeat the update.
         try:
-            subprocess.run(
-                ["nuclei", "-update-templates", "-silent"],
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
+            _update_nuclei_templates_if_due(templates_dir)
         except Exception as exc:
             logger.warning(f"Skipping template update due to error: {exc}")
 
-        templates_dir = NUCLEI_TEMPLATES_DIR if os.path.isdir(NUCLEI_TEMPLATES_DIR) else None
-        if not templates_dir:
-            logger.warning("Nuclei templates directory not found; skipping Nuclei scan")
+        if not _has_nuclei_templates(templates_dir):
+            logger.error(
+                "No Nuclei YAML templates found in %s; skipping scan instead of "
+                "starting Nuclei with an empty template set",
+                templates_dir,
+            )
             return
 
         match self.mode:
@@ -99,7 +223,7 @@ class NucleiScanner:
                     "-t",
                     templates_dir,
                     "-s",
-                    "low,medium,high,critical,unknown",
+                    NUCLEI_SEVERITY_FILTER,
                     "-et",
                     "github",
                     "-bs",
@@ -118,7 +242,7 @@ class NucleiScanner:
                     "-t",
                     templates_dir,
                     "-s",
-                    "low,medium,high,critical,unknown",
+                    NUCLEI_SEVERITY_FILTER,
                     "-tags",
                     "wordpress",
                     "-bs",
@@ -131,15 +255,18 @@ class NucleiScanner:
                 ]
             case NucleiMode.NETWORK:
                 network_templates = os.path.join(templates_dir, "network")
-                if not os.path.isdir(network_templates):
-                    logger.warning("Nuclei network templates directory not found; skipping network mode")
+                if not _has_nuclei_templates(network_templates):
+                    logger.warning(
+                        "Nuclei network templates not found in %s; skipping network mode",
+                        network_templates,
+                    )
                     return
                 nuclei_command = [
                     "nuclei",
                     "-l",
                     self.target,
                     "-s",
-                    "low,medium,high,critical,unknown",
+                    NUCLEI_SEVERITY_FILTER,
                     "-t",
                     network_templates,
                     "-bs",
@@ -154,7 +281,21 @@ class NucleiScanner:
         logger.debug(f"Command: {' '.join(nuclei_command)}")
 
         # Track vulnerabilities found for progress tracking
-        vulnerabilities_found = []
+        vulnerabilities_found = 0
+        pending_findings = []
+
+        def flush_findings() -> None:
+            if not pending_findings:
+                return
+            batch = list(pending_findings)
+            pending_findings.clear()
+            inserted = insert_vulnerabilities_to_database(batch, self.org_name)
+            if inserted != len(batch):
+                logger.warning(
+                    "Nuclei persisted %s of %s findings in the current batch",
+                    inserted,
+                    len(batch),
+                )
 
         process = subprocess.Popen(
             nuclei_command,
@@ -191,7 +332,7 @@ class NucleiScanner:
             if severity not in self.severities:
                 continue
 
-            vulnerabilities_found.append(output_obj)
+            vulnerabilities_found += 1
 
             url = output_obj.get("url")
             domain = output_obj.get("host")
@@ -213,10 +354,10 @@ class NucleiScanner:
                 epss=info.get("classification", {}).get("epss-score"),
             )
 
-            logger.info(
-                f"Adding Nuclei finding to database: {finding_object.title} ({severity})"
-            )
-            insert_vulnerability_to_database(vuln=finding_object, org_name=self.org_name)
+            logger.info("Queued Nuclei finding: %s (%s)", finding_object.title, severity)
+            pending_findings.append(finding_object)
+            if len(pending_findings) >= NUCLEI_DB_BATCH_SIZE:
+                flush_findings()
 
         stderr_output = process.stderr.read() if process.stderr else ""
         if not isinstance(stderr_output, str):
@@ -226,18 +367,20 @@ class NucleiScanner:
         if isinstance(return_code, int) and return_code != 0:
             logger.warning(f"Nuclei exited with code {return_code}: {stderr_output[:1000]}")
 
-        vuln_count = len(vulnerabilities_found)
-        logger.info(f"Nuclei scan completed! Found {vuln_count} vulnerabilities")
+        flush_findings()
+        logger.info(f"Nuclei scan completed! Found {vulnerabilities_found} vulnerabilities")
 
     def run(self) -> None:
-        """Run Nuclei scan in a worker thread and wait for completion."""
-        logger.info(f"Launching {self.__class__.__name__} scanner in background thread")
-        thread = threading.Thread(target=self.scan_nuclei)
-        thread.start()
-        thread.join()
-        logger.info(f"{self.__class__.__name__} scanner thread completed")
-        if self._temp_target_file and os.path.exists(self._temp_target_file):
-            try:
-                os.remove(self._temp_target_file)
-            except OSError as e:
-                logger.warning(f"Could not remove temp targets file {self._temp_target_file}: {e}")
+        """Run Nuclei synchronously; the async orchestrator owns concurrency."""
+        try:
+            self.scan_nuclei()
+        finally:
+            if self._temp_target_file and os.path.exists(self._temp_target_file):
+                try:
+                    os.remove(self._temp_target_file)
+                except OSError as e:
+                    logger.warning(
+                        "Could not remove temp targets file %s: %s",
+                        self._temp_target_file,
+                        e,
+                    )

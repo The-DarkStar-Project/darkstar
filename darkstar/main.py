@@ -39,8 +39,6 @@ from .core.utils import (
     prepare_output_directory,
 )
 import logging
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 from .openvas.openvas_scanner import OpenVASScanner
 from typing import Literal
 import ipaddress
@@ -139,11 +137,8 @@ class worker:
             f"{Fore.CYAN}Starting bbot {mode} scan on targets...{Style.RESET_ALL}"
         )
 
-        with ThreadPoolExecutor() as executor:
-            bbot_scanner = BBotScanner(self.all_targets, self.org_domain)
-            await asyncio.get_event_loop().run_in_executor(
-                executor, partial(bbot_scanner.run, mode=mode)
-            )
+        bbot_scanner = BBotScanner(self.all_targets, self.org_domain)
+        await asyncio.to_thread(bbot_scanner.run, mode=mode)
 
         # Get the generated filenames
         subdomains_file = (
@@ -197,11 +192,8 @@ class worker:
 
         logger.info("Running Email Security Scanner")
 
-        with ThreadPoolExecutor() as executor:
-            email_scanner = MailSecurityScanner(org_name=self.org_domain)
-            await asyncio.get_event_loop().run_in_executor(
-                executor, partial(email_scanner.run, email_domains_file, emails_file)
-            )
+        email_scanner = MailSecurityScanner(org_name=self.org_domain)
+        await asyncio.to_thread(email_scanner.run, email_domains_file, emails_file)
 
         return {
             "bbot_scanner": bbot_scanner,
@@ -256,15 +248,11 @@ class worker:
     async def run_nuclei(self, target, mode: NucleiMode = NucleiMode.STANDARD):
         logger.info(f"Running Nuclei scan with mode: {mode.value}")
 
-        with ThreadPoolExecutor() as executor:
-            nuclei_scanner = NucleiScanner(target, self.org_domain, mode=mode)
-            await asyncio.get_event_loop().run_in_executor(executor, nuclei_scanner.run)
+        nuclei_scanner = NucleiScanner(target, self.org_domain, mode=mode)
+        await asyncio.to_thread(nuclei_scanner.run)
 
     async def detect_wordpress(self, target):
-        with ThreadPoolExecutor() as executor:
-            wordpress_domains = await asyncio.get_event_loop().run_in_executor(
-                executor, partial(WordPressDetector().run, target)
-            )
+        wordpress_domains = await asyncio.to_thread(WordPressDetector().run, target)
 
         logger.info(
             f"{Fore.GREEN}[+] Wordpress Domains: {Fore.CYAN}{wordpress_domains}{Style.RESET_ALL}"
@@ -299,35 +287,28 @@ class worker:
     async def run_asteroid(self, target, mode: Literal["normal", "aggressive"]):
         logger.info("Running Asteroid scan")
 
-        with ThreadPoolExecutor() as executor:
-            asteroid_scanner = AsteroidScanner(target, self.org_domain)
-            await asyncio.get_event_loop().run_in_executor(
-                executor, partial(asteroid_scanner.run, mode=mode)
-            )
+        asteroid_scanner = AsteroidScanner(target, self.org_domain)
+        await asyncio.to_thread(asteroid_scanner.run, mode=mode)
 
     async def run_asteroid_modules(self, target, modules: list[str]):
         logger.info("Running focused Asteroid modules: %s", ", ".join(modules))
-        with ThreadPoolExecutor() as executor:
-            asteroid_scanner = AsteroidScanner(target, self.org_domain)
-            await asyncio.get_event_loop().run_in_executor(
-                executor, partial(asteroid_scanner.run_modules, modules)
-            )
+        asteroid_scanner = AsteroidScanner(target, self.org_domain)
+        await asyncio.to_thread(asteroid_scanner.run_modules, modules)
 
     async def run_external_vulnerability_scanner(self, scanner: str):
         logger.info("Running external vulnerability scanner: %s", scanner)
-        with ThreadPoolExecutor() as executor:
-            external_scanner = ExternalVulnerabilityScanner(self.all_targets, self.org_domain)
-            runner = {
-                "nikto": external_scanner.run_nikto,
-                "wapiti": external_scanner.run_wapiti,
-                "zap": external_scanner.run_zap,
-                "dalfox": external_scanner.run_dalfox,
-                "testssl": external_scanner.run_testssl,
-                "sslscan": external_scanner.run_sslscan,  # legacy alias for testssl
-            }.get(scanner)
-            if not runner:
-                raise ValueError(f"Unsupported external scanner: {scanner}")
-            await asyncio.get_event_loop().run_in_executor(executor, runner)
+        external_scanner = ExternalVulnerabilityScanner(self.all_targets, self.org_domain)
+        runner = {
+            "nikto": external_scanner.run_nikto,
+            "wapiti": external_scanner.run_wapiti,
+            "zap": external_scanner.run_zap,
+            "dalfox": external_scanner.run_dalfox,
+            "testssl": external_scanner.run_testssl,
+            "sslscan": external_scanner.run_sslscan,  # legacy alias for testssl
+        }.get(scanner)
+        if not runner:
+            raise ValueError(f"Unsupported external scanner: {scanner}")
+        await asyncio.to_thread(runner)
 
     async def passive_scan(self):
         await self.run_bbot(mode="passive")

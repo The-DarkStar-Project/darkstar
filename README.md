@@ -52,6 +52,7 @@ Required for the main stack:
 - Docker
 - Docker Compose
 - Git
+- curl
 
 To install these tools mentioned above (Tested on Ubuntu 24.04.4):
 ```sh

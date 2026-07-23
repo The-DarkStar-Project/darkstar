@@ -1,16 +1,22 @@
-# api.py
-import os
-import xml.etree.ElementTree as ET
-from typing import List, Optional
+"""Small HTTP facade around the Greenbone Management Protocol (GMP)."""
 
-from fastapi import FastAPI, Depends, HTTPException
-from fastapi.responses import Response
+from contextlib import ExitStack, suppress
+import logging
+import os
+import re
+import xml.etree.ElementTree as ET
+from typing import Any, List, Optional
+
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from gvm.connections import UnixSocketConnection
+from gvm.errors import GvmError, GvmResponseError
 from gvm.protocols.gmp import Gmp
+from gvm.transforms import EtreeCheckCommandTransform
 
-# ---- Pydantic models ----
+logger = logging.getLogger("openvas_api")
 
 
 class TargetCreate(BaseModel):
@@ -29,8 +35,6 @@ class TargetInfo(BaseModel):
 class TaskCreate(BaseModel):
     name: str
     target_id: str
-    # Optional: specify scan config & scanner;
-    # if omitted, defaults will be used
     config_id: Optional[str] = None
     scanner_id: Optional[str] = None
 
@@ -41,221 +45,268 @@ class TaskInfo(BaseModel):
     status: str
 
 
-# ---- FastAPI app ----
-
 app = FastAPI(title="OpenVAS GMP HTTP API")
 
 SOCK_PATH = os.getenv("GMP_SOCKET", "/run/gvmd/gvmd.sock")
-GVM_USER = os.getenv("GVM_USER", "admin")
-GVM_PASS = os.getenv("GVM_PASSWORD", "admin")
+# Compose historically exposed OPENVAS_* while this service only read GVM_*.
+# Support both names so existing .env files continue to work.
+GVM_USER = os.getenv("GVM_USER") or os.getenv("OPENVAS_USER") or "admin"
+GVM_PASS = os.getenv("GVM_PASSWORD") or os.getenv("OPENVAS_PASS") or "admin"
+
+
+def _connection_error_detail(exc: Exception) -> str:
+    if isinstance(exc, FileNotFoundError):
+        return f"gvmd socket is not available at {SOCK_PATH}"
+    if isinstance(exc, PermissionError):
+        return f"gvmd socket is not accessible at {SOCK_PATH}"
+    return f"gvmd connection or authentication failed: {type(exc).__name__}: {exc}"
 
 
 def get_gmp():
-    """Dependency: yields an authenticated GMP session."""
-    conn = UnixSocketConnection(path=SOCK_PATH)
-    with Gmp(conn) as gmp:
+    """Yield an authenticated GMP session or an actionable HTTP 503."""
+    if not os.path.exists(SOCK_PATH):
+        raise HTTPException(
+            status_code=503,
+            detail=f"gvmd socket is not available at {SOCK_PATH}",
+        )
+
+    stack = ExitStack()
+    try:
+        connection = UnixSocketConnection(path=SOCK_PATH)
+        # This transform makes python-gvm raise on GMP 4xx/5xx responses.
+        # Without it, failed authentication can look like a valid XML result.
+        gmp = stack.enter_context(
+            Gmp(connection, transform=EtreeCheckCommandTransform())
+        )
         gmp.authenticate(GVM_USER, GVM_PASS)
+    except Exception as exc:
+        with suppress(Exception):
+            stack.close()
+        detail = _connection_error_detail(exc)
+        logger.exception("Unable to establish an authenticated GMP session")
+        raise HTTPException(status_code=503, detail=detail) from exc
+
+    try:
         yield gmp
+    finally:
+        with suppress(Exception):
+            stack.close()
 
 
-# ---- Helpers to parse GMP XML ----
+@app.exception_handler(GvmError)
+async def handle_gvm_error(_request: Request, exc: GvmError):
+    """Turn runtime GMP failures into useful gateway errors, not opaque 500s."""
+    status_code = 502
+    if isinstance(exc, GvmResponseError):
+        with suppress(TypeError, ValueError):
+            gmp_status = int(exc.status)
+            if 400 <= gmp_status < 500:
+                status_code = gmp_status
+    logger.exception("GMP request failed")
+    return JSONResponse(status_code=status_code, content={"detail": str(exc)})
 
 
-def _parse_xml(resp) -> ET.Element:
-    if isinstance(resp, bytes):
-        resp = resp.decode()
-    return ET.fromstring(resp)
+def _parse_xml(response: Any):
+    """Return an XML root for string, bytes, ElementTree, or lxml responses."""
+    if hasattr(response, "getroot"):
+        return response.getroot()
+    if hasattr(response, "tag") and hasattr(response, "find"):
+        return response
+    if isinstance(response, bytes):
+        response = response.decode("utf-8", errors="replace")
+    if not isinstance(response, str):
+        raise TypeError(f"Unsupported GMP response type: {type(response).__name__}")
+    return ET.fromstring(response)
 
 
-# ---- Endpoints ----
+def _http_status(root: Any, fallback: int = 502) -> int:
+    try:
+        status = int(root.get("status", ""))
+    except (TypeError, ValueError):
+        return fallback
+    return status if 400 <= status <= 599 else fallback
+
+
+def _hosts_from_target(target: Any) -> list[str]:
+    nested_hosts = [
+        host.text.strip()
+        for host in target.findall("hosts/ip")
+        if host.text and host.text.strip()
+    ]
+    if nested_hosts:
+        return nested_hosts
+
+    # gvmd normally returns a comma/newline-separated <hosts> value.
+    hosts_text = target.findtext("hosts") or ""
+    return [host for host in re.split(r"[\s,]+", hosts_text.strip()) if host]
+
+
+def _xml_text(response: Any) -> str:
+    if isinstance(response, str):
+        return response
+    if isinstance(response, bytes):
+        return response.decode("utf-8", errors="replace")
+    root = _parse_xml(response)
+    try:
+        return ET.tostring(root, encoding="unicode")
+    except TypeError:
+        # lxml elements support bytes(element), while stdlib elements do not.
+        return bytes(root).decode("utf-8", errors="replace")
+
+
+@app.get("/health")
+def health(gmp: Any = Depends(get_gmp)):
+    """Check the HTTP service, gvmd socket, GMP version, and credentials."""
+    root = _parse_xml(gmp.get_version())
+    return {
+        "status": "ok",
+        "gvmd_socket": SOCK_PATH,
+        "gmp_version": root.findtext(".//version"),
+    }
 
 
 @app.post("/targets", response_model=TargetInfo)
-def create_target(body: TargetCreate, gmp: Gmp = Depends(get_gmp)):
-    """Create a new scan target."""
-    resp = gmp.create_target(
+def create_target(body: TargetCreate, gmp: Any = Depends(get_gmp)):
+    response = gmp.create_target(
         name=body.name,
         hosts=body.hosts,
         port_range=body.port_range,
         port_list_id=body.port_list_id,
     )
-    print(f"create_target response: {resp}")
-    root = _parse_xml(resp)
-    status = root.get("status", "unknown status")
-    id = root.get("id", "")
-    status_text = root.get("status_text", "unknown error")
-
-    if status == "201":
-        return TargetInfo(
-            id=id,
-            name=body.name,
-            hosts=body.hosts,
-        )
-    else:
-        raise HTTPException(int(status), f"{status_text}")
+    root = _parse_xml(response)
+    if root.get("status") == "201" and root.get("id"):
+        return TargetInfo(id=root.get("id"), name=body.name, hosts=body.hosts)
+    raise HTTPException(
+        status_code=_http_status(root),
+        detail=root.get("status_text", "Unable to create OpenVAS target"),
+    )
 
 
 @app.get("/targets", response_model=List[TargetInfo])
-def list_targets(gmp: Gmp = Depends(get_gmp)):
-    """List all scan targets."""
-    resp = gmp.get_targets()
-    root = _parse_xml(resp)
-    out = []
-    for tgt in root.findall(".//target"):
-        hosts = [h.text for h in tgt.findall("hosts/ip")]
-        out.append(TargetInfo(id=tgt.get("id"), name=tgt.findtext("name"), hosts=hosts))
-    return out
+def list_targets(gmp: Any = Depends(get_gmp)):
+    root = _parse_xml(gmp.get_targets())
+    return [
+        TargetInfo(
+            id=target.get("id") or "",
+            name=target.findtext("name") or "",
+            hosts=_hosts_from_target(target),
+        )
+        for target in root.findall(".//target")
+    ]
 
 
 @app.post("/tasks", response_model=TaskInfo)
-def create_task(body: TaskCreate, gmp: Gmp = Depends(get_gmp)):
-    """Create a scan task for a given target."""
+def create_task(body: TaskCreate, gmp: Any = Depends(get_gmp)):
+    config_id = body.config_id
+    if config_id is None:
+        config_root = _parse_xml(gmp.get_scan_configs())
+        config = config_root.find(".//config[name='Full and fast']")
+        if config is None:
+            config = config_root.find(".//config")
+        if config is None or not config.get("id"):
+            raise HTTPException(status_code=503, detail="No scan configuration found")
+        config_id = config.get("id")
 
-    # pick defaults if not provided:
-    if body.config_id is None:
-        cfg_resp = gmp.get_scan_configs()
-        cfg_root = _parse_xml(cfg_resp)
-
-        # find config named "Full and fast"
-        cfg = cfg_root.find(".//config[name='Full and fast']") or cfg_root.find(
-            ".//config"
+    scanner_id = body.scanner_id
+    if scanner_id is None:
+        scanner_root = _parse_xml(gmp.get_scanners())
+        scanners = scanner_root.findall(".//scanner")
+        usable = [
+            scanner
+            for scanner in scanners
+            if "cve" not in (scanner.findtext("name") or "").lower()
+        ]
+        scanner = next(
+            (
+                item
+                for item in usable
+                if "openvas" in (item.findtext("name") or "").lower()
+            ),
+            usable[0] if usable else None,
         )
-        if cfg is not None:
-            body.config_id = cfg.get("id")
-        else:
-            raise HTTPException(500, "No scan configuration found")
+        if scanner is None or not scanner.get("id"):
+            raise HTTPException(status_code=503, detail="No OpenVAS scanner found")
+        scanner_id = scanner.get("id")
 
-    if body.scanner_id is None:
-        scn_resp = gmp.get_scanners()
-        scn_root = _parse_xml(scn_resp)
-
-        scanners = scn_root.findall(".//scanner")
-
-        if len(scanners) > 1:
-            scn = scanners[1]
-        elif len(scanners) == 1:
-            scn = scanners[0]
-        else:
-            raise HTTPException(500, "No scanner found")
-        body.scanner_id = scn.get("id")
-
-    resp = gmp.create_task(
-        name=body.name,
-        config_id=body.config_id,
-        target_id=body.target_id,
-        scanner_id=body.scanner_id,
+    root = _parse_xml(
+        gmp.create_task(
+            name=body.name,
+            config_id=config_id,
+            target_id=body.target_id,
+            scanner_id=scanner_id,
+        )
     )
-
-    root = _parse_xml(resp)
-
-    status = root.get("status", "unknown error")
-    id_ = root.get("id", "")
-    status_text = root.get("status_text", "unknown error")
-
-    if status == "201":
-        return TaskInfo(id=id_, name=body.name, status="Created")
-
-    raise HTTPException(int(status), status_text)
+    if root.get("status") == "201" and root.get("id"):
+        return TaskInfo(id=root.get("id"), name=body.name, status="Created")
+    raise HTTPException(
+        status_code=_http_status(root),
+        detail=root.get("status_text", "Unable to create OpenVAS task"),
+    )
 
 
 @app.post("/tasks/{task_id}/start")
-def start_task(task_id: str, gmp: Gmp = Depends(get_gmp)):
-    """Start a previously created scan task."""
-    resp = gmp.start_task(task_id)
-    print(f"Raw XML response: {resp}")
-    root = _parse_xml(resp)
-
-    # Debug: Print the entire XML structure
-    print(f"XML root tag: {root.tag}")
-    print(f"XML root attributes: {root.attrib}")
-    for child in root:
-        print(f"Child element: {child.tag}, text: {child.text}, attrib: {child.attrib}")
-
-    # Try multiple ways to get the report ID
-    report_id = None
-
-    # Method 1: Direct text content
-    report_id = root.findtext("report_id")
-    print(f"Method 1 - findtext('report_id'): {report_id}")
-
-    # Method 2: As attribute
+def start_task(task_id: str, gmp: Any = Depends(get_gmp)):
+    root = _parse_xml(gmp.start_task(task_id))
+    report_id = root.findtext("report_id") or root.get("report_id")
     if not report_id:
-        report_id = root.get("report_id")
-        print(f"Method 2 - root.get('report_id'): {report_id}")
-
-    # Method 3: Look for report element
+        report = root.find(".//report")
+        report_id = report.get("id") if report is not None else None
     if not report_id:
-        report_elem = root.find(".//report")
-        if report_elem is not None:
-            report_id = report_elem.get("id")
-            print(f"Method 3 - report element id: {report_id}")
-
-    # Method 4: Check if it's nested differently
-    if not report_id:
-        for elem in root.iter():
-            if elem.tag == "report_id" or "report" in elem.tag.lower():
-                print(
-                    f"Found element: {elem.tag}, text: {elem.text}, attrib: {elem.attrib}"
-                )
-                if elem.text:
-                    report_id = elem.text
-                elif elem.get("id"):
-                    report_id = elem.get("id")
-
-    print(f"Final report_id: {report_id}")
-
-    # Return a dictionary with both task_id and report_id for monitoring
+        raise HTTPException(
+            status_code=_http_status(root),
+            detail=root.get("status_text", "gvmd did not return a report id"),
+        )
     return {"task_id": task_id, "report_id": report_id, "status": "Started"}
 
 
 @app.post("/tasks/{task_id}/stop")
-def stop_task(task_id: str, gmp: Gmp = Depends(get_gmp)):
-    """Stop a running scan task."""
-    resp = gmp.stop_task(task_id)
-    root = _parse_xml(resp)
-    status = root.get("status", "unknown error")
-    status_text = root.get("status_text", "unknown error")
-    if status in {"200", "202"}:
+def stop_task(task_id: str, gmp: Any = Depends(get_gmp)):
+    root = _parse_xml(gmp.stop_task(task_id))
+    if root.get("status") in {"200", "202"}:
         return {"task_id": task_id, "status": "Stopped"}
-    raise HTTPException(int(status), status_text)
+    raise HTTPException(
+        status_code=_http_status(root),
+        detail=root.get("status_text", "Unable to stop OpenVAS task"),
+    )
 
 
 @app.get("/tasks", response_model=List[TaskInfo])
-def list_tasks(gmp: Gmp = Depends(get_gmp)):
-    """List all scan tasks and their status."""
-    resp = gmp.get_tasks()
-    root = _parse_xml(resp)
-    out = []
-    for t in root.findall(".//task"):
-        out.append(
-            TaskInfo(
-                id=t.get("id"), name=t.findtext("name"), status=t.findtext("status")
-            )
+def list_tasks(gmp: Any = Depends(get_gmp)):
+    root = _parse_xml(gmp.get_tasks())
+    return [
+        TaskInfo(
+            id=task.get("id") or "",
+            name=task.findtext("name") or "",
+            status=task.findtext("status") or "Unknown",
         )
-    return out
+        for task in root.findall(".//task")
+    ]
 
 
 @app.get("/tasks/{task_id}/status", response_model=TaskInfo)
-def get_task_status(task_id: str, gmp: Gmp = Depends(get_gmp)):
-    """Get status of a specific task."""
-    resp = gmp.get_task(task_id=task_id)
-    root = _parse_xml(resp)
-    t = root.find(".//task")
-    return TaskInfo(id=task_id, name=t.findtext("name"), status=t.findtext("status"))
+def get_task_status(task_id: str, gmp: Any = Depends(get_gmp)):
+    root = _parse_xml(gmp.get_task(task_id=task_id))
+    task = root.find(".//task")
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} was not found")
+    return TaskInfo(
+        id=task_id,
+        name=task.findtext("name") or "",
+        status=task.findtext("status") or "Unknown",
+    )
 
 
 @app.get("/reports/{report_id}")
-def get_report(report_id: str, gmp: Gmp = Depends(get_gmp)):
-    """Fetch a finished report (defaulting to XML format)."""
-    # pick the XML report format
-    rf = _parse_xml(gmp.get_report_formats()).find(".//report_format[name='XML']")
-    rf_id = (
-        rf.get("id")
-        if rf is not None
-        else _parse_xml(gmp.get_report_formats()).find(".//report_format").get("id")
+def get_report(report_id: str, gmp: Any = Depends(get_gmp)):
+    formats_root = _parse_xml(gmp.get_report_formats())
+    report_format = formats_root.find(".//report_format[name='XML']")
+    if report_format is None:
+        report_format = formats_root.find(".//report_format")
+    if report_format is None or not report_format.get("id"):
+        raise HTTPException(status_code=503, detail="No report format found")
+
+    report = gmp.get_report(
+        report_id=report_id,
+        report_format_id=report_format.get("id"),
     )
-    print(f"Using report format ID: {rf_id} for report {report_id}")
-    report = gmp.get_report(report_id=report_id, report_format_id=rf_id)
-    if isinstance(report, bytes):
-        report = report.decode()
-    return Response(content=report, media_type="application/xml")
+    return Response(content=_xml_text(report), media_type="application/xml")

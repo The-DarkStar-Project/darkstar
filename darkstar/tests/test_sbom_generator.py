@@ -89,7 +89,10 @@ def test_sbom_covers_declared_runtime_surfaces():
         "pkg:docker/ubuntu@22.04",
         "pkg:docker/mariadb@10.5",
         "pkg:deb/debian/openjdk-17-jre-headless",
-        "pkg:golang/github.com/projectdiscovery/katana/cmd/katana@latest",
+        "pkg:golang/github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.11.0",
+        "pkg:golang/github.com/projectdiscovery/katana/cmd/katana@v1.6.1",
+        "pkg:cargo/rustscan@2.4.1",
+        "pkg:pypi/wapiti3@3.2.3",
     }
     assert expected_refs <= set(components)
     assert any(

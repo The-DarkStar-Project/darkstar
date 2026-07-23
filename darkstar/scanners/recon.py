@@ -1,5 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
 import requests
-import time
 import os
 import re
 from urllib.parse import urlparse
@@ -106,11 +106,17 @@ class WordPressDetector:
         timeout (int): HTTP request timeout in seconds
     """
 
-    def __init__(self, timeout=10):
+    def __init__(self, timeout=10, max_workers=None):
         """
         Initialize the detector with an optional timeout for HTTP requests.
         """
         self.timeout = timeout
+        if max_workers is None:
+            try:
+                max_workers = int(os.getenv("WORDPRESS_DETECTOR_WORKERS", "8"))
+            except (TypeError, ValueError):
+                max_workers = 8
+        self.max_workers = max(1, max_workers)
 
     def check_main_page(self, url):
         """
@@ -234,13 +240,18 @@ class WordPressDetector:
             bool: True if any test indicates WordPress
         """
         colored_debug(f"Testing {url} for WordPress...", "blue")
-        tests = [
-            self.check_main_page(url),
-            self.check_wp_login(url),
-            self.check_readme(url),
-            self.check_xmlrpc(url),
-            self.check_wp_json(url),
+        checks = [
+            self.check_main_page,
+            self.check_wp_login,
+            self.check_readme,
+            self.check_xmlrpc,
+            self.check_wp_json,
         ]
+        # These probes are independent and the old implementation always ran
+        # all five, so parallel execution reduces latency without reducing
+        # detection coverage.
+        with ThreadPoolExecutor(max_workers=len(checks)) as executor:
+            tests = list(executor.map(lambda check: check(url), checks))
         positive_tests = sum(tests)
         if positive_tests > 0:
             colored_debug(
@@ -338,21 +349,41 @@ class WordPressDetector:
             domains = [domain.strip() for domain in target.split(",") if domain.strip()]
             colored_debug(f"Processing {len(domains)} domains from input", "green")
 
-        wordpress_domains = []
-        total = len(domains)
-        for i, domain in enumerate(domains):
+        unique_domains = []
+        seen = set()
+        for domain in domains:
             normalized = self.normalize_domain(domain)
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            unique_domains.append((domain, normalized))
+
+        total = len(unique_domains)
+        if not total:
+            return ""
+
+        workers = min(self.max_workers, total)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            detected = list(
+                executor.map(
+                    self.check_domain,
+                    [domain for domain, _normalized in unique_domains],
+                )
+            )
+
+        wordpress_domains = []
+        for i, ((domain, normalized), is_wordpress) in enumerate(
+            zip(unique_domains, detected)
+        ):
             colored_debug(
                 f"Progress: {i + 1}/{total} domains ({int((i + 1) / total * 100)}%)",
                 "cyan",
             )
-            if self.check_domain(domain):
-                wordpress_domains.append(normalized or domain)
+            if is_wordpress:
+                wordpress_domains.append(normalized)
                 colored_debug(
-                    f"Added {normalized or domain} to WordPress domains list", "green"
+                    f"Added {normalized} to WordPress domains list", "green"
                 )
-            # Small delay to prevent overwhelming output
-            time.sleep(0.1)
 
         colored_debug(
             f"Scan complete. Found {len(wordpress_domains)} WordPress sites out of {total} domains.",

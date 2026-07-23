@@ -1,6 +1,6 @@
 import pytest
 from pytest_mock import MockerFixture
-from core.models.vulnerability import CVE, Vulnerability
+from core.models.vulnerability import CVE, Vulnerability, _known_exploited_cves
 import pandas as pd
 
 
@@ -49,6 +49,14 @@ class TestCVE:
 
 class TestVulnerability:
     """Test cases for the Vulnerability class."""
+
+    @pytest.fixture(autouse=True)
+    def clear_enrichment_caches(self):
+        Vulnerability.cve_enricher.cache_clear()
+        _known_exploited_cves.cache_clear()
+        yield
+        Vulnerability.cve_enricher.cache_clear()
+        _known_exploited_cves.cache_clear()
 
     @pytest.fixture
     def mock_cve_enricher(self, mocker: MockerFixture):
@@ -149,6 +157,18 @@ class TestVulnerability:
         assert cve.access == {"vector": "network"}
         assert isinstance(cve.age, int)
         assert cve.kev is True
+        mock_external_dependencies["mock_get"].assert_called_once_with(
+            "https://cve.circl.lu/api/cve/CVE-2023-1234",
+            timeout=10.0,
+        )
+
+    def test_cve_enrichment_is_cached_per_cve(self, mock_external_dependencies):
+        first = Vulnerability.cve_enricher("CVE-2023-1234")
+        second = Vulnerability.cve_enricher("CVE-2023-1234")
+
+        assert second is first
+        mock_external_dependencies["mock_get"].assert_called_once()
+        mock_external_dependencies["mock_read_csv"].assert_called_once()
 
     @pytest.mark.parametrize(
         "status_code,json_response,expected_result",

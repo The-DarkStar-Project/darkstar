@@ -40,10 +40,11 @@
   "components": [
     {
       "type": "application",
-      "bom-ref": "pkg:cargo/rustscan",
+      "bom-ref": "pkg:cargo/rustscan@2.4.1",
       "name": "rustscan",
       "scope": "required",
-      "purl": "pkg:cargo/rustscan",
+      "version": "2.4.1",
+      "purl": "pkg:cargo/rustscan@2.4.1",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -724,6 +725,23 @@
     },
     {
       "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/tzdata",
+      "name": "tzdata",
+      "scope": "required",
+      "purl": "pkg:deb/debian/tzdata",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
       "bom-ref": "pkg:deb/debian/wget",
       "name": "wget",
       "scope": "required",
@@ -741,10 +759,10 @@
     },
     {
       "type": "container",
-      "bom-ref": "pkg:docker/darkstar-darkstar-web",
-      "name": "darkstar-darkstar-web",
+      "bom-ref": "pkg:docker/darkstar-darkstar",
+      "name": "darkstar-darkstar",
       "scope": "required",
-      "purl": "pkg:docker/darkstar-darkstar-web",
+      "purl": "pkg:docker/darkstar-darkstar",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -756,7 +774,7 @@
         },
         {
           "name": "darkstar:imageReference",
-          "value": "darkstar-darkstar-web"
+          "value": "darkstar-darkstar"
         }
       ]
     },
@@ -1086,6 +1104,28 @@
     },
     {
       "type": "container",
+      "bom-ref": "pkg:docker/registry.community.greenbone.net/community/pg-gvm-migrator@stable",
+      "name": "registry.community.greenbone.net/community/pg-gvm-migrator",
+      "scope": "required",
+      "version": "stable",
+      "purl": "pkg:docker/registry.community.greenbone.net/community/pg-gvm-migrator@stable",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "docker"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker-compose.yaml"
+        },
+        {
+          "name": "darkstar:imageReference",
+          "value": "registry.community.greenbone.net/community/pg-gvm-migrator:stable"
+        }
+      ]
+    },
+    {
+      "type": "container",
       "bom-ref": "pkg:docker/registry.community.greenbone.net/community/redis-server",
       "name": "registry.community.greenbone.net/community/redis-server",
       "scope": "required",
@@ -1379,11 +1419,11 @@
     },
     {
       "type": "application",
-      "bom-ref": "pkg:golang/github.com/hahwul/dalfox/v2@latest",
+      "bom-ref": "pkg:golang/github.com/hahwul/dalfox/v2@v2.13.0",
       "name": "github.com/hahwul/dalfox/v2",
       "scope": "required",
-      "version": "latest",
-      "purl": "pkg:golang/github.com/hahwul/dalfox/v2@latest",
+      "version": "v2.13.0",
+      "purl": "pkg:golang/github.com/hahwul/dalfox/v2@v2.13.0",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -1401,11 +1441,11 @@
     },
     {
       "type": "application",
-      "bom-ref": "pkg:golang/github.com/lc/gau/v2/cmd/gau@latest",
+      "bom-ref": "pkg:golang/github.com/lc/gau/v2/cmd/gau@v2.2.4",
       "name": "github.com/lc/gau/v2/cmd/gau",
       "scope": "required",
-      "version": "latest",
-      "purl": "pkg:golang/github.com/lc/gau/v2/cmd/gau@latest",
+      "version": "v2.2.4",
+      "purl": "pkg:golang/github.com/lc/gau/v2/cmd/gau@v2.2.4",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -1423,11 +1463,11 @@
     },
     {
       "type": "application",
-      "bom-ref": "pkg:golang/github.com/projectdiscovery/httpx/cmd/httpx@latest",
+      "bom-ref": "pkg:golang/github.com/projectdiscovery/httpx/cmd/httpx@v1.10.0",
       "name": "github.com/projectdiscovery/httpx/cmd/httpx",
       "scope": "required",
-      "version": "latest",
-      "purl": "pkg:golang/github.com/projectdiscovery/httpx/cmd/httpx@latest",
+      "version": "v1.10.0",
+      "purl": "pkg:golang/github.com/projectdiscovery/httpx/cmd/httpx@v1.10.0",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -1445,11 +1485,33 @@
     },
     {
       "type": "application",
-      "bom-ref": "pkg:golang/github.com/projectdiscovery/katana/cmd/katana@latest",
+      "bom-ref": "pkg:golang/github.com/projectdiscovery/katana/cmd/katana@v1.6.1",
       "name": "github.com/projectdiscovery/katana/cmd/katana",
       "scope": "required",
-      "version": "latest",
-      "purl": "pkg:golang/github.com/projectdiscovery/katana/cmd/katana@latest",
+      "version": "v1.6.1",
+      "purl": "pkg:golang/github.com/projectdiscovery/katana/cmd/katana@v1.6.1",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "golang-tool"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        },
+        {
+          "name": "darkstar:installer",
+          "value": "go install"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:golang/github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.11.0",
+      "name": "github.com/projectdiscovery/nuclei/v3/cmd/nuclei",
+      "scope": "required",
+      "version": "v3.11.0",
+      "purl": "pkg:golang/github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.11.0",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -1706,23 +1768,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/fastapi",
-      "name": "fastapi",
-      "scope": "required",
-      "purl": "pkg:pypi/fastapi",
-      "properties": [
-        {
-          "name": "darkstar:ecosystem",
-          "value": "pypi"
-        },
-        {
-          "name": "darkstar:sourceManifest",
-          "value": "openvas_api/requirements.txt"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:pypi/fastapi@0.136.3",
       "name": "fastapi",
       "scope": "required",
@@ -1740,6 +1785,28 @@
         {
           "name": "darkstar:versionSpecifier",
           "value": "==0.136.3"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/fastapi@0.139.2",
+      "name": "fastapi",
+      "scope": "required",
+      "version": "0.139.2",
+      "purl": "pkg:pypi/fastapi@0.139.2",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "openvas_api/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==0.139.2"
         }
       ]
     },
@@ -2041,10 +2108,11 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pytest",
+      "bom-ref": "pkg:pypi/pytest@9.1.1",
       "name": "pytest",
       "scope": "required",
-      "purl": "pkg:pypi/pytest",
+      "version": "9.1.1",
+      "purl": "pkg:pypi/pytest@9.1.1",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -2053,15 +2121,20 @@
         {
           "name": "darkstar:sourceManifest",
           "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==9.1.1"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pytest-asyncio",
+      "bom-ref": "pkg:pypi/pytest-asyncio@1.4.0",
       "name": "pytest-asyncio",
       "scope": "required",
-      "purl": "pkg:pypi/pytest-asyncio",
+      "version": "1.4.0",
+      "purl": "pkg:pypi/pytest-asyncio@1.4.0",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -2070,6 +2143,10 @@
         {
           "name": "darkstar:sourceManifest",
           "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==1.4.0"
         }
       ]
     },
@@ -2097,10 +2174,11 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pytest-mock",
+      "bom-ref": "pkg:pypi/pytest-mock@3.15.1",
       "name": "pytest-mock",
       "scope": "required",
-      "purl": "pkg:pypi/pytest-mock",
+      "version": "3.15.1",
+      "purl": "pkg:pypi/pytest-mock@3.15.1",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -2109,6 +2187,10 @@
         {
           "name": "darkstar:sourceManifest",
           "value": "requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==3.15.1"
         }
       ]
     },
@@ -2158,10 +2240,11 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/python-gvm",
+      "bom-ref": "pkg:pypi/python-gvm@27.5.0",
       "name": "python-gvm",
       "scope": "required",
-      "purl": "pkg:pypi/python-gvm",
+      "version": "27.5.0",
+      "purl": "pkg:pypi/python-gvm@27.5.0",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -2170,6 +2253,10 @@
         {
           "name": "darkstar:sourceManifest",
           "value": "openvas_api/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==27.5.0"
         }
       ]
     },
@@ -2488,23 +2575,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/uvicorn",
-      "name": "uvicorn",
-      "scope": "required",
-      "purl": "pkg:pypi/uvicorn",
-      "properties": [
-        {
-          "name": "darkstar:ecosystem",
-          "value": "pypi"
-        },
-        {
-          "name": "darkstar:sourceManifest",
-          "value": "openvas_api/requirements.txt"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:pypi/uvicorn@0.35.0",
       "name": "uvicorn",
       "scope": "required",
@@ -2522,6 +2592,28 @@
         {
           "name": "darkstar:versionSpecifier",
           "value": "==0.35.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/uvicorn@0.51.0",
+      "name": "uvicorn",
+      "scope": "required",
+      "version": "0.51.0",
+      "purl": "pkg:pypi/uvicorn@0.51.0",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "pypi"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "openvas_api/requirements.txt"
+        },
+        {
+          "name": "darkstar:versionSpecifier",
+          "value": "==0.51.0"
         }
       ]
     },
@@ -2549,10 +2641,11 @@
     },
     {
       "type": "application",
-      "bom-ref": "pkg:pypi/bbot",
+      "bom-ref": "pkg:pypi/bbot@3.0.0",
       "name": "bbot",
       "scope": "required",
-      "purl": "pkg:pypi/bbot",
+      "version": "3.0.0",
+      "purl": "pkg:pypi/bbot@3.0.0",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -2570,10 +2663,11 @@
     },
     {
       "type": "application",
-      "bom-ref": "pkg:pypi/wapiti3",
+      "bom-ref": "pkg:pypi/wapiti3@3.2.3",
       "name": "wapiti3",
       "scope": "required",
-      "purl": "pkg:pypi/wapiti3",
+      "version": "3.2.3",
+      "purl": "pkg:pypi/wapiti3@3.2.3",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -2594,7 +2688,7 @@
     {
       "ref": "pkg:github/The-DarkStar-Project/darkstar",
       "dependsOn": [
-        "pkg:cargo/rustscan",
+        "pkg:cargo/rustscan@2.4.1",
         "pkg:deb/debian/bash",
         "pkg:deb/debian/bind9-dnsutils",
         "pkg:deb/debian/bsdmainutils",
@@ -2634,8 +2728,9 @@
         "pkg:deb/debian/python3-pip",
         "pkg:deb/debian/rm",
         "pkg:deb/debian/sudo",
+        "pkg:deb/debian/tzdata",
         "pkg:deb/debian/wget",
-        "pkg:docker/darkstar-darkstar-web",
+        "pkg:docker/darkstar-darkstar",
         "pkg:docker/debian@testing",
         "pkg:docker/golang@1.25",
         "pkg:docker/mariadb@10.5",
@@ -2650,6 +2745,7 @@
         "pkg:docker/registry.community.greenbone.net/community/notus-data",
         "pkg:docker/registry.community.greenbone.net/community/openvas-scanner@stable",
         "pkg:docker/registry.community.greenbone.net/community/ospd-openvas@stable",
+        "pkg:docker/registry.community.greenbone.net/community/pg-gvm-migrator@stable",
         "pkg:docker/registry.community.greenbone.net/community/pg-gvm@stable",
         "pkg:docker/registry.community.greenbone.net/community/redis-server",
         "pkg:docker/registry.community.greenbone.net/community/report-formats",
@@ -2657,14 +2753,15 @@
         "pkg:docker/registry.community.greenbone.net/community/vulnerability-tests",
         "pkg:docker/rust@1.81-slim-bullseye",
         "pkg:docker/ubuntu@22.04",
-        "pkg:golang/github.com/hahwul/dalfox/v2@latest",
-        "pkg:golang/github.com/lc/gau/v2/cmd/gau@latest",
-        "pkg:golang/github.com/projectdiscovery/httpx/cmd/httpx@latest",
-        "pkg:golang/github.com/projectdiscovery/katana/cmd/katana@latest",
+        "pkg:golang/github.com/hahwul/dalfox/v2@v2.13.0",
+        "pkg:golang/github.com/lc/gau/v2/cmd/gau@v2.2.4",
+        "pkg:golang/github.com/projectdiscovery/httpx/cmd/httpx@v1.10.0",
+        "pkg:golang/github.com/projectdiscovery/katana/cmd/katana@v1.6.1",
+        "pkg:golang/github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.11.0",
         "pkg:golang/golang.org/x/sys@v0.45.0",
         "pkg:pypi/aiohttp",
         "pkg:pypi/aiolimiter",
-        "pkg:pypi/bbot",
+        "pkg:pypi/bbot@3.0.0",
         "pkg:pypi/beautifulsoup4",
         "pkg:pypi/beautifulsoup4@4.13.4",
         "pkg:pypi/certifi@2024.12.14",
@@ -2673,8 +2770,8 @@
         "pkg:pypi/coloredlogs",
         "pkg:pypi/cvss",
         "pkg:pypi/dnspython@2.7.0",
-        "pkg:pypi/fastapi",
         "pkg:pypi/fastapi@0.136.3",
+        "pkg:pypi/fastapi@0.139.2",
         "pkg:pypi/httpx@0.28.1",
         "pkg:pypi/idna@3.18",
         "pkg:pypi/itsdangerous@2.2.0",
@@ -2688,13 +2785,13 @@
         "pkg:pypi/pandas@2.2.3",
         "pkg:pypi/playwright@1.58.0",
         "pkg:pypi/pyjwt@2.13.0",
-        "pkg:pypi/pytest",
-        "pkg:pypi/pytest-asyncio",
+        "pkg:pypi/pytest-asyncio@1.4.0",
         "pkg:pypi/pytest-cov@6.0.0",
-        "pkg:pypi/pytest-mock",
+        "pkg:pypi/pytest-mock@3.15.1",
+        "pkg:pypi/pytest@9.1.1",
         "pkg:pypi/python-dateutil@2.9.0.post0",
         "pkg:pypi/python-dotenv@1.2.2",
-        "pkg:pypi/python-gvm",
+        "pkg:pypi/python-gvm@27.5.0",
         "pkg:pypi/pytz@2024.2",
         "pkg:pypi/pyyaml@6.0.2",
         "pkg:pypi/qrcode@8.2",
@@ -2708,9 +2805,9 @@
         "pkg:pypi/tzdata@2024.2",
         "pkg:pypi/ujson",
         "pkg:pypi/urllib3@2.7.0",
-        "pkg:pypi/uvicorn",
         "pkg:pypi/uvicorn@0.35.0",
-        "pkg:pypi/wapiti3",
+        "pkg:pypi/uvicorn@0.51.0",
+        "pkg:pypi/wapiti3@3.2.3",
         "pkg:pypi/websockets@14.1",
         "tool:git-tool:0732f8affa83aa21",
         "tool:git-tool:538636f75c21aab0",

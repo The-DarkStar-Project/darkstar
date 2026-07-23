@@ -2,26 +2,36 @@
 FROM golang:1.25 AS go-builder
 ENV GOTOOLCHAIN=auto
 
+# Pin scanner versions so a fresh installation gets the same tested CLI and
+# output contracts instead of whatever an upstream project publishes that day.
+ARG NUCLEI_VERSION=v3.11.0
+ARG KATANA_VERSION=v1.6.1
+ARG GAU_VERSION=v2.2.4
+ARG HTTPX_VERSION=v1.10.0
+ARG DALFOX_VERSION=v2.13.0
+
 # Install nuclei
-RUN go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
+RUN go install -v "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@${NUCLEI_VERSION}" && \
     mkdir -p /root/.config/nuclei && \
     /go/bin/nuclei -update-templates
 
 # Clone the Wordfence templates
 RUN export GITHUB_TEMPLATE_REPO=topscoder/nuclei-wordfence-cve && \
-    /go/bin/nuclei -update-templates
+    /go/bin/nuclei -update-templates && \
+    touch /root/nuclei-templates/.darkstar-template-update
 
 # Install Katana, Gau, httpx for Asteroid
-RUN CGO_ENABLED=1 go install github.com/projectdiscovery/katana/cmd/katana@latest
-RUN go install github.com/lc/gau/v2/cmd/gau@latest
-RUN go install github.com/projectdiscovery/httpx/cmd/httpx@latest
-RUN go install github.com/hahwul/dalfox/v2@latest
+RUN CGO_ENABLED=1 go install "github.com/projectdiscovery/katana/cmd/katana@${KATANA_VERSION}"
+RUN go install "github.com/lc/gau/v2/cmd/gau@${GAU_VERSION}"
+RUN go install "github.com/projectdiscovery/httpx/cmd/httpx@${HTTPX_VERSION}"
+RUN go install "github.com/hahwul/dalfox/v2@${DALFOX_VERSION}"
 
 # ========== BUILD STAGE FOR RUST/RUSTSCAN ==========
 FROM rust:1.81-slim-bullseye AS rust-builder
 
-# Install RustScan with locked flag to use exact dependency versions
-RUN cargo install rustscan --locked
+# Install RustScan with locked dependencies and a tested CLI version.
+ARG RUSTSCAN_VERSION=2.4.1
+RUN cargo install rustscan --version "${RUSTSCAN_VERSION}" --locked
 
 # ========== BUILD STAGE FOR C TOOLS ==========
 FROM ubuntu:22.04 AS c-builder
@@ -80,6 +90,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone &
     apt-get update && \
     apt-get install -y --no-install-recommends \
     python3 \
+    tzdata \
     gcc \
     python3-pip \
     pipx \
@@ -116,8 +127,11 @@ WORKDIR /app
 RUN mkdir -p /app/bbot_output \
     /root/.config/nuclei /root/go/bin /root/.local/bin
 
-# Install Python tooling
-RUN pipx install bbot
+# Install the BBOT major version whose CLI/output contract Darkstar targets.
+# Pinning avoids silently rebuilding against a future breaking scanner release.
+ARG BBOT_VERSION=3.0.0
+RUN pipx install "bbot==${BBOT_VERSION}" && \
+    pipx inject bbot tzdata
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt /app/
@@ -140,6 +154,7 @@ RUN wget -q "https://github.com/zaproxy/zaproxy/releases/download/v${ZAP_VERSION
 # Copy compiled binaries from build stages
 COPY --from=go-builder /go/bin/nuclei /usr/local/bin/
 COPY --from=go-builder /root/.config/nuclei /root/.config/nuclei/
+COPY --from=go-builder /root/nuclei-templates /root/nuclei-templates/
 COPY --from=go-builder /go/bin/katana /usr/local/bin/
 COPY --from=go-builder /go/bin/gau /usr/local/bin/
 COPY --from=go-builder /go/bin/httpx /usr/local/bin/
@@ -157,7 +172,8 @@ COPY ./darkstar/scanners/asteroid /app/darkstar/scanners/asteroid
 RUN cd /app/darkstar && bash scanners/asteroid-install.sh
 
 # Install Wapiti isolated from DarkStar and Asteroid Python dependencies.
-RUN pipx install wapiti3
+ARG WAPITI_VERSION=3.2.3
+RUN pipx install "wapiti3==${WAPITI_VERSION}"
 
 # Copy application code as a proper Python package. Compose bind mounts use the
 # same path, so scanner-only containers can run without the source tree mounted.

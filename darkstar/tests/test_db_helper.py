@@ -4,6 +4,7 @@ import pandas as pd
 from core.db_helper import (
     DatabaseConnectionManager,
     insert_bbot_to_db,
+    insert_vulnerabilities_to_database,
     get_vulnerabilities_filtered,
     sanitize_string,
     flatten_list,
@@ -369,3 +370,31 @@ def test_database_connection_manager_does_not_suppress_exceptions(mocker: Mocker
 
     assert should_suppress is False
     manager.connection.close.assert_called_once()
+
+
+def test_vulnerability_batch_uses_one_connection_and_commit(mocker: MockerFixture):
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_connection.cursor.return_value = mock_cursor
+    mock_db_manager = mocker.patch("core.db_helper.DatabaseConnectionManager")
+    mock_db_manager.return_value.__enter__.return_value = mock_connection
+    vulnerabilities = [
+        Vulnerability(
+            title=f"Finding {index}",
+            affected_item="https://example.com",
+            tool="nuclei",
+            confidence=97,
+            severity="info",
+            host="example.com",
+        )
+        for index in range(3)
+    ]
+
+    inserted = insert_vulnerabilities_to_database(vulnerabilities, "org_test")
+
+    assert inserted == 3
+    mock_db_manager.assert_called_once_with()
+    mock_cursor.executemany.assert_called_once()
+    assert len(mock_cursor.executemany.call_args.args[1]) == 3
+    mock_connection.commit.assert_called_once_with()
+    mock_connection.rollback.assert_not_called()

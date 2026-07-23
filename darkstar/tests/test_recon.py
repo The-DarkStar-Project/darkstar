@@ -3,6 +3,7 @@ from pytest_mock import MockerFixture
 import requests
 import tempfile
 import os
+import threading
 from scanners.recon import RequestsAPI, WordPressDetector, FindBreaches
 
 
@@ -153,6 +154,30 @@ class TestWordPressDetector:
         mock_wp_json.assert_called_once_with("https://example.com")
         assert result is True
 
+    def test_is_wordpress_runs_independent_probes_concurrently(
+        self, mocker: MockerFixture
+    ):
+        """All five probes should start without waiting for another probe."""
+        barrier = threading.Barrier(5, timeout=2)
+
+        def overlapping_probe(_self, _url):
+            barrier.wait()
+            return False
+
+        for method in (
+            "check_main_page",
+            "check_wp_login",
+            "check_readme",
+            "check_xmlrpc",
+            "check_wp_json",
+        ):
+            mocker.patch.object(
+                WordPressDetector, method, autospec=True, side_effect=overlapping_probe
+            )
+
+        detector = WordPressDetector()
+        assert detector.is_wordpress("https://example.com") is False
+
     @pytest.mark.parametrize(
         "https_result,http_result,expected",
         [
@@ -237,6 +262,26 @@ class TestWordPressDetector:
             mock_check_domain.assert_not_called()
         finally:
             os.unlink(file_path)
+
+    def test_run_checks_multiple_domains_concurrently(self, mocker: MockerFixture):
+        """Host-level concurrency should not serialize slow domain checks."""
+        barrier = threading.Barrier(3, timeout=2)
+
+        def overlapping_check(_self, _domain):
+            barrier.wait()
+            return True
+
+        mocker.patch.object(
+            WordPressDetector,
+            "check_domain",
+            autospec=True,
+            side_effect=overlapping_check,
+        )
+
+        detector = WordPressDetector(max_workers=3)
+        assert detector.run("one.example,two.example,three.example") == (
+            "one.example,two.example,three.example"
+        )
 
 
 class TestFindBreaches:

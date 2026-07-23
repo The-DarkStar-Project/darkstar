@@ -1805,6 +1805,59 @@ def insert_vulnerability_to_database(vuln: Vulnerability, org_name: str) -> bool
             return False
 
 
+def insert_vulnerabilities_to_database(
+    vulnerabilities: list[Vulnerability],
+    org_name: str,
+) -> int:
+    """Insert a batch of vulnerability records with one connection and commit."""
+    records = []
+    for vuln in vulnerabilities:
+        try:
+            if (
+                getattr(vuln, "tool", "") == "MailSecurityScanner"
+                and str(getattr(vuln, "severity", "") or "").lower() == "baseline"
+            ):
+                vuln.severity = "info"
+            if getattr(vuln, "cve", None) is not None:
+                records.append(prepare_cve_data(vuln))
+            else:
+                records.append(prepare_non_cve_data(vuln))
+        except Exception as exc:
+            logger.warning("Skipping malformed vulnerability in batch: %s", exc)
+
+    if not records:
+        return 0
+
+    insert_query = """
+        INSERT INTO vulnerability (
+            cve, title, affected_item, tool, confidence, severity, host,
+            cvss, epss, summary, cwe, `references`, capec, solution, impact,
+            access, age, pocs, kev
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
+
+    try:
+        with DatabaseConnectionManager() as connection:
+            cursor = connection.cursor()
+            try:
+                _use_org_database(cursor, org_name)
+                cursor.executemany(insert_query, records)
+                connection.commit()
+                return len(records)
+            except Exception:
+                connection.rollback()
+                raise
+            finally:
+                cursor.close()
+    except Exception as exc:
+        logger.warning(
+            "Failed to insert vulnerability batch for org %s: %s",
+            org_name,
+            exc,
+        )
+        return 0
+
+
 def insert_bbot_to_db(dataframe: pd.DataFrame, org_name: str) -> bool:
     """
     Insert bbot scan results into the database.

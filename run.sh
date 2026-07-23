@@ -5,7 +5,8 @@ profile="${COMPOSE_PROFILE:-darkstar}"
 web_service="${DARKSTAR_WEB_SERVICE:-darkstar-web}"
 app_url="${DARKSTAR_APP_URL:-http://localhost:8080}"
 ready_url="${DARKSTAR_APP_READY_URL:-${app_url%/}/documentation}"
-timeout_seconds="${DARKSTAR_STARTUP_TIMEOUT:-300}"
+timeout_seconds="${DARKSTAR_STARTUP_TIMEOUT:-900}"
+openvas_ready_url="${DARKSTAR_OPENVAS_READY_URL:-http://localhost:8008/health}"
 
 log() {
   printf '[+] %s\n' "$*"
@@ -38,6 +39,21 @@ if ! docker compose version >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! docker info >/dev/null 2>&1; then
+  printf '[!] Docker daemon is unavailable. Start Docker and ensure this user can access it.\n' >&2
+  exit 1
+fi
+
+if [[ ! -f darkstar/scanners/asteroid/asteroid.py ]]; then
+  if [[ -d .git ]] && command -v git >/dev/null 2>&1; then
+    log 'Initializing scanner submodules'
+    git submodule update --init --recursive
+  else
+    printf '[!] Asteroid scanner sources are missing. Clone with --recurse-submodules or install Git and rerun.\n' >&2
+    exit 1
+  fi
+fi
+
 if [[ ! -f .env ]]; then
   if [[ ! -f .env.example ]]; then
     printf '[!] .env is missing and .env.example was not found.\n' >&2
@@ -50,32 +66,66 @@ else
   log 'Using existing .env'
 fi
 
-for key in MYSQL_ROOT_PASSWORD DB_HOST DB_NAME DB_USER DB_PASSWORD; do
+for key in MYSQL_ROOT_PASSWORD DB_HOST DB_NAME DB_USER DB_PASSWORD OPENVAS_USER OPENVAS_PASS; do
   require_env_key "$key"
 done
 
-log "Building and starting Docker Compose profile '${profile}'"
-docker compose --profile "$profile" up -d --build
+if ! docker compose --profile "$profile" config --quiet; then
+  printf '[!] Docker Compose configuration is invalid. Check .env and docker-compose.yaml.\n' >&2
+  exit 1
+fi
 
-log "Waiting for ${web_service} to start on ${app_url}"
-deadline=$((SECONDS + timeout_seconds))
-while (( SECONDS < deadline )); do
-  state="$(docker compose ps "$web_service" --format json 2>/dev/null || true)"
-  if [[ -n "$state" ]] && grep -q '"State":"exited"\|"State":"dead"' <<<"$state"; then
-    docker compose logs --tail=120 "$web_service" >&2 || true
-    printf '[!] %s exited before becoming ready.\n' "$web_service" >&2
-    exit 1
-  fi
+build_services=(darkstar)
+case "$profile" in
+  darkstar|gvm)
+    build_services+=(openvas-api)
+    ;;
+esac
 
-  if curl -fsS "$ready_url" >/dev/null; then
-    log "Darkstar web app is ready at ${app_url}"
-    exit 0
-  fi
+# All three application containers use the same image. Building the image once
+# avoids three expensive, identical scanner-tool compilations on hosts without
+# Docker Buildx, while --no-build guarantees `up` will not repeat the work.
+log "Building shared application image for Docker Compose profile '${profile}'"
+docker compose --progress plain --profile "$profile" build "${build_services[@]}"
+log "Starting Docker Compose profile '${profile}'"
+docker compose --profile "$profile" up -d --no-build
 
-  sleep 5
-done
+wait_for_url() {
+  local service="$1"
+  local url="$2"
+  local label="$3"
+  local deadline=$((SECONDS + timeout_seconds))
 
-docker compose ps >&2 || true
-docker compose logs --tail=120 "$web_service" >&2 || true
-printf '[!] Timed out after %s seconds waiting for %s.\n' "$timeout_seconds" "$ready_url" >&2
-exit 1
+  log "Waiting for ${label} at ${url}"
+  while (( SECONDS < deadline )); do
+    local state
+    state="$(docker compose ps "$service" --format json 2>/dev/null || true)"
+    if [[ -n "$state" ]] && grep -q '"State":"exited"\|"State":"dead"' <<<"$state"; then
+      docker compose logs --tail=120 "$service" >&2 || true
+      printf '[!] %s exited before becoming ready.\n' "$service" >&2
+      return 1
+    fi
+
+    if curl -fsS --max-time 10 "$url" >/dev/null; then
+      log "${label} is ready"
+      return 0
+    fi
+    sleep 5
+  done
+
+  docker compose ps >&2 || true
+  docker compose logs --tail=120 "$service" >&2 || true
+  printf '[!] Timed out after %s seconds waiting for %s.\n' "$timeout_seconds" "$url" >&2
+  return 1
+}
+
+wait_for_url "$web_service" "$ready_url" "Darkstar web app"
+
+case "$profile" in
+  darkstar|gvm)
+    wait_for_url "openvas-api" "$openvas_ready_url" "OpenVAS API"
+    ;;
+esac
+
+docker compose ps
+log "Darkstar installation is ready at ${app_url}"

@@ -9,9 +9,11 @@ import ast
 import logging
 import os
 import secrets
+import shutil
 import signal
 import subprocess
 import threading
+from importlib.resources import files
 
 import pandas as pd
 
@@ -31,12 +33,11 @@ BBOT_ASM_MODULES = [
     "dnsdumpster",
     "git",
     "hackertarget",
-    "httpx",
+    "http",
     "portscan",
     "rapiddns",
     "robots",
     "securitytxt",
-    "sitedossier",
     "social",
     "sslcert",
     "subdomaincenter",
@@ -49,7 +50,7 @@ BBOT_HEAVY_MODULE_EXCLUSIONS = [
     "dnsbrute",
     "dnsbrute_mutations",
     "docker_pull",
-    "extractous",
+    "kreuzberg",
     "filedownload",
     "git_clone",
     "gitdumper",
@@ -90,12 +91,20 @@ class BBotScanner:
         self.target = target
         self.folder = "/app/bbot_output"
         self.foldername = secrets.token_hex(10)
+        self.scan_dir = f"{self.folder}/{self.foldername}"
         self.org_name = org_name
-        self.ips_file = f"{self.folder}/{self.foldername}/ips.txt"
+        self.ips_file = f"{self.scan_dir}/ips.txt"
+        self.bbot_binary = (
+            os.environ.get("BBOT_BINARY")
+            or shutil.which("bbot")
+            or "/root/.local/bin/bbot"
+        )
+        self._last_bbot_stdout = ""
+        self._last_bbot_stderr = ""
 
-        # Create a directory for bbot output if not exists
-        if not os.path.exists(self.folder):
-            os.makedirs(self.folder, exist_ok=True)
+        # BBOT 3 can return successfully after rejecting an invalid preset. Own
+        # the run directory so Darkstar can always validate the output contract.
+        os.makedirs(self.scan_dir, exist_ok=True)
 
     def _descendant_pids(self, pid: int) -> list[int]:
         descendants: list[int] = []
@@ -137,12 +146,16 @@ class BBotScanner:
     ) -> int:
         logger.info("%s bbot scan in progress...", label)
         logger.info("BBOT command: %s", " ".join(command))
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=self._bbot_environment(),
+            )
+        except OSError as exc:
+            raise RuntimeError(f"Unable to start BBOT using {command[0]}: {exc}") from exc
 
         previous_handlers = {}
         signals_registered = False
@@ -194,6 +207,8 @@ class BBotScanner:
             for line in (stderr or "").splitlines()
             if line.strip()
         )
+        self._last_bbot_stdout = output
+        self._last_bbot_stderr = errors
         if return_code != 0:
             logger.error("BBOT %s scan failed with exit code %s", label, return_code)
             if output:
@@ -205,6 +220,65 @@ class BBotScanner:
         if errors and return_code == 0:
             logger.warning("BBOT %s stderr tail:\n%s", label, "\n".join(errors.splitlines()[-20:]))
         return return_code
+
+    @staticmethod
+    def _bbot_environment() -> dict[str, str]:
+        """Expose Darkstar's timezone wheel to BBOT's isolated pipx Python."""
+        environment = os.environ.copy()
+        if environment.get("PYTHONTZPATH"):
+            return environment
+
+        try:
+            timezone_path = files("tzdata").joinpath("zoneinfo")
+            if timezone_path.is_dir():
+                environment["PYTHONTZPATH"] = str(timezone_path)
+        except (ImportError, ModuleNotFoundError, OSError):
+            logger.debug("Python tzdata package is unavailable to BBOT", exc_info=True)
+
+        return environment
+
+    def _bbot_error_detail(self) -> str:
+        output = self._last_bbot_stderr or self._last_bbot_stdout
+        if not output:
+            return "BBOT produced no diagnostic output"
+        return "\n".join(output.splitlines()[-40:])
+
+    def _process_scan_result(
+        self,
+        label: str,
+        return_code: int,
+        allow_timeout_partial: bool = False,
+    ) -> None:
+        """Validate BBOT output and persist it after a completed scan."""
+        output_file = f"{self.scan_dir}/output.csv"
+        partial_timeout = (
+            allow_timeout_partial
+            and return_code == 124
+            and os.path.isfile(output_file)
+        )
+        if return_code != 0 and not partial_timeout:
+            raise RuntimeError(
+                f"BBOT {label} scan exited with code {return_code}: "
+                f"{self._bbot_error_detail()}"
+            )
+
+        # BBOT 3's CLI currently returns zero for some argument/preset validation
+        # errors. The CSV is therefore the authoritative success contract.
+        if not os.path.isfile(output_file):
+            raise RuntimeError(
+                f"BBOT {label} scan did not produce {output_file}. "
+                f"BBOT may have rejected the scan profile: {self._bbot_error_detail()}"
+            )
+
+        if partial_timeout:
+            logger.warning("Processing partial BBOT %s output after timeout", label)
+
+        with open(f"{self.scan_dir}/TARGET_NAME", "w", encoding="utf-8") as target_file:
+            target_file.write(self.target)
+
+        logger.info("Processing %s scan results and storing in database...", label)
+        insert_bbot_to_db(self.prep_data(), org_name=self.org_name)
+        logger.info("%s scan data successfully processed", label)
 
     def _fallback_dataframe_from_text_outputs(self) -> pd.DataFrame:
         rows = []
@@ -383,7 +457,7 @@ class BBotScanner:
         logger.info(f"Starting Attack Surface bbot Scan on {self.target}")
 
         command = [
-            "/root/.local/bin/bbot",
+            self.bbot_binary,
             "-t",
             self.target,
             "-m",
@@ -394,15 +468,15 @@ class BBotScanner:
             "slow",
             "download",
             "web-screenshots",
-            "aggressive",
-            "deadly",
+            "loud",
+            "invasive",
             "-c",
             f"modules.portscan.ports={os.environ.get('BBOT_ASM_PORTS', BBOT_ASM_PORTS)}",
             f"modules.portscan.rate={_env_int('BBOT_ASM_PORTSCAN_RATE', 300)}",
             f"modules.portscan.wait={_env_int('BBOT_ASM_PORTSCAN_WAIT', 3)}",
             f"modules.portscan.module_timeout={_env_int('BBOT_ASM_PORTSCAN_TIMEOUT_SECONDS', 180)}",
-            f"modules.httpx.threads={_env_int('BBOT_ASM_HTTPX_THREADS', 25)}",
-            f"modules.httpx.max_response_size={_env_int('BBOT_ASM_HTTPX_MAX_RESPONSE_SIZE', 1048576)}",
+            f"modules.http.threads={_env_int('BBOT_ASM_HTTPX_THREADS', 25)}",
+            f"modules.http.max_response_size={_env_int('BBOT_ASM_HTTPX_MAX_RESPONSE_SIZE', 1048576)}",
             "-om",
             "csv",
             "subdomains",
@@ -422,15 +496,7 @@ class BBotScanner:
             timeout_seconds=_env_int("BBOT_ASM_TIMEOUT_SECONDS", 1200),
         )
         logger.info("Attack Surface bbot scan completed with exit code %s", return_code)
-
-        # Place target name in the foldername
-        with open(f"{self.folder}/{self.foldername}/TARGET_NAME", "w") as target_file:
-            target_file.write(self.target)
-
-        # Store data from csv into the database
-        logger.info("Processing scan results and storing in database...")
-        insert_bbot_to_db(self.prep_data(), org_name=self.org_name)
-        logger.info("Attack Surface scan data successfully processed")
+        self._process_scan_result("attack_surface", return_code, allow_timeout_partial=True)
 
     def passive(self) -> None:
         """
@@ -443,7 +509,7 @@ class BBotScanner:
         logger.info(f"Starting Passive bbot Scan on {self.target}")
 
         command = [
-            "/root/.local/bin/bbot",
+            self.bbot_binary,
             "-t",
             self.target,
             "-f",
@@ -464,15 +530,7 @@ class BBotScanner:
 
         return_code = self._run_bbot_command(command, "passive")
         logger.info("Passive scan completed with exit code %s", return_code)
-
-        # Place target name in the foldername
-        with open(f"{self.folder}/{self.foldername}/TARGET_NAME", "w") as target_file:
-            target_file.write(self.target)
-
-        # Store data from csv into the database
-        logger.info("Processing scan results and storing in database...")
-        insert_bbot_to_db(self.prep_data(), org_name=self.org_name)
-        logger.info("Passive scan data successfully processed")
+        self._process_scan_result("passive", return_code)
 
     def normal(self) -> None:
         """
@@ -485,11 +543,11 @@ class BBotScanner:
         logger.info(f"Starting normal bbot Scan on {self.target}")
 
         command = [
-            "/root/.local/bin/bbot",
+            self.bbot_binary,
             "-t",
             self.target,
             "-f",
-            "safe,passive,subdomain-enum,cloud-enum,email-enum,social-enum,code-enum,web-basic,affiliates",
+            "safe,passive,subdomain-enum,cloud-enum,email-enum,social-enum,code-enum,web,affiliates",
             "-om",
             "csv",
             "subdomains",
@@ -505,15 +563,7 @@ class BBotScanner:
 
         return_code = self._run_bbot_command(command, "normal")
         logger.info("normal scan completed with exit code %s", return_code)
-
-        # Place target name in the foldername
-        with open(f"{self.folder}/{self.foldername}/TARGET_NAME", "w") as target_file:
-            target_file.write(self.target)
-
-        # Store data from csv into the database
-        logger.info("Processing scan results and storing in database...")
-        insert_bbot_to_db(self.prep_data(), org_name=self.org_name)
-        logger.info("normal scan data successfully processed")
+        self._process_scan_result("normal", return_code)
 
     def aggressive(self) -> None:
         """
@@ -526,18 +576,18 @@ class BBotScanner:
         logger.warning("This is an aggressive scan that may trigger alerts")
 
         command = [
-            "/root/.local/bin/bbot",
+            self.bbot_binary,
             "-t",
             self.target,
             "-f",
-            "safe,passive,subdomain-enum,active,deadly,aggressive,web-thorough,cloud-enum,email-enum,social-enum,code-enum,affiliates",
+            "safe,passive,subdomain-enum,active,loud,invasive,web-heavy,"
+            "cloud-enum,email-enum,social-enum,code-enum,affiliates",
             "-m",
-            "nuclei,baddns,baddns_zone,dotnetnuke,ffuf",
+            "nuclei,baddns,baddns_zone,dotnetnuke,webbrute",
             "-om",
             "csv",
             "subdomains",
             "txt",
-            "--allow-deadly",
             "-o",
             self.folder,
             "-n",
@@ -550,15 +600,7 @@ class BBotScanner:
 
         return_code = self._run_bbot_command(command, "aggressive")
         logger.info("Aggressive scan completed with exit code %s", return_code)
-
-        # Place target name in the foldername
-        with open(f"{self.folder}/{self.foldername}/TARGET_NAME", "w") as target_file:
-            target_file.write(self.target)
-
-        # Store data from csv into the database
-        logger.info("Processing aggressive scan results and storing in database...")
-        insert_bbot_to_db(self.prep_data(), org_name=self.org_name)
-        logger.info("Aggressive scan data successfully processed")
+        self._process_scan_result("aggressive", return_code)
 
     def run(self, mode: str) -> int:
         """

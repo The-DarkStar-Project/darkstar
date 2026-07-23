@@ -548,6 +548,7 @@ class TestOpenVASScanner:
         mock_client_class = mocker.patch("openvas.openvas_scanner.OpenVASAPIClient")
         mock_client = mocker.AsyncMock()
         mock_client.__aenter__.return_value = mock_client
+        mock_client.health.return_value = {"status": "ok", "gmp_version": "22.8"}
         mock_client_class.return_value = mock_client
 
         # Mock target creation
@@ -588,6 +589,7 @@ class TestOpenVASScanner:
         mock_client_class = mocker.patch("openvas.openvas_scanner.OpenVASAPIClient")
         mock_client = mocker.AsyncMock()
         mock_client.__aenter__.return_value = mock_client
+        mock_client.health.return_value = {"status": "ok", "gmp_version": "22.8"}
         mock_client_class.return_value = mock_client
 
         # Mock target creation with one failure
@@ -797,6 +799,7 @@ class TestOpenVASIntegration:
         mock_client_class = mocker.patch("openvas.openvas_scanner.OpenVASAPIClient")
         mock_client = mocker.AsyncMock()
         mock_client.__aenter__.return_value = mock_client
+        mock_client.health.return_value = {"status": "ok", "gmp_version": "22.8"}
         mock_client_class.return_value = mock_client
 
         # Simulate successful workflow
