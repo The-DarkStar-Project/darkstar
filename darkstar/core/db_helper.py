@@ -5025,27 +5025,39 @@ def claim_next_scanner_job(
             connection.commit()
             cursor.close()
             return None
+        capability_filter = ""
+        claim_params = [node_id]
+        if "*" not in capability_list and "all" not in capability_list:
+            accepted_job_kinds = sorted(
+                {
+                    capability.split(":", 1)[1]
+                    if capability.startswith(("mode:", "scanner:"))
+                    else capability
+                    for capability in capability_list
+                }
+            )
+            placeholders = ", ".join(["%s"] * len(accepted_job_kinds))
+            capability_filter = (
+                " AND LOWER(COALESCE(NULLIF(scanner, ''), "
+                "NULLIF(scan_mode, ''), 'unknown')) "
+                f"IN ({placeholders})"
+            )
+            claim_params.extend(accepted_job_kinds)
+
         cursor.execute(
-            """
+            f"""
             SELECT *
             FROM scanner_jobs
             WHERE status = 'queued'
               AND (preferred_node_id IS NULL OR preferred_node_id = %s)
+              {capability_filter}
             ORDER BY priority DESC, id ASC
-            LIMIT 50
+            LIMIT 1
             FOR UPDATE
-            """
-            ,
-            (node_id,),
+            """,
+            tuple(claim_params),
         )
-        candidates = cursor.fetchall() or []
-        selected = None
-        for row in candidates:
-            if row.get("preferred_node_id") and row.get("preferred_node_id") != node_id:
-                continue
-            if _node_can_run_job(capability_list, row.get("scan_mode"), row.get("scanner")):
-                selected = row
-                break
+        selected = cursor.fetchone()
 
         if not selected:
             connection.commit()

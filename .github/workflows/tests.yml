@@ -29,6 +29,14 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
 
+      - name: Validate all Compose profiles
+        run: |
+          cp .env.example .env
+          docker compose --profile core config --quiet
+          docker compose --profile scanner config --quiet
+          docker compose --profile gvm config --quiet
+          docker compose --profile darkstar config --quiet
+
       - name: Run unit and smoke tests
         run: python -m pytest -m "not playwright" --junitxml=test-results/pytest-unit-smoke.xml
 
@@ -74,3 +82,23 @@ jobs:
           path: |
             test-results/pytest-playwright.xml
             test-results/playwright/
+
+  scanner-image:
+    name: Scanner image contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build scanner image from pinned inputs
+        run: docker build -f docker/Dockerfile -t darkstar:test .
+
+      - name: Verify image dependency and CVE data contracts
+        run: |
+          docker run --rm darkstar:test python3 -m pip check
+          docker run --rm darkstar:test test -x /app/darkstar/tools/scripts/search_epss
+          docker run --rm darkstar:test test -s /app/darkstar/data/epps_scores-current.csv
+          docker run --rm darkstar:test test -s /app/darkstar/data/known_exploited_vulnerabilities.csv

@@ -610,7 +610,8 @@ class TestOpenVASScanner:
         mock_monitor = mocker.patch.object(scanner, "monitor_task_queue")
         mock_monitor.return_value = None
 
-        await scanner.scan_targets(targets)
+        with pytest.raises(RuntimeError, match="partial stage failure"):
+            await scanner.scan_targets(targets)
 
         # Only one target should succeed
         assert mock_client.create_target.call_count == 2
@@ -658,9 +659,12 @@ class TestOpenVASScanner:
             await scanner.monitor_task_queue(mock_client, task_info)
 
         assert task_info[0]["completed"] == should_complete
-        if should_complete and task_status in ["Done", "Stopped"]:
+        if should_complete and task_status == "Done":
             mock_client.get_report.assert_called_once_with("report-1")
             mock_parse.assert_called_once()
+        elif task_status == "Stopped":
+            mock_client.get_report.assert_not_called()
+            mock_parse.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_parse_results_to_vulns(

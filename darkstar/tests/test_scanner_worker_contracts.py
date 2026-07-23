@@ -133,6 +133,50 @@ def test_attach_command_can_reference_secret_env_file_without_printing_secrets(t
     assert stat.S_IMODE(written_path.stat().st_mode) == 0o600
 
 
+def test_scanner_env_uses_explicit_remote_database_host(monkeypatch):
+    monkeypatch.setenv("DB_HOST", "mariadb")
+    node = {
+        "node_id": "node-123",
+        "token": "dscan_secret",
+        "name": "office",
+        "max_parallel_jobs": 2,
+    }
+
+    scanner_env = _scanner_env(
+        node,
+        "https://darkstar.example/",
+        db_host="db.customer.example",
+    )
+
+    assert scanner_env["DB_HOST"] == "db.customer.example"
+
+
+def test_worker_failure_keeps_only_bounded_output_tail(monkeypatch, mocker):
+    worker = ScannerWorker(
+        orchestrator_url="http://darkstar-web:8080",
+        token="dscan_test",
+        name="local",
+        capabilities=["*"],
+    )
+    worker.build_command = mocker.Mock(return_value=["scanner"])
+    worker.send_logs = mocker.Mock(return_value=False)
+    worker.complete = mocker.Mock()
+
+    process = mocker.Mock()
+    process.stdout = [f"line-{index}\n" for index in range(50)]
+    process.poll.return_value = 1
+    process.wait.return_value = 1
+    monkeypatch.setattr("darkstar.scanner_worker.subprocess.Popen", lambda *_a, **_k: process)
+
+    worker.run_job({"id": 99})
+
+    worker.complete.assert_called_once()
+    job_id, status, error = worker.complete.call_args.args
+    assert (job_id, status) == (99, "failed")
+    assert "line-29" not in error
+    assert error.splitlines() == [f"line-{index}" for index in range(30, 50)]
+
+
 def test_bootstrap_prefers_explicit_env_token(monkeypatch, tmp_path):
     monkeypatch.setenv("DARKSTAR_SCANNER_TOKEN", "dscan_env")
 

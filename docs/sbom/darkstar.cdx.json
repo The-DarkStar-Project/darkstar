@@ -640,23 +640,6 @@
     },
     {
       "type": "operating-system",
-      "bom-ref": "pkg:deb/debian/pipx",
-      "name": "pipx",
-      "scope": "required",
-      "purl": "pkg:deb/debian/pipx",
-      "properties": [
-        {
-          "name": "darkstar:ecosystem",
-          "value": "debian"
-        },
-        {
-          "name": "darkstar:sourceManifest",
-          "value": "docker/Dockerfile"
-        }
-      ]
-    },
-    {
-      "type": "operating-system",
       "bom-ref": "pkg:deb/debian/python3",
       "name": "python3",
       "scope": "required",
@@ -674,10 +657,44 @@
     },
     {
       "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/python3-cairo",
+      "name": "python3-cairo",
+      "scope": "required",
+      "purl": "pkg:deb/debian/python3-cairo",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
       "bom-ref": "pkg:deb/debian/python3-pip",
       "name": "python3-pip",
       "scope": "required",
       "purl": "pkg:deb/debian/python3-pip",
+      "properties": [
+        {
+          "name": "darkstar:ecosystem",
+          "value": "debian"
+        },
+        {
+          "name": "darkstar:sourceManifest",
+          "value": "docker/Dockerfile"
+        }
+      ]
+    },
+    {
+      "type": "operating-system",
+      "bom-ref": "pkg:deb/debian/python3-venv",
+      "name": "python3-venv",
+      "scope": "required",
+      "purl": "pkg:deb/debian/python3-venv",
       "properties": [
         {
           "name": "darkstar:ecosystem",
@@ -2727,9 +2744,10 @@
         "pkg:deb/debian/nmap",
         "pkg:deb/debian/openjdk-17-jre-headless",
         "pkg:deb/debian/openssl",
-        "pkg:deb/debian/pipx",
         "pkg:deb/debian/python3",
+        "pkg:deb/debian/python3-cairo",
         "pkg:deb/debian/python3-pip",
+        "pkg:deb/debian/python3-venv",
         "pkg:deb/debian/rm",
         "pkg:deb/debian/sudo",
         "pkg:deb/debian/tzdata",

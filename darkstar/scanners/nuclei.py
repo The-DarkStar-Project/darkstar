@@ -207,12 +207,10 @@ class NucleiScanner:
             logger.warning(f"Skipping template update due to error: {exc}")
 
         if not _has_nuclei_templates(templates_dir):
-            logger.error(
-                "No Nuclei YAML templates found in %s; skipping scan instead of "
-                "starting Nuclei with an empty template set",
-                templates_dir,
+            raise RuntimeError(
+                f"No Nuclei YAML templates found in {templates_dir}; "
+                "refusing to report a successful empty scan"
             )
-            return
 
         match self.mode:
             case NucleiMode.STANDARD:
@@ -256,11 +254,10 @@ class NucleiScanner:
             case NucleiMode.NETWORK:
                 network_templates = os.path.join(templates_dir, "network")
                 if not _has_nuclei_templates(network_templates):
-                    logger.warning(
-                        "Nuclei network templates not found in %s; skipping network mode",
-                        network_templates,
+                    raise RuntimeError(
+                        f"Nuclei network templates not found in {network_templates}; "
+                        "network scan cannot run"
                     )
-                    return
                 nuclei_command = [
                     "nuclei",
                     "-l",
@@ -306,8 +303,8 @@ class NucleiScanner:
         )
 
         if not process.stdout:
-            logger.error("Nuclei stdout stream unavailable")
-            return
+            process.terminate()
+            raise RuntimeError("Nuclei stdout stream unavailable")
 
         while True:
             output_line = process.stdout.readline()
@@ -365,7 +362,9 @@ class NucleiScanner:
 
         return_code = process.wait()
         if isinstance(return_code, int) and return_code != 0:
-            logger.warning(f"Nuclei exited with code {return_code}: {stderr_output[:1000]}")
+            raise RuntimeError(
+                f"Nuclei exited with code {return_code}: {stderr_output[:1000]}"
+            )
 
         flush_findings()
         logger.info(f"Nuclei scan completed! Found {vulnerabilities_found} vulnerabilities")

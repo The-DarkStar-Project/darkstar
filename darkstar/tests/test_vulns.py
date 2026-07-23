@@ -1,6 +1,13 @@
 import pytest
 from pytest_mock import MockerFixture
-from core.models.vulnerability import CVE, Vulnerability, _known_exploited_cves
+from core.models.vulnerability import (
+    CVE,
+    EPSS_DATA_PATH,
+    EPSS_HELPER_PATH,
+    KEV_DATA_PATH,
+    Vulnerability,
+    _known_exploited_cves,
+)
 import pandas as pd
 
 
@@ -27,6 +34,8 @@ class TestCVE:
         mock_run = mocker.patch("subprocess.run")
         mock_process = mocker.Mock()
         mock_process.stdout = subprocess_output
+        mock_process.stderr = ""
+        mock_process.returncode = 0
         mock_run.return_value = mock_process
 
         # Call the function
@@ -38,13 +47,32 @@ class TestCVE:
         # Verify subprocess was called correctly
         mock_run.assert_called_once_with(
             [
-                "tools/scripts/search_epss",
-                "data/epss_scores-current.csv",
+                str(EPSS_HELPER_PATH),
+                str(EPSS_DATA_PATH),
                 "CVE-2023-1234",
             ],
             capture_output=True,
             text=True,
+            timeout=30,
+            check=False,
         )
+
+    def test_cve_data_paths_are_package_relative(self):
+        assert KEV_DATA_PATH.is_file()
+        assert EPSS_DATA_PATH.is_file()
+        assert EPSS_HELPER_PATH.parent.name == "scripts"
+
+    def test_search_epss_failure_is_not_reported_as_a_score(
+        self, mocker: MockerFixture
+    ):
+        mock_run = mocker.patch("subprocess.run")
+        mock_run.return_value = mocker.Mock(
+            stdout="0.99",
+            stderr="dataset missing",
+            returncode=2,
+        )
+
+        assert CVE.search_epss_by_cve("CVE-2023-1234") is None
 
 
 class TestVulnerability:

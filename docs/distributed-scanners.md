@@ -41,8 +41,9 @@ docker compose exec darkstar-web python3 -m darkstar.scanner_attach create \
 ```
 
 The scanner token is written to a `0600` env file and the printed `docker run`
-command references that file with `--env-file`. Do not paste the token into
-logs or tickets. Revoking the scanner node invalidates it.
+command references the corresponding host path with `--env-file`. The default
+Compose setup stores these files under `./data/scanner-env`. Do not paste the
+token into logs or tickets. Revoking the scanner node invalidates it.
 
 ## Start A Local Worker
 
@@ -60,6 +61,21 @@ Remote workers need outbound access to:
 
 - the orchestrator API URL
 - the central MariaDB endpoint, or a VPN/tunnel that exposes it
+
+Create a remote attach command with the database hostname that is reachable
+from that worker:
+
+```bash
+python3 -m darkstar.scanner_attach create \
+  --name customer-edge \
+  --url https://darkstar.example \
+  --db-host mariadb.internal.example \
+  --image registry.example/darkstar:tested
+```
+
+Without `--network`, the command refuses local-only database names such as
+`mariadb` and `localhost`, because those would point at the worker container
+itself rather than the orchestrator database.
 
 This keeps scans running from the remote/internal network while results land in
 the central tenant database.

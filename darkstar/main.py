@@ -227,6 +227,30 @@ class worker:
             bruteforce_timeout=self.bruteforce_timeout,
         )
 
+        if isinstance(rustscan_results, dict) and rustscan_results.get("status") == "failed":
+            raise RuntimeError(
+                f"RustScan failed: {rustscan_results.get('error') or 'unknown error'}"
+            )
+
+        scan_results = (
+            rustscan_results.get("scan_results", [])
+            if isinstance(rustscan_results, dict)
+            else []
+        )
+        target_failures = [
+            result
+            for result in scan_results
+            if isinstance(result, dict)
+            and (result.get("status") == "failed" or result.get("error"))
+        ]
+        if target_failures:
+            details = "; ".join(
+                f"{result.get('target') or 'unknown target'}: "
+                f"{result.get('error') or 'scan failed'}"
+                for result in target_failures
+            )
+            raise RuntimeError(f"RustScan target failure(s): {details}")
+
         scan_processed = process_scan_results(rustscan_results, self.org_domain)
 
         # Process bruteforce results if present
@@ -313,6 +337,22 @@ class worker:
     async def passive_scan(self):
         await self.run_bbot(mode="passive")
 
+    @staticmethod
+    def _raise_stage_failures(stage_results: list[tuple[str, object]]) -> None:
+        """Fail the scan when any component that was started did not complete."""
+        failures = [
+            (name, result)
+            for name, result in stage_results
+            if isinstance(result, BaseException)
+        ]
+        if not failures:
+            return
+
+        for name, result in failures:
+            logger.error("%s stage failed: %s", name, result)
+        details = "; ".join(f"{name}: {result}" for name, result in failures)
+        raise RuntimeError(f"Scan stage failure(s): {details}")
+
     async def normal_scan(self):
         all_scan_targets = get_scan_targets(self.target_df)
 
@@ -331,9 +371,11 @@ class worker:
 
         primary_targets_file = bbot_results.get("primary_targets_file")
         if not primary_targets_file:
-            logger.warning("BBot returned no primary target file; skipping nuclei and asteroid stages")
             await asyncio.gather(port_task, openvas_task, return_exceptions=True)
-            return
+            raise RuntimeError(
+                "BBot normal scan returned no primary target file; "
+                "Nuclei and Asteroid cannot run"
+            )
 
         logger.info("Running vulnerability stages on original targets only; BBOT subdomains remain ASM potential targets")
 
@@ -351,14 +393,11 @@ class worker:
             "nuclei-network",
             "asteroid",
         ]
-        for name, result in zip(second_names, second_stage):
-            if isinstance(result, Exception):
-                logger.warning(f"{name} stage failed and was skipped: {result}")
-
         remaining_stage = await asyncio.gather(port_task, openvas_task, return_exceptions=True)
-        for name, result in zip(["rustscan", "openvas"], remaining_stage):
-            if isinstance(result, Exception):
-                logger.warning(f"{name} stage failed and will be skipped: {result}")
+        self._raise_stage_failures(
+            list(zip(second_names, second_stage))
+            + list(zip(["rustscan", "openvas"], remaining_stage))
+        )
 
     async def aggressive_scan(self):
         all_scan_targets = get_scan_targets(self.target_df)
@@ -378,9 +417,11 @@ class worker:
 
         primary_targets_file = bbot_results.get("primary_targets_file")
         if not primary_targets_file:
-            logger.warning("BBot returned no primary target file; skipping nuclei and asteroid stages")
             await asyncio.gather(port_task, openvas_task, return_exceptions=True)
-            return
+            raise RuntimeError(
+                "BBot aggressive scan returned no primary target file; "
+                "downstream vulnerability stages cannot run"
+            )
 
         logger.info("Running vulnerability stages on original targets only; BBOT subdomains remain ASM potential targets")
 
@@ -396,14 +437,11 @@ class worker:
         # Wait for all remaining tasks to complete
         second_stage = await asyncio.gather(*tasks, return_exceptions=True)
         second_names = ["nuclei-standard", "nuclei-network", "wordpress+nuclei", "asteroid", "zap"]
-        for name, result in zip(second_names, second_stage):
-            if isinstance(result, Exception):
-                logger.warning(f"{name} stage failed and was skipped: {result}")
-
         remaining_stage = await asyncio.gather(port_task, openvas_task, return_exceptions=True)
-        for name, result in zip(["rustscan", "openvas"], remaining_stage):
-            if isinstance(result, Exception):
-                logger.warning(f"{name} stage failed and will be skipped: {result}")
+        self._raise_stage_failures(
+            list(zip(second_names, second_stage))
+            + list(zip(["rustscan", "openvas"], remaining_stage))
+        )
 
     async def attack_surface_scan(self):
         logger.info(f"{Fore.CYAN}Starting Attack Surface Mode...{Style.RESET_ALL}")

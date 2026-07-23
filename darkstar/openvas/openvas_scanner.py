@@ -169,8 +169,7 @@ class OpenVASScanner:
 
         openvas_targets = self._prepare_openvas_targets(targets)
         if not openvas_targets:
-            logger.warning("No resolvable OpenVAS targets found; skipping OpenVAS scan")
-            return
+            raise RuntimeError("No resolvable OpenVAS targets found")
 
         async with OpenVASAPIClient(base_url=self.base_url) as openvas:
             try:
@@ -180,11 +179,9 @@ class OpenVASScanner:
                     health.get("gmp_version", "unknown"),
                 )
             except Exception as exc:
-                logger.warning(
-                    f"OpenVAS API health check failed at {self.base_url}; "
-                    f"skipping OpenVAS stage: {exc}"
-                )
-                return
+                raise RuntimeError(
+                    f"OpenVAS API health check failed at {self.base_url}: {exc}"
+                ) from exc
 
             # 1) Create all targets in parallel
             create_tasks = [
@@ -197,20 +194,22 @@ class OpenVASScanner:
             created = await asyncio.gather(*create_tasks, return_exceptions=True)
 
             # Filter out errors and extract real target IDs
+            stage_failures = []
             target_results = []
             for idx, res in enumerate(created):
                 if isinstance(res, Exception):
-                    logger.error(
-                        f"Failed to create OpenVAS target for {openvas_targets[idx]['label']} "
-                        f"({', '.join(openvas_targets[idx]['hosts'])}): {res}"
+                    stage_failures.append(
+                        f"target {openvas_targets[idx]['label']}: {res}"
                     )
                 else:
                     logger.info(f"Created target {res['id']} for {res['name']}")
                     target_results.append(res)
 
             if not target_results:
-                logger.warning("No OpenVAS targets were created; skipping task creation")
-                return
+                raise RuntimeError(
+                    "No OpenVAS targets were created"
+                    + (f": {'; '.join(stage_failures)}" if stage_failures else "")
+                )
 
             # 2) For each new target, create a scan task
             task_creates = [
@@ -224,16 +223,18 @@ class OpenVASScanner:
             task_results = []
             for idx, res in enumerate(tasks):
                 if isinstance(res, Exception):
-                    logger.error(
-                        f"Failed to create task for target {target_results[idx]['id']}: {res}"
+                    stage_failures.append(
+                        f"task for target {target_results[idx]['id']}: {res}"
                     )
                 else:
                     logger.info(f"Created task {res['id']} ({res['name']})")
                     task_results.append(res)
 
             if not task_results:
-                logger.warning("No OpenVAS tasks were created; skipping OpenVAS monitoring")
-                return
+                raise RuntimeError(
+                    "No OpenVAS tasks were created"
+                    + (f": {'; '.join(stage_failures)}" if stage_failures else "")
+                )
 
             # 3) Start each task
             start_calls = [openvas.start_task(task["id"]) for task in task_results]
@@ -241,8 +242,8 @@ class OpenVASScanner:
 
             for idx, res in enumerate(starts):
                 if isinstance(res, Exception):
-                    logger.error(
-                        f"Failed to start task {task_results[idx]['id']}: {res}"
+                    stage_failures.append(
+                        f"start task {task_results[idx]['id']}: {res}"
                     )
                 else:
                     logger.info(f"Started task {task_results[idx]['id']}: {res}")
@@ -272,25 +273,32 @@ class OpenVASScanner:
                             "task_name": task["name"],
                             "report_id": report_id,
                             "completed": False,
+                            "poll_errors": 0,
+                            "failure": None,
                         }
                     )
                     logger.info(
                         f"Task {task['id']} started with report ID: {report_id}"
                     )
                 else:
-                    logger.error(f"Task start failed: {start_res}")
+                    logger.error("Task start failed: %s", start_res)
+
+            if not task_info:
+                raise RuntimeError(
+                    "No OpenVAS tasks started"
+                    + (f": {'; '.join(stage_failures)}" if stage_failures else "")
+                )
 
             logger.info(
                 f"{Fore.CYAN}Created task_info with {len(task_info)} tasks to monitor{Style.RESET_ALL}"
             )
 
-            # Start background monitoring
-            monitor_task = asyncio.create_task(
-                self.monitor_task_queue(openvas, task_info)
-            )
+            await self.monitor_task_queue(openvas, task_info)
 
-            # Wait for all tasks to complete
-            await asyncio.gather(monitor_task, return_exceptions=True)
+            if stage_failures:
+                raise RuntimeError(
+                    f"OpenVAS partial stage failure(s): {'; '.join(stage_failures)}"
+                )
 
         logger.info(
             f"{Fore.GREEN}[+] OpenVAS: created {len(target_results)} targets and {len(task_results)} tasks, all completed{Style.RESET_ALL}"
@@ -311,8 +319,7 @@ class OpenVASScanner:
         )
 
         if not task_info:
-            logger.info("No OpenVAS tasks to monitor; skipping report collection")
-            return
+            raise RuntimeError("No OpenVAS tasks to monitor")
 
         # Create output directory for reports
         reports_dir = (
@@ -323,8 +330,24 @@ class OpenVASScanner:
             f"{Fore.CYAN}Reports will be saved to: {reports_dir}{Style.RESET_ALL}"
         )
 
+        try:
+            timeout_seconds = max(
+                60, int(os.getenv("OPENVAS_SCAN_TIMEOUT_SECONDS", "7200"))
+            )
+        except (TypeError, ValueError):
+            timeout_seconds = 7200
+        deadline = asyncio.get_running_loop().time() + timeout_seconds
+
         while True:
             await asyncio.sleep(30)  # Check every 30 seconds
+
+            if asyncio.get_running_loop().time() >= deadline:
+                for task in task_info:
+                    if not task["completed"]:
+                        task["failure"] = (
+                            f"timed out after {timeout_seconds} seconds"
+                        )
+                        task["completed"] = True
 
             # Check if all tasks are completed
             completed_count = sum(1 for task in task_info if task["completed"])
@@ -354,7 +377,7 @@ class OpenVASScanner:
                     )
 
                     # Check if task is completed
-                    if current_status in ["Done", "Stopped"]:
+                    if current_status == "Done":
                         if task["report_id"]:
                             try:
                                 logger.info(
@@ -385,34 +408,45 @@ class OpenVASScanner:
                                     )
                                     task["completed"] = True
                                 else:
-                                    logger.warning(
-                                        f"{Fore.YELLOW}[!] Report retrieved but empty for task {task['task_id']}{Style.RESET_ALL}"
+                                    task["failure"] = (
+                                        f"task {task['task_id']} returned an empty report"
                                     )
                                     task["completed"] = True
 
                             except Exception as e:
-                                logger.error(
-                                    f"{Fore.RED}[-] Failed to fetch report for task {task['task_id']} with report_id {task['report_id']}: {e}{Style.RESET_ALL}"
+                                task["failure"] = (
+                                    f"failed to fetch report for task "
+                                    f"{task['task_id']}: {e}"
                                 )
-                                task["completed"] = (
-                                    True  # Mark as completed to avoid infinite retry
-                                )
+                                task["completed"] = True
                         else:
-                            logger.warning(
-                                f"{Fore.YELLOW}[!] Task {task['task_id']} completed but no report ID available{Style.RESET_ALL}"
+                            task["failure"] = (
+                                f"task {task['task_id']} completed without a report ID"
                             )
                             task["completed"] = True
 
                     elif current_status in ["Failed", "Interrupted"]:
-                        logger.error(
-                            f"{Fore.RED}[-] Task {task['task_id']} failed with status: {current_status}{Style.RESET_ALL}"
+                        task["failure"] = (
+                            f"task {task['task_id']} ended with status {current_status}"
                         )
-                        task["completed"] = True  # Mark as completed to stop monitoring
+                        task["completed"] = True
+                    elif current_status == "Stopped":
+                        task["failure"] = f"task {task['task_id']} stopped before completion"
+                        task["completed"] = True
 
                 except Exception as e:
-                    logger.error(
-                        f"{Fore.RED}[-] Error checking status for task {task['task_id']}: {e}{Style.RESET_ALL}"
-                    )
+                    task["poll_errors"] = int(task.get("poll_errors") or 0) + 1
+                    logger.error("Error checking status for task %s: %s", task["task_id"], e)
+                    if task["poll_errors"] >= 3:
+                        task["failure"] = (
+                            f"task {task['task_id']} status failed "
+                            f"{task['poll_errors']} times: {e}"
+                        )
+                        task["completed"] = True
+
+        failures = [task["failure"] for task in task_info if task.get("failure")]
+        if failures:
+            raise RuntimeError(f"OpenVAS task failure(s): {'; '.join(failures)}")
 
     async def parse_results_to_vulns(self, report_file: str) -> None:
         """

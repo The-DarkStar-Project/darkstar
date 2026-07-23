@@ -37,13 +37,35 @@ exit 1
 
     curl_stub = """#!/bin/sh
 printf '%s %s\\n' "$(basename "$0")" "$*" >> "$INSTALL_LOG"
-cat <<'INSTALLER'
-#!/bin/sh
-printf 'installer %s\\n' "$*" >> "$INSTALL_LOG"
-exit 0
-INSTALLER
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = "-o" ]; then
+        shift
+        : > "$1"
+        exit 0
+    fi
+    shift
+done
+exit 1
 """
     _write_executable(fake_bin / "curl", curl_stub)
+    _write_executable(fake_bin / "sha256sum", command_stub)
+    _write_executable(
+        fake_bin / "tar",
+        """#!/bin/sh
+printf '%s %s\\n' "$(basename "$0")" "$*" >> "$INSTALL_LOG"
+destination=
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = "-C" ]; then
+        shift
+        destination="$1"
+    fi
+    shift
+done
+mkdir -p "$destination"
+touch "$destination/feroxbuster" "$destination/trufflehog"
+exit 0
+""",
+    )
 
     env = os.environ.copy()
     env.update(
@@ -81,5 +103,6 @@ INSTALLER
         "pip3 install --no-cache-dir -r modules/50-vulnscan/requirements.txt"
         in command_log
     )
-    assert "pipx install arjun" in command_log
-    assert "pipx install wappalyzer" in command_log
+    assert "pipx install arjun==2.2.7" in command_log
+    assert "pipx install wappalyzer==2.0.2" in command_log
+    assert "sha256sum --check" in command_log

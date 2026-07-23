@@ -640,8 +640,10 @@ def _scanner_attach_command(node: dict, request: Request | None = None) -> str:
     if not base_url and request is not None:
         base_url = str(request.base_url).rstrip("/")
     base_url = base_url or "http://darkstar.local:8080"
-    image = os.environ.get("DARKSTAR_SCANNER_IMAGE", "darkstar-darkstar-web")
+    image = os.environ.get("DARKSTAR_SCANNER_IMAGE", "darkstar-darkstar")
     container_name = f"darkstar-scanner-{node['node_id']}"
+    network = os.environ.get("DARKSTAR_SCANNER_NETWORK", "darkstar_vuln_net")
+    network_arg = f"--network {shlex.quote(network)} " if network else ""
     db_host = os.environ.get("DB_HOST", "mariadb")
     db_name = os.environ.get("DB_NAME", "darkstar")
     db_user = os.environ.get("DB_USER", "data_miner")
@@ -650,6 +652,7 @@ def _scanner_attach_command(node: dict, request: Request | None = None) -> str:
         "docker run -d "
         f"--name {container_name} "
         "--restart unless-stopped "
+        f"{network_arg}"
         f"-e DARKSTAR_ORCHESTRATOR_URL='{base_url}' "
         f"-e DARKSTAR_SCANNER_TOKEN='{node['token']}' "
         f"-e DARKSTAR_SCANNER_NAME='{node.get('name') or node['node_id']}' "

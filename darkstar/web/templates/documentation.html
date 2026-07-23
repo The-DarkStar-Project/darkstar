@@ -295,7 +295,8 @@ docker compose --profile darkstar up -d --build</code></pre>
                 <p>
                     The CLI writes the scanner token and worker settings to a protected env file
                     (<code>0600</code>) and prints a <code>docker run --env-file ...</code> command.
-                    Copy tokens only to the worker host or a secret manager. For a local Compose worker,
+                    In the standard Compose setup the host-side file is under
+                    <code>./data/scanner-env</code>. Copy tokens only to the worker host or a secret manager. For a local Compose worker,
                     put the same values in <code>.env</code>:
                 </p>
                 <pre><code>DARKSTAR_ORCHESTRATOR_URL='http://darkstar-web:8080'
@@ -308,7 +309,9 @@ DARKSTAR_WORKER_MAX_PARALLEL='2'</code></pre>
                 <p>
                     For a remote network, use the <code>docker run</code> attach command that Darkstar shows in Settings.
                     The worker needs outbound access to the orchestrator API and to the central MariaDB endpoint, or to a
-                    VPN/tunnel that provides that connection.
+                    VPN/tunnel that provides that connection. When creating the command manually, pass an externally
+                    reachable database hostname with <code>--db-host</code>; local names such as <code>mariadb</code> and
+                    <code>localhost</code> are rejected unless the worker joins the Compose network.
                 </p>
                 <h3>Choose A Scanner In The UI</h3>
                 <ol>

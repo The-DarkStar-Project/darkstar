@@ -3,7 +3,7 @@ services:
   mariadb:
     image: mariadb:10.5
     container_name: mariadb
-    profiles: ["core", "gvm", "darkstar"]
+    profiles: ["core", "gvm", "darkstar", "scanner"]
     entrypoint: ["/bin/bash", "/usr/local/bin/darkstar-mariadb-entrypoint.sh"]
     command: ["mysqld"]
     env_file:
@@ -188,7 +188,7 @@ services:
   # OpenVAS scanner configuration
   configure-openvas:
     image: registry.community.greenbone.net/community/openvas-scanner:stable
-    profiles: ["darkstar"]
+    profiles: ["gvm", "darkstar"]
     volumes:
       - openvas_data_vol:/mnt
       - openvas_log_data_vol:/var/log/openvas
@@ -208,7 +208,7 @@ services:
   # OpenVAS scanner daemon
   openvasd:
     image: registry.community.greenbone.net/community/openvas-scanner:stable
-    profiles: ["darkstar"]
+    profiles: ["gvm", "darkstar"]
     restart: unless-stopped
     environment:
       OPENVASD_MODE: service_notus
@@ -234,7 +234,7 @@ services:
   # OpenVAS Scanner Protocol Daemon
   ospd-openvas:
     image: registry.community.greenbone.net/community/ospd-openvas:stable
-    profiles: ["darkstar"]
+    profiles: ["gvm", "darkstar"]
     restart: unless-stopped
     hostname: ospd-openvas.local
     cap_add:
@@ -291,7 +291,7 @@ services:
   # GVM Tools for command line access
   gvm-tools:
     image: registry.community.greenbone.net/community/gvm-tools
-    profiles: ["darkstar"]
+    profiles: ["gvm", "darkstar"]
     volumes:
       - gvmd_socket_vol:/run/gvmd
       - ospd_openvas_socket_vol:/run/ospd
@@ -374,6 +374,10 @@ services:
       - .env
     environment:
       PYTHONPATH: /app:/app/darkstar
+      DARKSTAR_SCANNER_IMAGE: ${DARKSTAR_SCANNER_IMAGE:-darkstar-darkstar}
+      DARKSTAR_SCANNER_NETWORK: ${DARKSTAR_SCANNER_NETWORK:-darkstar_vuln_net}
+      DARKSTAR_SCANNER_ATTACH_DIR: /app/data/scanner-env
+      DARKSTAR_SCANNER_ATTACH_HOST_DIR: ./data/scanner-env
     ports:
       - "8080:8080"
     healthcheck:

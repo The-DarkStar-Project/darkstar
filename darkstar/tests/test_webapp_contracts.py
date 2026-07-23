@@ -245,6 +245,7 @@ def test_scanner_attach_command_uses_public_url_and_expected_env(monkeypatch):
     )
 
     assert "--name darkstar-scanner-node-1" in command
+    assert "--network darkstar_vuln_net" in command
     assert "DARKSTAR_ORCHESTRATOR_URL='https://darkstar.example/'" in command
     assert "DARKSTAR_SCANNER_TOKEN='dscan_test'" in command
     assert "DB_PASSWORD=''" in command

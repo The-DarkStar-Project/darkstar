@@ -4,6 +4,7 @@ venv
 env
 
 darkstar-scanner-*.env
+data/scanner-env/
 *.token
 
 __pycache__

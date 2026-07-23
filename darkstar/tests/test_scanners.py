@@ -380,9 +380,24 @@ class TestNucleiScanner:
         mocker.patch("scanners.nuclei._has_nuclei_templates", return_value=False)
 
         scanner = NucleiScanner("subdomains.txt", "test_org")
-        scanner.scan_nuclei()
+        with pytest.raises(RuntimeError, match="No Nuclei YAML templates"):
+            scanner.scan_nuclei()
 
         mock_popen.assert_not_called()
+
+    def test_nonzero_nuclei_exit_fails_the_stage(self, mocker: MockerFixture):
+        mocker.patch("scanners.nuclei._update_nuclei_templates_if_due")
+        mocker.patch("scanners.nuclei._has_nuclei_templates", return_value=True)
+        process = mocker.Mock()
+        process.stdout.readline.return_value = ""
+        process.poll.return_value = 2
+        process.stderr.read.return_value = "template parse failure"
+        process.wait.return_value = 2
+        mocker.patch("scanners.nuclei.subprocess.Popen", return_value=process)
+
+        scanner = NucleiScanner("subdomains.txt", "test_org")
+        with pytest.raises(RuntimeError, match="Nuclei exited with code 2"):
+            scanner.scan_nuclei()
 
     def test_template_update_skips_recent_shared_update(self, tmp_path, mocker):
         from scanners.nuclei import (

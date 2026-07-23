@@ -29,6 +29,13 @@ class FakeGMP:
         </get_targets_response>
         """
 
+    def get_scanners(self):
+        return """
+        <get_scanners_response status="200">
+          <scanner id="scanner-1"><name>OpenVAS Default</name></scanner>
+        </get_scanners_response>
+        """
+
 
 @pytest.fixture
 def api_client():
@@ -49,7 +56,31 @@ def test_health_checks_authenticated_gmp(api_client):
         "status": "ok",
         "gvmd_socket": api.SOCK_PATH,
         "gmp_version": "22.8",
+        "scanner_count": 1,
     }
+
+
+def test_health_rejects_cve_only_scanner_registration():
+    class CveOnlyGMP(FakeGMP):
+        def get_scanners(self):
+            return """
+            <get_scanners_response status="200">
+              <scanner id="scanner-cve"><name>CVE scanner</name></scanner>
+            </get_scanners_response>
+            """
+
+    def fake_gmp_dependency():
+        yield CveOnlyGMP()
+
+    api.app.dependency_overrides[api.get_gmp] = fake_gmp_dependency
+    try:
+        with TestClient(api.app) as client:
+            response = client.get("/health")
+    finally:
+        api.app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "No usable OpenVAS scanner registered"
 
 
 def test_list_targets_parses_gvmd_hosts_text(api_client):

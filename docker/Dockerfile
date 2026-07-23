@@ -36,6 +36,9 @@ RUN cargo install rustscan --version "${RUSTSCAN_VERSION}" --locked
 # ========== BUILD STAGE FOR C TOOLS ==========
 FROM ubuntu:22.04 AS c-builder
 
+ARG HYDRA_COMMIT=fd5fc2adb178bc23983b5c50e6558b48fcd75c1b
+ARG MASSDNS_COMMIT=6bfa47197d78e68b79041d494e280174cb2d6ae1
+
 # Install dependencies for THC-Hydra
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -56,9 +59,17 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Build THC-Hydra
-RUN git clone https://github.com/vanhauser-thc/thc-hydra.git /tmp/thc-hydra && \
+# Build a reviewed Hydra revision. Retry transient GitHub/network failures,
+# while keeping the source revision deterministic.
+RUN git init /tmp/thc-hydra && \
     cd /tmp/thc-hydra && \
+    git remote add origin https://github.com/vanhauser-thc/thc-hydra.git && \
+    for attempt in 1 2 3 4 5; do \
+        git fetch --depth 1 origin "${HYDRA_COMMIT}" && break; \
+        [ "$attempt" -eq 5 ] && exit 1; \
+        sleep "$((attempt * 2))"; \
+    done && \
+    git checkout --detach FETCH_HEAD && \
     ./configure && \
     make && \
     make install
@@ -67,8 +78,12 @@ RUN git clone https://github.com/vanhauser-thc/thc-hydra.git /tmp/thc-hydra && \
 RUN git init /tmp/massdns && \
     cd /tmp/massdns && \
     git remote add origin https://github.com/blechschmidt/massdns.git && \
-    git fetch --depth 1 origin HEAD && \
-    git checkout FETCH_HEAD && \
+    for attempt in 1 2 3 4 5; do \
+        git fetch --depth 1 origin "${MASSDNS_COMMIT}" && break; \
+        [ "$attempt" -eq 5 ] && exit 1; \
+        sleep "$((attempt * 2))"; \
+    done && \
+    git checkout --detach FETCH_HEAD && \
     make && \
     install -m 0755 bin/massdns /usr/local/bin/massdns
 
@@ -90,10 +105,11 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone &
     apt-get update && \
     apt-get install -y --no-install-recommends \
     python3 \
+    python3-venv \
     tzdata \
     gcc \
     python3-pip \
-    pipx \
+    python3-cairo \
     sudo \
     wget \
     nano \
@@ -122,6 +138,11 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone &
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Ubuntu 22.04's pipx/argcomplete packages fail pip's dependency consistency
+# check. Install one pinned, self-consistent pipx toolchain instead.
+ARG PIPX_VERSION=1.16.2
+RUN pip3 install --no-cache-dir "pipx==${PIPX_VERSION}"
+
 # Create app directories
 WORKDIR /app
 RUN mkdir -p /app/bbot_output \
@@ -137,14 +158,24 @@ RUN pipx install "bbot==${BBOT_VERSION}" && \
 COPY requirements.txt /app/
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Install testssl.sh
-RUN git clone --depth 1 https://github.com/drwetter/testssl.sh.git /opt/testssl && \
+# Install a pinned testssl.sh revision with retry handling.
+ARG TESTSSL_COMMIT=c4856bef7255fec85affb50ca112d68bfa9c28d5
+RUN git init /opt/testssl && \
+    cd /opt/testssl && \
+    git remote add origin https://github.com/drwetter/testssl.sh.git && \
+    for attempt in 1 2 3 4 5; do \
+        git fetch --depth 1 origin "${TESTSSL_COMMIT}" && break; \
+        [ "$attempt" -eq 5 ] && exit 1; \
+        sleep "$((attempt * 2))"; \
+    done && \
+    git checkout --detach FETCH_HEAD && \
     chmod +x /opt/testssl/testssl.sh && \
     ln -sf /opt/testssl/testssl.sh /usr/local/bin/testssl.sh
 
 # Install OWASP ZAP (latest stable release)
 ARG ZAP_VERSION=2.16.0
-RUN wget -q "https://github.com/zaproxy/zaproxy/releases/download/v${ZAP_VERSION}/ZAP_${ZAP_VERSION}_Linux.tar.gz" \
+RUN wget -q --tries=5 --retry-connrefused --waitretry=2 \
+        "https://github.com/zaproxy/zaproxy/releases/download/v${ZAP_VERSION}/ZAP_${ZAP_VERSION}_Linux.tar.gz" \
         -O /tmp/zap.tar.gz && \
     tar xzf /tmp/zap.tar.gz -C /opt/ && \
     mv /opt/ZAP_${ZAP_VERSION} /opt/zaproxy && \
@@ -169,7 +200,20 @@ COPY ./darkstar/scanners/asteroid-install.sh /app/darkstar/scanners/asteroid-ins
 COPY ./darkstar/scanners/asteroid /app/darkstar/scanners/asteroid
 
 # Install Asteroid
-RUN cd /app/darkstar && bash scanners/asteroid-install.sh
+ARG FEROXBUSTER_VERSION=2.13.1
+ARG FEROXBUSTER_SHA256=7985c00e6803b0f25d5e9139f7472279f3f4d891429627a5cedc629e53992d80
+ARG TRUFFLEHOG_VERSION=3.95.9
+ARG TRUFFLEHOG_SHA256=f6d1106b85107d79527ed7a5b98b592beadd8b770dc3c9e8c1ad99e1b2cf127e
+ARG ARJUN_VERSION=2.2.7
+ARG WAPPALYZER_VERSION=2.0.2
+RUN cd /app/darkstar && \
+    FEROXBUSTER_VERSION="${FEROXBUSTER_VERSION}" \
+    FEROXBUSTER_SHA256="${FEROXBUSTER_SHA256}" \
+    TRUFFLEHOG_VERSION="${TRUFFLEHOG_VERSION}" \
+    TRUFFLEHOG_SHA256="${TRUFFLEHOG_SHA256}" \
+    ARJUN_VERSION="${ARJUN_VERSION}" \
+    WAPPALYZER_VERSION="${WAPPALYZER_VERSION}" \
+    bash scanners/asteroid-install.sh
 
 # Install Wapiti isolated from DarkStar and Asteroid Python dependencies.
 ARG WAPITI_VERSION=3.2.3
@@ -195,6 +239,10 @@ COPY ./openvas_api /app/openvas_api
 COPY ./scripts /app/scripts
 COPY ./docs/sbom /app/docs/sbom
 COPY ./agents /app/agents
+
+# Fail the build if apt- and pip-installed Python packages disagree. This
+# catches image-only conflicts that the repository virtualenv cannot see.
+RUN pip3 check
 
 # Setup shell environment
 RUN echo 'source ~/.bashrc' > /etc/bash.bashrc && \

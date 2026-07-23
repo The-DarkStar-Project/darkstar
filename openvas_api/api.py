@@ -156,12 +156,21 @@ def _xml_text(response: Any) -> str:
 
 @app.get("/health")
 def health(gmp: Any = Depends(get_gmp)):
-    """Check the HTTP service, gvmd socket, GMP version, and credentials."""
+    """Check GMP credentials and ensure a real OpenVAS scanner is registered."""
     root = _parse_xml(gmp.get_version())
+    scanners_root = _parse_xml(gmp.get_scanners())
+    scanners = [
+        scanner
+        for scanner in scanners_root.findall(".//scanner")
+        if "cve" not in (scanner.findtext("name") or "").lower()
+    ]
+    if not scanners:
+        raise HTTPException(status_code=503, detail="No usable OpenVAS scanner registered")
     return {
         "status": "ok",
         "gvmd_socket": SOCK_PATH,
         "gmp_version": root.findtext(".//version"),
+        "scanner_count": len(scanners),
     }
 
 

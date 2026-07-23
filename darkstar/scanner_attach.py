@@ -15,13 +15,18 @@ from pathlib import Path
 from .core.db_helper import create_scanner_node
 
 
-def _scanner_env(node: dict, orchestrator_url: str) -> dict[str, str]:
+def _scanner_env(
+    node: dict,
+    orchestrator_url: str,
+    *,
+    db_host: str | None = None,
+) -> dict[str, str]:
     return {
         "DARKSTAR_ORCHESTRATOR_URL": orchestrator_url.rstrip("/"),
         "DARKSTAR_SCANNER_TOKEN": node["token"],
         "DARKSTAR_SCANNER_NAME": node["name"],
         "DARKSTAR_WORKER_MAX_PARALLEL": str(node["max_parallel_jobs"]),
-        "DB_HOST": os.environ.get("DB_HOST", "mariadb"),
+        "DB_HOST": db_host or os.environ.get("DB_HOST", "mariadb"),
         "DB_NAME": os.environ.get("DB_NAME", "darkstar"),
         "DB_USER": os.environ.get("DB_USER", "data_miner"),
         "DB_PASSWORD": os.environ.get("DB_PASSWORD", ""),
@@ -95,8 +100,13 @@ def main() -> int:
     create = sub.add_parser("create", help="Create a scanner node and print its attach command")
     create.add_argument("--name", required=True)
     create.add_argument("--url", default=os.environ.get("DARKSTAR_PUBLIC_URL", "http://darkstar.local:8080"))
-    create.add_argument("--image", default=os.environ.get("DARKSTAR_SCANNER_IMAGE", "darkstar-darkstar-web"))
+    create.add_argument("--image", default=os.environ.get("DARKSTAR_SCANNER_IMAGE", "darkstar-darkstar"))
     create.add_argument("--network", default=os.environ.get("DARKSTAR_SCANNER_NETWORK"))
+    create.add_argument(
+        "--db-host",
+        default=os.environ.get("DARKSTAR_REMOTE_DB_HOST") or os.environ.get("DB_HOST", "mariadb"),
+        help="MariaDB host reachable from the scanner container; required for remote workers",
+    )
     create.add_argument("--max-parallel-jobs", type=int, default=1)
     create.add_argument(
         "--env-file",
@@ -105,13 +115,39 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "create":
+        db_host = str(args.db_host or "").strip()
+        if not args.network and (
+            not db_host
+            or db_host.lower()
+            in {"mariadb", "localhost", "127.0.0.1", "::1"}
+        ):
+            parser.error(
+                "--db-host must name an externally reachable MariaDB host when "
+                "--network is not set"
+            )
         node = create_scanner_node(args.name, capabilities=["*"], max_parallel_jobs=args.max_parallel_jobs)
-        env_file = args.env_file or f"darkstar-scanner-{node['node_id']}.env"
-        env_path = _write_env_file(env_file, _scanner_env(node, args.url))
+        filename = f"darkstar-scanner-{node['node_id']}.env"
+        if args.env_file:
+            write_path = Path(args.env_file)
+            command_path = write_path
+        else:
+            write_directory = Path(os.environ.get("DARKSTAR_SCANNER_ATTACH_DIR", "."))
+            host_directory = Path(
+                os.environ.get("DARKSTAR_SCANNER_ATTACH_HOST_DIR", str(write_directory))
+            )
+            write_path = write_directory / filename
+            command_path = host_directory / filename
+
+        env_path = _write_env_file(
+            write_path,
+            _scanner_env(node, args.url, db_host=db_host),
+        )
         print(f"Scanner node: {node['node_id']}")
         print(f"Secret env file: {env_path} (mode 0600)")
         print()
-        command = _env_file_attach_command(node["node_id"], args.image, args.network, env_path)
+        command = _env_file_attach_command(
+            node["node_id"], args.image, args.network, command_path
+        )
         print(command)
     return 0
 

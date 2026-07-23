@@ -637,7 +637,7 @@ async def run(
         return combined_results
     except Exception as e:
         logger.error(f"Error during scan execution: {str(e)}")
-        return {"error": str(e), "status": "failed", "targets": targets}
+        raise RuntimeError(f"RustScan execution failed: {e}") from e
 
 
 def main():

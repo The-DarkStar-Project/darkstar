@@ -7,6 +7,13 @@ set -euo pipefail
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 export PATH="$HOME/.local/bin:/root/.local/bin:$PATH"
 
+: "${FEROXBUSTER_VERSION:=2.13.1}"
+: "${FEROXBUSTER_SHA256:=7985c00e6803b0f25d5e9139f7472279f3f4d891429627a5cedc629e53992d80}"
+: "${TRUFFLEHOG_VERSION:=3.95.9}"
+: "${TRUFFLEHOG_SHA256:=f6d1106b85107d79527ed7a5b98b592beadd8b770dc3c9e8c1ad99e1b2cf127e}"
+: "${ARJUN_VERSION:=2.2.7}"
+: "${WAPPALYZER_VERSION:=2.0.2}"
+
 dashes() {
     local cols="${COLUMNS:-80}"
 
@@ -45,14 +52,30 @@ fi
 pip3 install --no-cache-dir -r requirements.txt
 
 # Feroxbuster
-curl -fsSL https://raw.githubusercontent.com/epi052/feroxbuster/main/install-nix.sh | bash -s -- "$HOME/.local/bin"
+ferox_archive="$(mktemp)"
+curl -fsSL --retry 5 --retry-all-errors \
+    -o "$ferox_archive" \
+    "https://github.com/epi052/feroxbuster/releases/download/v${FEROXBUSTER_VERSION}/x86_64-linux-feroxbuster.tar.gz"
+echo "${FEROXBUSTER_SHA256}  ${ferox_archive}" | sha256sum --check
+tar -xzf "$ferox_archive" -C "$HOME/.local/bin" feroxbuster
+chmod 0755 "$HOME/.local/bin/feroxbuster"
+rm -f "$ferox_archive"
 
 # Arjun
-pipx install arjun
+pipx install "arjun==${ARJUN_VERSION}"
 
 # Trufflehog
-curl -fsSL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b "$HOME/.local/bin"
+trufflehog_archive="$(mktemp)"
+trufflehog_extract="$(mktemp -d)"
+curl -fsSL --retry 5 --retry-all-errors \
+    -o "$trufflehog_archive" \
+    "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz"
+echo "${TRUFFLEHOG_SHA256}  ${trufflehog_archive}" | sha256sum --check
+tar -xzf "$trufflehog_archive" -C "$trufflehog_extract" trufflehog
+install -m 0755 "$trufflehog_extract/trufflehog" "$HOME/.local/bin/trufflehog"
+rm -rf "$trufflehog_extract"
+rm -f "$trufflehog_archive"
 
 # Vulnscan
-pipx install wappalyzer
+pipx install "wappalyzer==${WAPPALYZER_VERSION}"
 pip3 install --no-cache-dir -r "modules/50-vulnscan/requirements.txt"

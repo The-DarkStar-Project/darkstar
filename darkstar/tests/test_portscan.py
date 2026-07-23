@@ -853,11 +853,11 @@ class TestRunFunction:
                 side_effect=Exception("Scan failed")
             )
 
-            result = await run(mock_scanner, targets, output_dir=temp_dir)
-
-            assert "error" in result
-            assert result["status"] == "failed"
-            assert result["targets"] == targets
+            with pytest.raises(
+                RuntimeError,
+                match="RustScan execution failed: Scan failed",
+            ):
+                await run(mock_scanner, targets, output_dir=temp_dir)
 
 
 class TestMainFunction:

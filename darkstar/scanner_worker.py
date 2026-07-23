@@ -9,6 +9,7 @@ existing scanner runner, streams logs back, and marks the job complete.
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import os
 import select
 import signal
@@ -148,7 +149,7 @@ class ScannerWorker:
         job_id = int(job["id"])
         command = self.build_command(job)
         log_prefix = f"[{self.name}]"
-        all_output: list[str] = []
+        output_tail: deque[str] = deque(maxlen=20)
         stop_requested = False
         process: subprocess.Popen | None = None
 
@@ -178,7 +179,7 @@ class ScannerWorker:
                         continue
                     line = line.rstrip("\n")
                     if line:
-                        all_output.append(line)
+                        output_tail.append(line)
                         batch.append(line)
 
                 should_flush = bool(batch) and (len(batch) >= 25 or (time.monotonic() - last_flush) >= 3)
@@ -193,7 +194,7 @@ class ScannerWorker:
             for line in process.stdout:
                 line = line.rstrip("\n")
                 if line:
-                    all_output.append(line)
+                    output_tail.append(line)
                     batch.append(line)
 
             if batch:
@@ -205,7 +206,11 @@ class ScannerWorker:
             elif return_code == 0:
                 self.complete(job_id, "completed")
             else:
-                error_message = "\n".join(all_output[-20:]) if all_output else f"Scanner exited with code {return_code}"
+                error_message = (
+                    "\n".join(output_tail)
+                    if output_tail
+                    else f"Scanner exited with code {return_code}"
+                )
                 self.complete(job_id, "failed", error_message[:4000])
         except Exception as exc:
             if process and process.poll() is None:
