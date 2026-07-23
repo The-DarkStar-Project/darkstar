@@ -3,3 +3,4 @@
 
 pytest-cov==6.0.0
 playwright==1.58.0
+python-gvm==27.5.0

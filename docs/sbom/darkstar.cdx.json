@@ -2255,6 +2255,10 @@
           "value": "openvas_api/requirements.txt"
         },
         {
+          "name": "darkstar:sourceManifest",
+          "value": "requirements-dev.txt"
+        },
+        {
           "name": "darkstar:versionSpecifier",
           "value": "==27.5.0"
         }
