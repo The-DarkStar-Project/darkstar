@@ -175,11 +175,13 @@ services:
       report-formats:
         condition: service_completed_successfully
     healthcheck:
-      # Connecting to the socket is not enough: gvmd keeps listening after it
-      # loses PostgreSQL, so the connect succeeds while every real request
-      # fails and scans silently return nothing. Ask gvmd something that
-      # needs the database; it exits non-zero when the database is gone.
-      test: ["CMD-SHELL", "gvmd --get-scanners > /dev/null 2>&1"]
+      # Connecting to gvmd's own socket is not enough: gvmd keeps listening
+      # after it loses PostgreSQL, so the connect succeeds while every real
+      # request fails and scans silently return nothing. Check the database
+      # socket in the shared volume too, which is what actually disappears.
+      # (Running a real `gvmd --get-scanners` would prove more, but it starts
+      # a second full gvmd - ~500MB and a CPU core - on every interval.)
+      test: ["CMD", "python3", "-c", "import socket; s = socket.socket(socket.AF_UNIX); s.settimeout(5); s.connect('/run/gvmd/gvmd.sock'); s.close(); d = socket.socket(socket.AF_UNIX); d.settimeout(5); d.connect('/var/run/postgresql/.s.PGSQL.5432'); d.close()"]
       interval: 10s
       timeout: 5s
       retries: 30

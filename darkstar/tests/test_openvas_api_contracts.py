@@ -154,11 +154,12 @@ def test_compose_waits_for_postgres_and_real_gvmd_socket():
     assert services["gvmd"]["depends_on"]["pg-gvm"] == {
         "condition": "service_healthy"
     }
-    # gvmd keeps its socket listening after losing PostgreSQL, so the health
-    # probe has to make a request that actually needs the database.
+    # gvmd keeps its socket listening after losing PostgreSQL, so probing that
+    # socket alone reports healthy while every real request fails.
     gvmd_healthcheck = services["gvmd"]["healthcheck"]["test"]
-    assert gvmd_healthcheck[0] == "CMD-SHELL"
-    assert "gvmd --get-scanners" in gvmd_healthcheck[1]
+    assert gvmd_healthcheck[:3] == ["CMD", "python3", "-c"]
+    assert "connect('/run/gvmd/gvmd.sock')" in gvmd_healthcheck[3]
+    assert "connect('/var/run/postgresql/.s.PGSQL.5432')" in gvmd_healthcheck[3]
 
 
 def test_long_running_gvm_services_restart_after_clean_exit():
