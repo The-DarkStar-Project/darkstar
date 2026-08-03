@@ -785,3 +785,20 @@ class TestScannerIntegration:
     ):
         """Test that AsteroidScanner creates output directories consistently."""
         assert sample_asteroid_scanner.output_dir == "/app/asteroid_output"
+
+
+@pytest.mark.parametrize("mode", ["passive", "normal", "aggressive", "attack_surface"])
+def test_every_bbot_mode_is_time_bounded(mode, mocker):
+    """A wedged BBOT module must not hang a scan forever in any mode."""
+    mocker.patch("scanners.bbot.os.makedirs")
+    scanner = BBotScanner(target="example.com", org_name="test_org")
+    run_command = mocker.patch.object(scanner, "_run_bbot_command", return_value=0)
+    process_result = mocker.patch.object(scanner, "_process_scan_result")
+
+    getattr(scanner, mode)()
+
+    timeout = run_command.call_args.kwargs.get("timeout_seconds")
+    assert timeout is not None, f"{mode} runs without a timeout"
+    assert timeout > 0
+    # A timeout must still ingest whatever BBOT produced before it was killed.
+    assert process_result.call_args.kwargs.get("allow_timeout_partial") is True

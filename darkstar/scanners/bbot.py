@@ -528,9 +528,15 @@ class BBotScanner:
         ]
         logger.debug(f"Command: {' '.join(command)}")
 
-        return_code = self._run_bbot_command(command, "passive")
+        # Every mode needs an upper bound: a wedged BBOT module would otherwise
+        # hang the scan forever. On timeout the partial CSV is still ingested.
+        return_code = self._run_bbot_command(
+            command,
+            "passive",
+            timeout_seconds=_env_int("BBOT_PASSIVE_TIMEOUT_SECONDS", 3600),
+        )
         logger.info("Passive scan completed with exit code %s", return_code)
-        self._process_scan_result("passive", return_code)
+        self._process_scan_result("passive", return_code, allow_timeout_partial=True)
 
     def normal(self) -> None:
         """
@@ -561,9 +567,15 @@ class BBotScanner:
         ]
         logger.debug(f"Command: {' '.join(command)}")
 
-        return_code = self._run_bbot_command(command, "normal")
+        # Every mode needs an upper bound: a wedged BBOT module would otherwise
+        # hang the scan forever. On timeout the partial CSV is still ingested.
+        return_code = self._run_bbot_command(
+            command,
+            "normal",
+            timeout_seconds=_env_int("BBOT_NORMAL_TIMEOUT_SECONDS", 3600),
+        )
         logger.info("normal scan completed with exit code %s", return_code)
-        self._process_scan_result("normal", return_code)
+        self._process_scan_result("normal", return_code, allow_timeout_partial=True)
 
     def aggressive(self) -> None:
         """
@@ -598,9 +610,15 @@ class BBotScanner:
 
         logger.debug(f"Command: {' '.join(command)}")
 
-        return_code = self._run_bbot_command(command, "aggressive")
+        # Every mode needs an upper bound: a wedged BBOT module would otherwise
+        # hang the scan forever. On timeout the partial CSV is still ingested.
+        return_code = self._run_bbot_command(
+            command,
+            "aggressive",
+            timeout_seconds=_env_int("BBOT_AGGRESSIVE_TIMEOUT_SECONDS", 3600),
+        )
         logger.info("Aggressive scan completed with exit code %s", return_code)
-        self._process_scan_result("aggressive", return_code)
+        self._process_scan_result("aggressive", return_code, allow_timeout_partial=True)
 
     def run(self, mode: str) -> int:
         """
