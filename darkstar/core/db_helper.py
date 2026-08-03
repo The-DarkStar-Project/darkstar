@@ -33,7 +33,7 @@ ORG_SCHEMA_STATEMENTS = [
         id INT(11) NOT NULL AUTO_INCREMENT,
         cve VARCHAR(255),
         title TEXT,
-        affected_item VARCHAR(255),
+        affected_item TEXT,
         tool VARCHAR(255),
         confidence INT,
         severity VARCHAR(50),
@@ -46,7 +46,7 @@ ORG_SCHEMA_STATEMENTS = [
         capec VARCHAR(255),
         solution TEXT,
         impact TEXT,
-        access VARCHAR(255),
+        access TEXT,
         age INT,
         pocs TEXT,
         kev BOOLEAN,
@@ -68,7 +68,7 @@ ORG_SCHEMA_STATEMENTS = [
         event_type VARCHAR(50) DEFAULT NULL,
         event_data TEXT DEFAULT NULL,
         ip_address TEXT DEFAULT NULL,
-        source_module VARCHAR(50) DEFAULT NULL,
+        source_module VARCHAR(255) DEFAULT NULL,
         scope_distance INT(11) DEFAULT NULL,
         event_tags TEXT DEFAULT NULL,
         `time` DATETIME DEFAULT NULL,
@@ -413,6 +413,13 @@ ORG_SCHEMA_MIGRATION_STATEMENTS = [
     "ALTER TABLE endpoint_agents ADD COLUMN IF NOT EXISTS revoked_at DATETIME DEFAULT NULL",
     "ALTER TABLE endpoint_software ADD COLUMN IF NOT EXISTS package_type VARCHAR(64) DEFAULT NULL",
     "ALTER TABLE endpoint_vulnerabilities ADD COLUMN IF NOT EXISTS fixed_version VARCHAR(255) DEFAULT NULL",
+    # BBOT writes module_sequence ("httpx->excavate->httpx") into source_module,
+    # which outgrew the original VARCHAR(50) and aborted whole ASM batches.
+    "ALTER TABLE asmevents MODIFY COLUMN source_module VARCHAR(255) DEFAULT NULL",
+    # Nine scanners write a URL into affected_item, and HTML-escaping inflates
+    # it further; access holds a JSON object from CIRCL. Neither is bounded.
+    "ALTER TABLE vulnerability MODIFY COLUMN affected_item TEXT",
+    "ALTER TABLE vulnerability MODIFY COLUMN access TEXT",
 ]
 
 
@@ -1673,6 +1680,137 @@ def convert_to_json(value):
     return value
 
 
+# Widths of the narrow columns that receive scanner output, mirrored from
+# ORG_SCHEMA_STATEMENTS. None of these values is length-bounded at the source:
+# BBOT's module_sequence grows with every hop in a discovery chain, and scanner
+# hosts/severities come straight off the wire. Values are clamped here rather
+# than letting MariaDB reject the batch with error 1406 and lose a whole scan.
+COLUMN_LIMITS = {
+    "asmevents": {
+        "event_type": 50,
+        "source_module": 255,
+    },
+    "vulnerability": {
+        "cve": 255,
+        "tool": 255,
+        "severity": 50,
+        "host": 255,
+        "cwe": 255,
+        "capec": 255,
+    },
+}
+
+
+def _clamp_column(value, table: str, column: str):
+    """Clamp a scanner-provided value to the width of its target column."""
+    limit = COLUMN_LIMITS[table][column]
+    if value is None:
+        return None
+
+    text = value if isinstance(value, str) else str(value)
+    if len(text) <= limit:
+        return text
+
+    logger.warning(
+        "Truncating %s.%s from %d to %d characters: %s",
+        table,
+        column,
+        len(text),
+        limit,
+        text[:80],
+    )
+    return text[:limit]
+
+
+def _coerce_optional_int(value):
+    """Convert scanner output to an INT column value, or None when unusable."""
+    if value is None:
+        return None
+    try:
+        return int(str(value).strip().strip('"'))
+    except (TypeError, ValueError):
+        logger.warning("Discarding non-numeric integer value: %r", value)
+        return None
+
+
+def _coerce_optional_date(value):
+    """Convert an external date string to a DATE value, or None when unusable."""
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    for candidate, date_format in (
+        (text, "%Y-%m-%d"),
+        (text, "%Y-%m-%dT%H:%M:%S"),
+        (text, "%Y-%m-%dT%H:%M:%SZ"),
+        (text[:10], "%Y-%m-%d"),
+    ):
+        try:
+            return datetime.strptime(candidate, date_format).date()
+        except ValueError:
+            continue
+
+    logger.warning("Discarding unparsable date value: %r", value)
+    return None
+
+
+def _insert_records_resiliently(
+    connection, cursor, insert_query: str, records: list
+) -> int:
+    """
+    Insert records as one batch, falling back to row-by-row on rejection.
+
+    A single unusable row must never discard the results of an entire scan, so
+    the batch is retried per row and only the offending rows are dropped.
+
+    Returns:
+        int: Number of rows actually inserted.
+    """
+    if not records:
+        return 0
+
+    try:
+        cursor.executemany(insert_query, records)
+        return len(records)
+    except mysql.connector.Error as batch_error:
+        logger.warning(
+            "Batch insert rejected (%s); retrying %d rows individually",
+            batch_error,
+            len(records),
+        )
+        # The failed batch may have inserted part of its rows; drop them so the
+        # row-by-row retry cannot duplicate anything.
+        connection.rollback()
+
+    inserted = 0
+    skipped = 0
+    for record in records:
+        try:
+            cursor.execute(insert_query, record)
+            inserted += 1
+        except mysql.connector.Error as row_error:
+            skipped += 1
+            logger.error("Skipping unusable row: %s", row_error)
+
+    if skipped:
+        logger.warning("Dropped %d unusable row(s) of %d", skipped, len(records))
+    return inserted
+
+
+def _clamp_vuln(value, column: str):
+    """
+    Clamp a vulnerability field to its column width.
+
+    Applied after sanitize_string() on purpose: HTML-escaping inflates length
+    (``&`` becomes ``&amp;``), so a value that fits before escaping can still
+    overflow afterwards.
+    """
+    return _clamp_column(value, "vulnerability", column)
+
+
 def prepare_cve_data(vuln):
     """
     Clean and prepare CVE data for database insertion.
@@ -1690,19 +1828,20 @@ def prepare_cve_data(vuln):
     access = convert_to_json(vuln.cve.access)  # Convert access dict to JSON
 
     cve_data = (
-        sanitize_string(vuln.cve.cve),  # Field 0
+        _clamp_vuln(sanitize_string(vuln.cve.cve), "cve"),  # Field 0
         title,  # Field 1 (Sanitized)
         sanitize_string(vuln.affected_item),  # Field 2
-        sanitize_string(vuln.tool),  # Field 3
+        _clamp_vuln(sanitize_string(vuln.tool), "tool"),  # Field 3
         vuln.confidence,  # Field 4
-        sanitize_string(vuln.severity),  # Field 5
-        sanitize_string(vuln.host),  # Field 6
+        _clamp_vuln(sanitize_string(vuln.severity), "severity"),  # Field 5
+        _clamp_vuln(sanitize_string(vuln.host), "host"),  # Field 6
         vuln.cve.cvss,  # Field 7
         vuln.cve.epss,  # Field 8 (Flattened)
         sanitize_string(vuln.cve.summary),  # Field 9
-        sanitize_string(vuln.cve.cwe),  # Field 10
+        _clamp_vuln(sanitize_string(vuln.cve.cwe), "cwe"),  # Field 10
         references,  # Field 11 (Flattened)
-        sanitize_string(vuln.cve.capec),  # Field 12
+        # CIRCL returns capec as a list, which the driver cannot bind directly.
+        _clamp_vuln(sanitize_string(flatten_list(vuln.cve.capec)), "capec"),  # Field 12
         sanitize_string(vuln.cve.solution),  # Field 13
         impact,  # Field 14 (JSON)
         access,  # Field 15 (JSON)
@@ -1736,16 +1875,16 @@ def prepare_non_cve_data(vuln):
         None,  # No CVE
         sanitize_string(vuln.title),
         sanitize_string(vuln.affected_item),
-        sanitize_string(vuln.tool),
+        _clamp_vuln(sanitize_string(vuln.tool), "tool"),
         vuln.confidence,
-        sanitize_string(vuln.severity),
-        sanitize_string(vuln.host),
+        _clamp_vuln(sanitize_string(vuln.severity), "severity"),
+        _clamp_vuln(sanitize_string(vuln.host), "host"),
         vuln.cvss,
         vuln.epss,
         sanitize_string(vuln.summary),
-        sanitize_string(vuln.cwe),
+        _clamp_vuln(sanitize_string(vuln.cwe), "cwe"),
         references,
-        sanitize_string(vuln.capec),
+        _clamp_vuln(sanitize_string(flatten_list(vuln.capec)), "capec"),
         sanitize_string(vuln.solution),
         sanitize_string(vuln.impact),
         None,  # No access for non-CVE
@@ -1841,9 +1980,12 @@ def insert_vulnerabilities_to_database(
             cursor = connection.cursor()
             try:
                 _use_org_database(cursor, org_name)
-                cursor.executemany(insert_query, records)
+                # One unusable finding must not discard the whole batch.
+                inserted = _insert_records_resiliently(
+                    connection, cursor, insert_query, records
+                )
                 connection.commit()
-                return len(records)
+                return inserted
             except Exception:
                 connection.rollback()
                 raise
@@ -1936,22 +2078,23 @@ def insert_bbot_to_db(dataframe: pd.DataFrame, org_name: str) -> bool:
 
             records.append(
                 (
-                    event_type,
+                    _clamp_column(event_type, "asmevents", "event_type"),
                     event_data,
                     ip_address,
-                    source_module,
-                    scope_distance,
+                    _clamp_column(source_module, "asmevents", "source_module"),
+                    _coerce_optional_int(scope_distance),
                     event_tags,
                     current_time,
                 )
             )
 
-        if records:
-            cursor.executemany(insert_query, records)
+        inserted = _insert_records_resiliently(
+            connection, cursor, insert_query, records
+        )
 
         # ? Commit the transaction
         connection.commit()
-        logger.info(f"Successfully inserted {total_rows} records")
+        logger.info(f"Successfully inserted {inserted} of {total_rows} records")
         cursor.close()
         return True
 
@@ -1968,26 +2111,33 @@ def insert_email_data(emails: list, org_name: str) -> bool:
         bool: True if successful, False otherwise
     """
     logger.info(f"Inserting {len(emails)} email addresses for {org_name}")
-    with DatabaseConnectionManager() as connection:
-        cursor = connection.cursor()
-        _use_org_database(cursor, org_name)
+    # This runs inside the BBOT result pipeline, so a bad row must never
+    # propagate: that would fail an entire completed scan.
+    try:
+        with DatabaseConnectionManager() as connection:
+            cursor = connection.cursor()
+            _use_org_database(cursor, org_name)
 
-        values = []
-        for i, email in enumerate(emails, 1):
-            if i % 10 == 0:
-                logger.info(f"Progress: {i}/{len(emails)} emails processed")
-            email = email.strip()
-            if email:
-                values.append((email,))
+            values = []
+            for i, email in enumerate(emails, 1):
+                if i % 10 == 0:
+                    logger.info(f"Progress: {i}/{len(emails)} emails processed")
+                email = str(email).strip()
+                if email:
+                    values.append((email[:255],))
 
-        if values:
             sql_query = "INSERT INTO email_input (email) VALUES (%s)"
-            cursor.executemany(sql_query, values)
+            inserted = _insert_records_resiliently(
+                connection, cursor, sql_query, values
+            )
 
-        connection.commit()
-        logger.info(f"Successfully inserted {len(emails)} email addresses")
-        cursor.close()
-        return True
+            connection.commit()
+            logger.info(f"Successfully inserted {inserted} email addresses")
+            cursor.close()
+            return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to insert email addresses for %s: %s", org_name, exc)
+        return False
 
 
 def insert_breached_email_data(email_breaches: list, org_name: str) -> bool:
@@ -2001,19 +2151,35 @@ def insert_breached_email_data(email_breaches: list, org_name: str) -> bool:
     Returns:
         bool: True if successful, False otherwise
     """
-    with DatabaseConnectionManager() as connection:
-        cursor = connection.cursor()
-        _use_org_database(cursor, org_name)
-        values = [
-            (email_breach[0], email_breach[1], email_breach[2], email_breach[3])
-            for email_breach in email_breaches
-        ]
-        if values:
+    # Runs inside the BBOT result pipeline; see insert_email_data.
+    try:
+        with DatabaseConnectionManager() as connection:
+            cursor = connection.cursor()
+            _use_org_database(cursor, org_name)
+            values = []
+            for email_breach in email_breaches:
+                try:
+                    values.append(
+                        (
+                            str(email_breach[0])[:255],
+                            str(email_breach[1])[:255],
+                            # breach_date is a DATE column; HIBP has changed
+                            # this field's shape before.
+                            _coerce_optional_date(email_breach[2]),
+                            str(email_breach[3])[:255],
+                        )
+                    )
+                except (IndexError, TypeError) as exc:
+                    logger.warning("Skipping malformed breach record: %s", exc)
+
             sql_query = "INSERT INTO email_leaks (email, breach_name, breach_date, domain) VALUES (%s, %s, %s, %s)"
-            cursor.executemany(sql_query, values)
+            _insert_records_resiliently(connection, cursor, sql_query, values)
             connection.commit()
-        cursor.close()
-        return True
+            cursor.close()
+            return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to insert breach data for %s: %s", org_name, exc)
+        return False
 
 
 def insert_password_data(passwords: list, org_name: str) -> bool:
@@ -2027,16 +2193,26 @@ def insert_password_data(passwords: list, org_name: str) -> bool:
     Returns:
         bool: True if successful, False otherwise
     """
-    with DatabaseConnectionManager() as connection:
-        cursor = connection.cursor()
-        _use_org_database(cursor, org_name)
-        values = [(password[0], password[1]) for password in passwords]
-        if values:
+    # Runs inside the BBOT result pipeline; see insert_email_data.
+    try:
+        with DatabaseConnectionManager() as connection:
+            cursor = connection.cursor()
+            _use_org_database(cursor, org_name)
+            values = []
+            for password in passwords:
+                try:
+                    values.append((str(password[0])[:255], str(password[1])[:255]))
+                except (IndexError, TypeError) as exc:
+                    logger.warning("Skipping malformed password record: %s", exc)
+
             sql_query = "INSERT INTO password_leaks (email, password) VALUES (%s, %s)"
-            cursor.executemany(sql_query, values)
+            _insert_records_resiliently(connection, cursor, sql_query, values)
             connection.commit()
-        cursor.close()
-        return True
+            cursor.close()
+            return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to insert password data for %s: %s", org_name, exc)
+        return False
 
 
 def insert_scan_log(org_name: str, scan_id: int, message: str, log_level: str = "info"):

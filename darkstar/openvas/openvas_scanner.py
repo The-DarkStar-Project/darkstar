@@ -39,6 +39,28 @@ except ImportError:
 logger = logging.getLogger("openvas_scanner")
 
 
+def _element_text(parent, path: str, default=None):
+    """Read the text of a child element, tolerating absent elements."""
+    if parent is None:
+        return default
+    element = parent.find(path)
+    if element is None or element.text is None:
+        return default
+    return element.text
+
+
+def _element_int(parent, path: str, default=None):
+    """Read a child element as an int, tolerating absent or garbage values."""
+    text = _element_text(parent, path)
+    if text is None:
+        return default
+    try:
+        return int(str(text).strip())
+    except ValueError:
+        logger.warning("Non-numeric value at %s: %r", path, text)
+        return default
+
+
 class OpenVASScanner:
     """
     OpenVAS scanner class that handles vulnerability scanning through OpenVAS API.
@@ -505,11 +527,12 @@ class OpenVASScanner:
             # Default values
             epss = 0.0
 
-            threat = result.find("threat").text
-            severity = result.find(
-                "severity"
-            ).text  # This is used later as cvss info if needed
-            poc2 = result.find("description").text
+            # GVM omits these elements on host-level and log-only results, so
+            # read them defensively: one malformed <result> must not discard
+            # every finding in the report.
+            threat = _element_text(result, "threat")
+            severity = _element_text(result, "severity")  # Doubles as CVSS info
+            poc2 = _element_text(result, "description")
             endsolution = ""
 
             # If a valid CVE is provided, check EPSS from FIRST
@@ -525,38 +548,52 @@ class OpenVASScanner:
                 except Exception as e:
                     logger.warning(f"Failed to fetch EPSS for {cve}: {e}")
 
-            host_ip = result.find("host").text
-            qod = result.find("qod")
-            qod_value = qod.find("value").text  # Confidence (as a string)
+            host_ip = _element_text(result, "host")
+            if not host_ip:
+                logger.warning("Skipping OpenVAS result without a host: %s", name)
+                skipped_count += 1
+                continue
+
+            # Confidence; absent on some result types.
+            confidence = _element_int(result, "qod/value", default=75)
 
             # Create a Vulnerability object using the provided class.
             # If a CVE is available, let the vulnerability auto-enrich by passing cve_number.
-            if cve != "NOCVE":
-                vuln = Vulnerability(
-                    title=name,
-                    affected_item=host_ip,
-                    tool="OpenVAS",
-                    confidence=int(qod_value),
-                    severity=severity,
-                    host=host_ip,
-                    cve_number=cve,
+            # Enrichment calls out to third-party CVE APIs, so it is fenced off:
+            # one unusable response must cost one finding, not the whole report.
+            try:
+                if cve != "NOCVE":
+                    vuln = Vulnerability(
+                        title=name,
+                        affected_item=host_ip,
+                        tool="OpenVAS",
+                        confidence=confidence,
+                        severity=severity,
+                        host=host_ip,
+                        cve_number=cve,
+                    )
+                else:
+                    # When there is no CVE, include extra information directly.
+                    vuln = Vulnerability(
+                        title=name,
+                        affected_item=host_ip,
+                        tool="OpenVAS",
+                        confidence=confidence,
+                        severity=severity,
+                        host=host_ip,
+                        summary=poc2,
+                        impact=threat,
+                        solution=endsolution,
+                        poc=poc2,
+                        cvss=severity,
+                        epss=epss,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Skipping OpenVAS result %s on %s: %s", name, host_ip, exc
                 )
-            else:
-                # When there is no CVE, include extra information directly.
-                vuln = Vulnerability(
-                    title=name,
-                    affected_item=host_ip,
-                    tool="OpenVAS",
-                    confidence=int(qod_value),
-                    severity=severity,
-                    host=host_ip,
-                    summary=poc2,
-                    impact=threat,
-                    solution=endsolution,
-                    poc=poc2,
-                    cvss=severity,
-                    epss=epss,
-                )
+                skipped_count += 1
+                continue
 
             # Add the vulnerability to our local list
             self.vulnerabilities.append(vuln)

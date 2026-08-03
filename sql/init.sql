@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS vulnerability (
     id INT(11) NOT NULL AUTO_INCREMENT,
     cve VARCHAR(255), -- CVE identifier (unique vulnerability ID)
     title TEXT, -- Title or short description of the vulnerability
-    affected_item VARCHAR(255), -- The item or system affected by the vulnerability
+    affected_item TEXT, -- The item or system affected by the vulnerability (scanner URLs are unbounded)
     tool VARCHAR(255), -- The tool used to identify the vulnerability
     confidence INT, -- Confidence level of the vulnerability detection
     severity VARCHAR(50), -- Severity level of the vulnerability (e.g., Low, Medium, High)
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS vulnerability (
     capec VARCHAR(255), -- CAPEC identifier (Common Attack Pattern Enumeration and Classification)
     solution TEXT, -- Solution or mitigation for the vulnerability
     impact TEXT, -- Impact or consequences of the vulnerability
-    access VARCHAR(255), -- Access vector or requirements for exploiting the vulnerability
+    access TEXT, -- Access vector or requirements for exploiting the vulnerability (JSON from CIRCL)
     age INT, -- Age of the vulnerability in days
     pocs TEXT, -- Proof of concepts (PoCs) or exploitation examples
     kev BOOLEAN, -- Known Exploited Vulnerability (True/False)
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS asmevents (
     event_type VARCHAR(50) DEFAULT NULL, -- Type of the event
     event_data TEXT DEFAULT NULL, -- Detailed data about the event
     ip_address TEXT DEFAULT NULL, -- IP address associated with the event
-    source_module VARCHAR(50) DEFAULT NULL, -- Module that generated the event
+    source_module VARCHAR(255) DEFAULT NULL, -- Module chain that generated the event (BBOT module_sequence)
     scope_distance INT(11) DEFAULT NULL, -- Scope distance or related measure
     event_tags TEXT DEFAULT NULL, -- Tags associated with the event
     `time` DATETIME DEFAULT NULL, -- Timestamp of the event

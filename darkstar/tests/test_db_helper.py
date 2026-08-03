@@ -1,9 +1,15 @@
+import mysql.connector
 import pytest
+from pathlib import Path
 from pytest_mock import MockerFixture
 import pandas as pd
 from core.db_helper import (
+    ORG_SCHEMA_MIGRATION_STATEMENTS,
+    ORG_SCHEMA_STATEMENTS,
     DatabaseConnectionManager,
+    _coerce_optional_date,
     insert_bbot_to_db,
+    insert_email_data,
     insert_vulnerabilities_to_database,
     get_vulnerabilities_filtered,
     sanitize_string,
@@ -398,3 +404,249 @@ def test_vulnerability_batch_uses_one_connection_and_commit(mocker: MockerFixtur
     assert len(mock_cursor.executemany.call_args.args[1]) == 3
     mock_connection.commit.assert_called_once_with()
     mock_connection.rollback.assert_not_called()
+
+
+# Regression tests for asmevents column-width handling. BBOT's "Source Module"
+# column is event.module_sequence, an unbounded "a->b->c" discovery chain that
+# used to abort the whole batch with MariaDB error 1406.
+def _bbot_dataframe_with_module_chain(chain: str) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "Event type": ["URL"],
+            "Event data": ["https://example.com/"],
+            "IP Address": ["192.168.1.1"],
+            "Source Module": [chain],
+            "Scope Distance": ["0"],
+            "Event Tags": ['["in-scope"]'],
+        }
+    )
+
+
+def test_insert_bbot_clamps_long_module_sequence(mocker: MockerFixture):
+    """A deep BBOT module chain must be clamped, not rejected by the database."""
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_db_manager = mocker.patch("core.db_helper.DatabaseConnectionManager")
+    mock_db_manager.return_value.__enter__.return_value = mock_connection
+    mock_connection.cursor.return_value = mock_cursor
+
+    chain = "->".join(["httpx", "excavate"] * 40)
+    assert len(chain) > 255
+
+    assert insert_bbot_to_db(_bbot_dataframe_with_module_chain(chain), "test_org") is True
+
+    record = mock_cursor.executemany.call_args.args[1][0]
+    source_module = record[3]
+    assert len(source_module) == 255
+    assert source_module == chain[:255]
+    mock_connection.commit.assert_called_once()
+
+
+def test_insert_bbot_keeps_module_sequence_that_fits(mocker: MockerFixture):
+    """Values within the column width must be stored verbatim."""
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_db_manager = mocker.patch("core.db_helper.DatabaseConnectionManager")
+    mock_db_manager.return_value.__enter__.return_value = mock_connection
+    mock_connection.cursor.return_value = mock_cursor
+
+    chain = "httpx->excavate->httpx->excavate->httpx->excavate->httpx"
+    assert 50 < len(chain) <= 255  # would have broken the old VARCHAR(50)
+
+    insert_bbot_to_db(_bbot_dataframe_with_module_chain(chain), "test_org")
+
+    assert mock_cursor.executemany.call_args.args[1][0][3] == chain
+
+
+def test_insert_bbot_falls_back_to_row_inserts_on_batch_rejection(
+    mocker: MockerFixture,
+):
+    """One unusable row must not discard an entire scan's ASM results."""
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_db_manager = mocker.patch("core.db_helper.DatabaseConnectionManager")
+    mock_db_manager.return_value.__enter__.return_value = mock_connection
+    mock_connection.cursor.return_value = mock_cursor
+
+    mock_cursor.executemany.side_effect = mysql.connector.Error("1406: Data too long")
+    # Second of three rows stays unusable even on its own.
+    mock_cursor.execute.side_effect = [
+        None,  # USE `org_...`
+        None,
+        mysql.connector.Error("1406: Data too long"),
+        None,
+    ]
+
+    dataframe = pd.DataFrame(
+        {
+            "Event type": ["URL", "URL", "URL"],
+            "Event data": ["https://a/", "https://b/", "https://c/"],
+            "IP Address": ["10.0.0.1", "10.0.0.2", "10.0.0.3"],
+            "Source Module": ["httpx", "httpx", "httpx"],
+            "Scope Distance": ["0", "0", "0"],
+            "Event Tags": ["[]", "[]", "[]"],
+        }
+    )
+
+    assert insert_bbot_to_db(dataframe, "test_org") is True
+
+    # Rolled back before retrying so partially inserted rows cannot duplicate.
+    mock_connection.rollback.assert_called_once()
+    # Three row-level retries on top of the initial USE statement.
+    assert mock_cursor.execute.call_count == 4
+    mock_connection.commit.assert_called_once()
+
+
+def test_insert_bbot_discards_non_numeric_scope_distance(mocker: MockerFixture):
+    """Scope distance is an INT column; unusable values become NULL."""
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_db_manager = mocker.patch("core.db_helper.DatabaseConnectionManager")
+    mock_db_manager.return_value.__enter__.return_value = mock_connection
+    mock_connection.cursor.return_value = mock_cursor
+
+    dataframe = _bbot_dataframe_with_module_chain("httpx")
+    dataframe["Scope Distance"] = ["not-a-number"]
+
+    insert_bbot_to_db(dataframe, "test_org")
+
+    assert mock_cursor.executemany.call_args.args[1][0][4] is None
+
+
+def test_asmevents_schema_definitions_agree_on_source_module_width():
+    """init.sql and db_helper must not drift apart on the asmevents schema."""
+    repo_root = Path(__file__).resolve().parents[2]
+    init_sql = (repo_root / "sql" / "init.sql").read_text(encoding="utf-8")
+
+    asmevents_statements = [
+        statement
+        for statement in ORG_SCHEMA_STATEMENTS
+        if "CREATE TABLE IF NOT EXISTS asmevents" in statement
+    ]
+    assert len(asmevents_statements) == 1
+    assert "source_module VARCHAR(255)" in asmevents_statements[0]
+    assert "source_module VARCHAR(255)" in init_sql
+
+    # Existing installs are widened by the additive migration list.
+    assert any(
+        "asmevents" in statement and "source_module VARCHAR(255)" in statement
+        for statement in ORG_SCHEMA_MIGRATION_STATEMENTS
+    )
+
+
+# Regression tests for the other unbounded-scanner-output paths that could
+# abort or silently discard a completed scan.
+def test_prepare_cve_data_flattens_and_clamps(sample_cve):
+    """capec arrives as a list from CIRCL and must not reach the driver as one."""
+    vulnerability = Vulnerability(
+        title="Test",
+        affected_item="https://example.com/" + "a" * 400,
+        tool="nuclei",
+        confidence=90,
+        severity="high",
+        host="h" * 400,
+    )
+    vulnerability.cve = sample_cve
+    sample_cve.capec = ["CAPEC-123", "CAPEC-456"]
+    sample_cve.cwe = "CWE-" + "9" * 400
+
+    prepared = prepare_cve_data(vulnerability)
+
+    assert isinstance(prepared[12], str), "capec must be flattened to a string"
+    assert "CAPEC-123" in prepared[12]
+    assert len(prepared[6]) <= 255, "host is VARCHAR(255)"
+    assert len(prepared[10]) <= 255, "cwe is VARCHAR(255)"
+    # affected_item is TEXT and must therefore keep its full value.
+    assert len(prepared[2]) > 255
+
+
+def test_prepare_non_cve_data_clamps_severity_and_host():
+    """OpenVAS puts a CVSS float in severity; scanner hosts are unbounded."""
+    vulnerability = Vulnerability(
+        title="Test",
+        affected_item="https://example.com/",
+        tool="t" * 400,
+        confidence=75,
+        severity="s" * 120,
+        host="h" * 400,
+    )
+
+    prepared = prepare_non_cve_data(vulnerability)
+
+    assert len(prepared[3]) <= 255, "tool is VARCHAR(255)"
+    assert len(prepared[5]) <= 50, "severity is VARCHAR(50)"
+    assert len(prepared[6]) <= 255, "host is VARCHAR(255)"
+
+
+def test_vulnerability_batch_survives_one_bad_row(mocker: MockerFixture):
+    """A rejected row must cost one finding, not the whole nuclei batch."""
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_db_manager = mocker.patch("core.db_helper.DatabaseConnectionManager")
+    mock_db_manager.return_value.__enter__.return_value = mock_connection
+    mock_connection.cursor.return_value = mock_cursor
+
+    mock_cursor.executemany.side_effect = mysql.connector.Error("1406: Data too long")
+    mock_cursor.execute.side_effect = [
+        None,  # USE `org_...`
+        None,  # row 1 ok
+        mysql.connector.Error("1406: Data too long"),  # row 2 rejected
+    ]
+
+    vulnerabilities = [
+        Vulnerability(
+            title=f"Finding {index}",
+            affected_item="https://example.com/",
+            tool="nuclei",
+            confidence=90,
+            severity="high",
+            host="10.0.0.1",
+        )
+        for index in range(2)
+    ]
+
+    inserted = insert_vulnerabilities_to_database(vulnerabilities, "test_org")
+
+    assert inserted == 1, "the good finding must still be persisted"
+    mock_connection.commit.assert_called_once()
+
+
+def test_insert_email_data_never_raises_into_the_scan(mocker: MockerFixture):
+    """HIBP inserts run inside the BBOT pipeline and must not fail a scan."""
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_db_manager = mocker.patch("core.db_helper.DatabaseConnectionManager")
+    mock_db_manager.return_value.__enter__.return_value = mock_connection
+    mock_connection.cursor.return_value = mock_cursor
+    mock_cursor.executemany.side_effect = mysql.connector.Error("1406: Data too long")
+    mock_cursor.execute.side_effect = mysql.connector.Error("1406: Data too long")
+
+    assert insert_email_data(["a@example.com", "b@example.com"], "test_org") is False
+
+
+def test_insert_email_data_clamps_long_addresses(mocker: MockerFixture):
+    """email_input.email is VARCHAR(255) NOT NULL."""
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_db_manager = mocker.patch("core.db_helper.DatabaseConnectionManager")
+    mock_db_manager.return_value.__enter__.return_value = mock_connection
+    mock_connection.cursor.return_value = mock_cursor
+
+    assert insert_email_data(["x" * 400 + "@example.com"], "test_org") is True
+    assert len(mock_cursor.executemany.call_args.args[1][0][0]) == 255
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("2019-03-01", "2019-03-01"),
+        ("2019-03-01T00:00:00Z", "2019-03-01"),
+        ("", None),
+        (None, None),
+        ("not-a-date", None),
+    ],
+)
+def test_coerce_optional_date(value, expected):
+    """HIBP breach dates land in a DATE column and have changed shape before."""
+    result = _coerce_optional_date(value)
+    assert (result.isoformat() if result else None) == expected

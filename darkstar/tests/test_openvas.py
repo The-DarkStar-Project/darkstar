@@ -848,3 +848,66 @@ class TestOpenVASIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+class TestOpenVASResultParsing:
+    """GVM omits elements on host-level and log-only results."""
+
+    MALFORMED_REPORT = """<?xml version="1.0"?>
+    <report>
+      <results>
+        <result>
+          <name>Result without qod or host</name>
+          <nvt><cve>NOCVE</cve></nvt>
+          <threat>Log</threat>
+          <severity>0.0</severity>
+          <description>host level log entry</description>
+        </result>
+        <result>
+          <name>Healthy finding</name>
+          <nvt><cve>NOCVE</cve></nvt>
+          <threat>High</threat>
+          <severity>7.5</severity>
+          <description>real finding</description>
+          <host>10.0.0.5</host>
+          <qod><value>80</value></qod>
+        </result>
+        <result>
+          <name>Finding with unusable qod</name>
+          <nvt><cve>NOCVE</cve></nvt>
+          <threat>Medium</threat>
+          <severity>5.0</severity>
+          <description>garbage qod</description>
+          <host>10.0.0.6</host>
+          <qod><value>n/a</value></qod>
+        </result>
+      </results>
+    </report>
+    """
+
+    @pytest.mark.asyncio
+    async def test_malformed_result_does_not_discard_the_report(
+        self, mocker: MockerFixture
+    ):
+        """A result without <qod>/<host> must cost one finding, not all of them."""
+        mocker.patch("openvas.openvas_scanner.insert_vulnerability_to_database")
+        scanner = OpenVASScanner(org_name="test_org")
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".xml", delete=False
+        ) as handle:
+            handle.write(self.MALFORMED_REPORT)
+            report_path = handle.name
+
+        try:
+            await scanner.parse_results_to_vulns(report_path)
+        finally:
+            os.unlink(report_path)
+
+        titles = [vuln.title for vuln in scanner.vulnerabilities]
+        assert "Healthy finding" in titles
+        assert "Finding with unusable qod" in titles, "garbage qod must not drop a row"
+        assert "Result without qod or host" not in titles
+        confidences = {vuln.title: vuln.confidence for vuln in scanner.vulnerabilities}
+        assert confidences["Healthy finding"] == 80
+        assert confidences["Finding with unusable qod"] == 75, "documented fallback"
