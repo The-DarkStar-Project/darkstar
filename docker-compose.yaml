@@ -175,9 +175,11 @@ services:
       report-formats:
         condition: service_completed_successfully
     healthcheck:
-      # A stale socket file survives in the shared volume when gvmd cannot
-      # reach PostgreSQL.  Connect to it instead of merely checking it exists.
-      test: ["CMD", "python3", "-c", "import socket; s = socket.socket(socket.AF_UNIX); s.settimeout(5); s.connect('/run/gvmd/gvmd.sock'); s.close()"]
+      # Connecting to the socket is not enough: gvmd keeps listening after it
+      # loses PostgreSQL, so the connect succeeds while every real request
+      # fails and scans silently return nothing. Ask gvmd something that
+      # needs the database; it exits non-zero when the database is gone.
+      test: ["CMD-SHELL", "gvmd --get-scanners > /dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -399,7 +401,9 @@ services:
       - ./logo_nlnet.png:/app/logo_nlnet.png:ro
       - ./.env:/app/.env:ro
     restart: unless-stopped
-    command: uvicorn darkstar.webapp:app --host 0.0.0.0 --port 8080
+    # Uvicorn's default keep-alive timeout is 5s, exactly the scanner worker's
+    # poll interval, so pooled connections died on the worker mid-request.
+    command: uvicorn darkstar.webapp:app --host 0.0.0.0 --port 8080 --timeout-keep-alive 75
 
   # Bundled scanner worker. Runs by default so scans execute out of the box
   # instead of sitting "Queued for scanner workers". When DARKSTAR_SCANNER_TOKEN

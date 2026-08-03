@@ -449,15 +449,16 @@ class ScheduleRequest(ScanStartRequest):
 class NotificationSettingsRequest(BaseModel):
     enabled: bool = False
     recipients: str | None = None
-    min_severity: str = "high"
+    # min_severity is VARCHAR(50); reject at the edge instead of 500ing later.
+    min_severity: str = Field(default="high", max_length=50)
     notify_on_success: bool = True
     notify_on_failure: bool = True
 
 
 class M365GraphSettingsRequest(BaseModel):
     enabled: bool = False
-    tenant_id: str | None = None
-    client_id: str | None = None
+    tenant_id: str | None = Field(default=None, max_length=255)
+    client_id: str | None = Field(default=None, max_length=255)
     client_secret: str | None = None
 
 

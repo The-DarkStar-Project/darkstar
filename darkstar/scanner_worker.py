@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -53,6 +55,21 @@ class ScannerWorker:
         self.lease_seconds = max(60, lease_seconds)
         self.session = requests.Session()
         self.session.headers.update({"Authorization": f"Bearer {token}"})
+        # The orchestrator closes idle keep-alive connections, so a pooled
+        # socket can be dead by the time the next poll reuses it. Retry
+        # connection-level failures only: read=False keeps a POST that the
+        # server may already have processed from being replayed.
+        retry = Retry(
+            total=3,
+            connect=3,
+            read=False,
+            status=0,
+            backoff_factor=0.3,
+            allowed_methods=None,
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
         self.active_threads: dict[int, threading.Thread] = {}
         self.stop_event = threading.Event()
 
@@ -90,15 +107,31 @@ class ScannerWorker:
         return payload.get("job")
 
     def send_logs(self, job_id: int, messages: list[str], level: str = "info") -> bool:
-        payload = self._api(
-            "POST",
-            f"/api/scanner-workers/jobs/{job_id}/logs",
-            json={
-                "messages": messages,
-                "level": level,
-                "lease_seconds": self.lease_seconds,
-            },
-        )
+        """
+        Ship log lines and report whether a stop was requested.
+
+        Log shipping is best-effort on purpose: it runs every few seconds for
+        the whole life of a scan, and losing a network round trip must not fail
+        a job that is still running fine. A missed stop request is picked up by
+        the next flush.
+        """
+        try:
+            payload = self._api(
+                "POST",
+                f"/api/scanner-workers/jobs/{job_id}/logs",
+                json={
+                    "messages": messages,
+                    "level": level,
+                    "lease_seconds": self.lease_seconds,
+                },
+            )
+        except requests.RequestException as exc:
+            print(
+                f"Could not ship logs for scanner job {job_id}: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return False
         return bool(payload.get("stop_requested"))
 
     def complete(self, job_id: int, status: str, error_message: str | None = None) -> None:

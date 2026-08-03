@@ -2,6 +2,7 @@ import stat
 import sys
 
 import pytest
+import requests
 
 from darkstar import scanner_bootstrap
 from darkstar.scanner_attach import (
@@ -227,3 +228,37 @@ def test_bootstrap_creates_and_caches_when_no_valid_token(monkeypatch, tmp_path)
     assert token_file.read_text().strip() == "dscan_new"
     assert stat.S_IMODE(token_file.stat().st_mode) == 0o600
     assert created["args"] == ("local-scanner", ["*"], 2)
+
+
+def test_worker_session_retries_dropped_keepalive_connections():
+    """The orchestrator closes idle connections; a dead pooled socket must not
+    surface as a job failure."""
+    worker = ScannerWorker(
+        orchestrator_url="http://darkstar-web:8080",
+        token="dscan_test",
+        name="test-node",
+        capabilities=["darkstar"],
+    )
+
+    adapter = worker.session.get_adapter("http://darkstar-web:8080")
+    retry = adapter.max_retries
+    assert retry.connect and retry.connect >= 1, "connection failures must retry"
+    # A POST the server may already have processed must not be replayed.
+    assert retry.read is False
+
+
+def test_send_logs_failure_does_not_fail_the_job(mocker):
+    """Log shipping is best-effort: it runs every few seconds for a whole scan."""
+    worker = ScannerWorker(
+        orchestrator_url="http://darkstar-web:8080",
+        token="dscan_test",
+        name="test-node",
+        capabilities=["darkstar"],
+    )
+    mocker.patch.object(
+        worker,
+        "_api",
+        side_effect=requests.exceptions.ConnectionError("Connection aborted."),
+    )
+
+    assert worker.send_logs(1, ["a line"]) is False

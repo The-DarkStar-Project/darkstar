@@ -1698,6 +1698,32 @@ COLUMN_LIMITS = {
         "cwe": 255,
         "capec": 255,
     },
+    "endpoint_agents": {
+        "hostname": 255,
+        "display_name": 255,
+        "os_platform": 64,
+        "os_name": 255,
+        "os_version": 255,
+        "os_arch": 64,
+        "os_build": 128,
+        "agent_version": 64,
+    },
+    # Filled straight from an endpoint agent's inventory payload: registry
+    # DisplayName/Publisher values and platform.version() strings are not
+    # length-bounded, and one oversized package used to abort the whole
+    # inventory snapshot with a 500 back to the agent.
+    "endpoint_software": {
+        "software_key": 128,
+        "name": 512,
+        "version": 255,
+        "vendor": 255,
+        "ecosystem": 64,
+        "purl": 1024,
+        "cpe": 1024,
+        "architecture": 64,
+        "source": 128,
+        "package_type": 64,
+    },
 }
 
 
@@ -1798,6 +1824,11 @@ def _insert_records_resiliently(
     if skipped:
         logger.warning("Dropped %d unusable row(s) of %d", skipped, len(records))
     return inserted
+
+
+def _clamp_agent(value, column: str):
+    """Clamp an agent-reported field to its endpoint_agents column width."""
+    return _clamp_column(value, "endpoint_agents", column)
 
 
 def _clamp_vuln(value, column: str):
@@ -2074,7 +2105,9 @@ def insert_bbot_to_db(dataframe: pd.DataFrame, org_name: str) -> bool:
             ):
                 event_data = event_data.replace("'", '"')
 
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # UTC like every other timestamp in this module: with a non-UTC
+            # container clock these rows landed hours ahead of the scan itself.
+            current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
             records.append(
                 (
@@ -3499,6 +3532,13 @@ def _normalize_software_item(item: dict) -> dict:
     normalized["source_package"] = str(normalized.get("source_package") or "").strip() or None
     normalized["source_version"] = str(normalized.get("source_version") or "").strip() or None
     normalized["software_key"] = str(normalized.get("software_key") or "").strip() or _software_key(normalized)
+
+    # Clamp before the row reaches the database: agent payloads are unbounded.
+    for column in COLUMN_LIMITS["endpoint_software"]:
+        if normalized.get(column) is not None:
+            normalized[column] = _clamp_column(
+                normalized[column], "endpoint_software", column
+            )
     return normalized
 
 
@@ -3707,14 +3747,14 @@ def register_endpoint_agent(
             """,
             (
                 agent_id,
-                hostname,
-                (metadata or {}).get("display_name"),
-                os_info.get("platform"),
-                os_info.get("name"),
-                os_info.get("version"),
-                os_info.get("arch"),
-                os_info.get("build"),
-                agent_version,
+                _clamp_agent(hostname, "hostname"),
+                _clamp_agent((metadata or {}).get("display_name"), "display_name"),
+                _clamp_agent(os_info.get("platform"), "os_platform"),
+                _clamp_agent(os_info.get("name"), "os_name"),
+                _clamp_agent(os_info.get("version"), "os_version"),
+                _clamp_agent(os_info.get("arch"), "os_arch"),
+                _clamp_agent(os_info.get("build"), "os_build"),
+                _clamp_agent(agent_version, "agent_version"),
                 agent_token[:18],
                 _hash_api_key(agent_token),
                 enrollment["id"],
@@ -3828,12 +3868,15 @@ def upsert_endpoint_inventory(
             WHERE agent_id = %s
             """,
             (
-                (metadata or {}).get("hostname") or (os_info or {}).get("hostname"),
-                (os_info or {}).get("platform"),
-                (os_info or {}).get("name"),
-                (os_info or {}).get("version"),
-                (os_info or {}).get("arch"),
-                (os_info or {}).get("build"),
+                _clamp_agent(
+                    (metadata or {}).get("hostname") or (os_info or {}).get("hostname"),
+                    "hostname",
+                ),
+                _clamp_agent((os_info or {}).get("platform"), "os_platform"),
+                _clamp_agent((os_info or {}).get("name"), "os_name"),
+                _clamp_agent((os_info or {}).get("version"), "os_version"),
+                _clamp_agent((os_info or {}).get("arch"), "os_arch"),
+                _clamp_agent((os_info or {}).get("build"), "os_build"),
                 json.dumps(ip_addresses or []),
                 json.dumps(mac_addresses or []),
                 reported_agent_version,
