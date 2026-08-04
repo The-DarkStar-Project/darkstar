@@ -802,3 +802,43 @@ def test_every_bbot_mode_is_time_bounded(mode, mocker):
     assert timeout > 0
     # A timeout must still ingest whatever BBOT produced before it was killed.
     assert process_result.call_args.kwargs.get("allow_timeout_partial") is True
+
+
+@pytest.mark.parametrize("mode", ["passive", "normal"])
+def test_non_aggressive_modes_exclude_unbounded_modules(mode, mocker):
+    """Downloads, checkouts and screenshots belong in aggressive mode only.
+
+    Measured: `normal` with these modules had not finished after 3600s on a
+    mid-sized domain; without them it completes in 858s for the same nine
+    FINDINGs.
+    """
+    mocker.patch("scanners.bbot.os.makedirs")
+    scanner = BBotScanner(target="example.com", org_name="test_org")
+    run_command = mocker.patch.object(scanner, "_run_bbot_command", return_value=0)
+    mocker.patch.object(scanner, "_process_scan_result")
+
+    getattr(scanner, mode)()
+    command = run_command.call_args.args[0]
+
+    for module in ("trufflehog", "git_clone", "gowitness", "filedownload"):
+        assert module in command, f"{mode} must exclude {module}"
+    assert "web-screenshots" in command
+    # Plain subdomain brute forcing stays: it is cheap and these modes ask for
+    # subdomain enumeration explicitly.
+    assert "dnsbrute" not in command
+
+
+def test_aggressive_mode_keeps_the_heavy_modules(mocker):
+    """Aggressive is the mode that is allowed to be slow and loud."""
+    mocker.patch("scanners.bbot.os.makedirs")
+    scanner = BBotScanner(target="example.com", org_name="test_org")
+    run_command = mocker.patch.object(scanner, "_run_bbot_command", return_value=0)
+    mocker.patch.object(scanner, "_process_scan_result")
+
+    scanner.aggressive()
+    command = run_command.call_args.args[0]
+
+    assert "trufflehog" not in command
+    assert "gowitness" not in command
+    # ... and it gets a ceiling that reflects that, not the lean one.
+    assert run_command.call_args.kwargs["timeout_seconds"] > 3600

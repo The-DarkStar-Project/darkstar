@@ -60,6 +60,28 @@ BBOT_HEAVY_MODULE_EXCLUSIONS = [
     "trufflehog",
 ]
 
+# Modules that make a scan unbounded rather than more thorough: downloads,
+# source checkouts, screenshots and mutation brute forcing. Measured on one
+# mid-sized domain, `normal` mode without these completes in 858s, while with
+# them it had still not finished after 3600s. The 820 events that cost buys are
+# 796 gowitness screenshot/technology events plus 21 dnsbrute DNS names, and
+# exactly zero extra FINDINGs - so they belong in aggressive mode, not in a
+# mode whose own contract is "without active probing".
+# dnsbrute itself is kept: plain subdomain brute forcing is cheap and these
+# modes ask for subdomain-enum explicitly.
+BBOT_UNBOUNDED_MODULE_EXCLUSIONS = [
+    "dnsbrute_mutations",
+    "docker_pull",
+    "filedownload",
+    "git_clone",
+    "gitdumper",
+    "gowitness",
+    "jadx",
+    "kreuzberg",
+    "postman_download",
+    "trufflehog",
+]
+
 BBOT_ASM_PORTS = (
     "80,443,8080,8443,8000,8008,8081,3000,5000,9443,9090,9000,"
     "22,25,53,110,143,587,993,995,3389"
@@ -514,6 +536,12 @@ class BBotScanner:
             self.target,
             "-f",
             "safe,passive,cloud-enum,email-enum,social-enum,code-enum",
+            "-em",
+            *BBOT_UNBOUNDED_MODULE_EXCLUSIONS,
+            "-ef",
+            "slow",
+            "download",
+            "web-screenshots",
             "-om",
             "csv",
             "subdomains",
@@ -533,7 +561,7 @@ class BBotScanner:
         return_code = self._run_bbot_command(
             command,
             "passive",
-            timeout_seconds=_env_int("BBOT_PASSIVE_TIMEOUT_SECONDS", 3600),
+            timeout_seconds=_env_int("BBOT_PASSIVE_TIMEOUT_SECONDS", 1800),
         )
         logger.info("Passive scan completed with exit code %s", return_code)
         self._process_scan_result("passive", return_code, allow_timeout_partial=True)
@@ -554,6 +582,12 @@ class BBotScanner:
             self.target,
             "-f",
             "safe,passive,subdomain-enum,cloud-enum,email-enum,social-enum,code-enum,web,affiliates",
+            "-em",
+            *BBOT_UNBOUNDED_MODULE_EXCLUSIONS,
+            "-ef",
+            "slow",
+            "download",
+            "web-screenshots",
             "-om",
             "csv",
             "subdomains",
@@ -572,7 +606,7 @@ class BBotScanner:
         return_code = self._run_bbot_command(
             command,
             "normal",
-            timeout_seconds=_env_int("BBOT_NORMAL_TIMEOUT_SECONDS", 3600),
+            timeout_seconds=_env_int("BBOT_NORMAL_TIMEOUT_SECONDS", 1800),
         )
         logger.info("normal scan completed with exit code %s", return_code)
         self._process_scan_result("normal", return_code, allow_timeout_partial=True)
@@ -615,7 +649,7 @@ class BBotScanner:
         return_code = self._run_bbot_command(
             command,
             "aggressive",
-            timeout_seconds=_env_int("BBOT_AGGRESSIVE_TIMEOUT_SECONDS", 3600),
+            timeout_seconds=_env_int("BBOT_AGGRESSIVE_TIMEOUT_SECONDS", 7200),
         )
         logger.info("Aggressive scan completed with exit code %s", return_code)
         self._process_scan_result("aggressive", return_code, allow_timeout_partial=True)
