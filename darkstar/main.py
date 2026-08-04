@@ -29,6 +29,7 @@ import asyncio
 import os
 from .scanners.portscan import RustScanner, run_rustscan, process_scan_results
 from .tools.bruteforce import process_bruteforce_results
+from .core.db_helper import register_cli_organization
 from .core.utils import (
     categorize_targets,
     create_target_dataframe,
@@ -720,6 +721,25 @@ def main(args=None):
 
     # Run the scanner
     targets = load_targets_from_file(args.target_file) if args.target_file else args.target
+
+    # Register the tenant before scanning. Without a row in `organizations` the
+    # schema exists but no user can select it, so the results are invisible in
+    # the web UI.
+    try:
+        org_db, generated_password = register_cli_organization(args.domain)
+        if generated_password:
+            logger.info(
+                "%sRegistered organization '%s' (database %s).%s",
+                Fore.GREEN, args.domain, org_db, Style.RESET_ALL,
+            )
+            logger.info(
+                "%sWeb UI login password (shown once): %s%s",
+                Fore.YELLOW, generated_password, Style.RESET_ALL,
+            )
+    except Exception as exc:
+        logger.warning(
+            "Could not register organization '%s' for the web UI: %s", args.domain, exc
+        )
 
     scanner = worker(
         mode=args.mode,

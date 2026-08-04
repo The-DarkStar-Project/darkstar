@@ -692,6 +692,64 @@ def ensure_organization(org_name: str, password: str, create_missing: bool = Fal
     return org_db, created_now
 
 
+def register_cli_organization(org_name: str) -> tuple[str, str | None]:
+    """
+    Ensure a CLI-created tenant is visible to the web UI.
+
+    The scanner CLI used to create a tenant schema without a row in
+    `organizations`, so nobody could select it and none of the tenant API
+    endpoints could reach the results: the operator scanned successfully and
+    then found an empty product.
+
+    An existing organization is left untouched. A new one is registered with a
+    generated password, which is returned so the caller can show it once.
+
+    Returns:
+        tuple[str, str | None]: (org_db_name, generated_password or None)
+    """
+    org_db = normalize_org_name(org_name)
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    generated_password = None
+
+    with DatabaseConnectionManager() as connection:
+        cursor = connection.cursor(dictionary=True)
+        _ensure_organizations_registry(cursor)
+
+        cursor.execute(
+            "SELECT org_db_name FROM organizations WHERE org_name = %s OR org_db_name = %s",
+            (org_name, org_db),
+        )
+        row = cursor.fetchone()
+
+        if row:
+            org_db = row["org_db_name"]
+        else:
+            generated_password = secrets.token_urlsafe(18)
+            salt, digest = _hash_password(generated_password)
+            cursor.execute(
+                "INSERT INTO organizations (org_name, org_db_name, password_salt, "
+                "password_hash, role, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
+                (org_name, org_db, salt, digest, "tenant_admin", now),
+            )
+
+        cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{org_db}`")
+        cursor.execute(f"USE `{org_db}`")
+        _apply_org_schema(cursor)
+
+        connection.commit()
+        cursor.close()
+
+    if generated_password:
+        record_audit_event(
+            org_db,
+            "organization.created",
+            actor="cli",
+            entity_type="organization",
+            entity_id=org_name,
+        )
+    return org_db, generated_password
+
+
 def _normalize_email(email: str) -> str:
     """Normalize login emails consistently before lookup/storage."""
     normalized = (email or "").strip().lower()
@@ -1698,6 +1756,12 @@ COLUMN_LIMITS = {
         "cwe": 255,
         "capec": 255,
     },
+    "audit_log": {
+        "actor": 255,
+        "action": 100,
+        "entity_type": 100,
+        "entity_id": 100,
+    },
     "endpoint_agents": {
         "hostname": 255,
         "display_name": 255,
@@ -2246,6 +2310,51 @@ def insert_password_data(passwords: list, org_name: str) -> bool:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to insert password data for %s: %s", org_name, exc)
         return False
+
+
+def record_audit_event(
+    org_name: str,
+    action: str,
+    actor: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    metadata: dict | None = None,
+) -> None:
+    """
+    Record a security-relevant action in the tenant's audit_log.
+
+    The table shipped from the start but nothing ever wrote to it, so there was
+    no trail of logins, credential issuance or revocations. Auditing must never
+    break the action it audits, so every failure here is swallowed and logged.
+    """
+    try:
+        created_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        with DatabaseConnectionManager() as connection:
+            cursor = connection.cursor()
+            _use_org_database(cursor, org_name)
+            cursor.execute(
+                """
+                INSERT INTO audit_log
+                    (actor, action, entity_type, entity_id, metadata, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    _clamp_column(actor, "audit_log", "actor"),
+                    _clamp_column(action, "audit_log", "action"),
+                    _clamp_column(entity_type, "audit_log", "entity_type"),
+                    _clamp_column(
+                        None if entity_id is None else str(entity_id),
+                        "audit_log",
+                        "entity_id",
+                    ),
+                    json.dumps(metadata) if metadata else None,
+                    created_at,
+                ),
+            )
+            connection.commit()
+            cursor.close()
+    except Exception as exc:  # noqa: BLE001 - auditing must not break the action
+        logger.warning("Failed to record audit event %s: %s", action, exc)
 
 
 def insert_scan_log(org_name: str, scan_id: int, message: str, log_level: str = "info"):
@@ -3425,6 +3534,13 @@ def create_api_key(org_db_name: str, name: str, role: str = "tenant_admin") -> d
         key_id = cursor.lastrowid
         connection.commit()
         cursor.close()
+    record_audit_event(
+        org_db_name,
+        "api_key.created",
+        entity_type="api_key",
+        entity_id=key_id,
+        metadata={"name": name, "role": role, "key_prefix": key_prefix},
+    )
     return {"id": key_id, "name": name, "key": api_key, "key_prefix": key_prefix, "role": role, "created_at": created_at}
 
 
@@ -3464,7 +3580,11 @@ def revoke_api_key(org_db_name: str, key_id: int) -> bool:
         changed = cursor.rowcount > 0
         connection.commit()
         cursor.close()
-        return changed
+    if changed:
+        record_audit_event(
+            org_db_name, "api_key.revoked", entity_type="api_key", entity_id=key_id
+        )
+    return changed
 
 
 def authenticate_api_key(api_key: str) -> dict | None:
@@ -3665,6 +3785,13 @@ def revoke_endpoint_agent(org_name: str, agent_id: str) -> bool:
         changed = cursor.rowcount > 0
         connection.commit()
         cursor.close()
+    if changed:
+        record_audit_event(
+            org_name,
+            "endpoint_agent.revoked",
+            entity_type="endpoint_agent",
+            entity_id=agent_id,
+        )
     return bool(changed)
 
 

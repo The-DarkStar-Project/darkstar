@@ -20,6 +20,7 @@ import datetime
 import ipaddress
 import logging
 import os
+import re
 import requests
 import socket
 import xml.etree.ElementTree as ET
@@ -47,6 +48,63 @@ def _element_text(parent, path: str, default=None):
     if element is None or element.text is None:
         return default
     return element.text
+
+
+def severity_from_gvm(severity_text, threat_text=None) -> str:
+    """
+    Map GVM's numeric severity onto the severity vocabulary the rest of Darkstar
+    uses.
+
+    GVM reports a CVSS base score ("10.0"), but every filter, notification
+    threshold and dashboard count in this application compares against
+    critical/high/medium/low/info. Storing the raw number made OpenVAS findings
+    invisible to all of them.
+    """
+    try:
+        score = float(str(severity_text).strip())
+    except (TypeError, ValueError):
+        score = None
+
+    if score is not None:
+        if score >= 9.0:
+            return "critical"
+        if score >= 7.0:
+            return "high"
+        if score >= 4.0:
+            return "medium"
+        if score > 0.0:
+            return "low"
+        return "info"
+
+    # No usable number: fall back to GVM's own word, which uses its own scale.
+    threat = str(threat_text or "").strip().lower()
+    return {
+        "critical": "critical",
+        "high": "high",
+        "medium": "medium",
+        "low": "low",
+        "log": "info",
+        "debug": "info",
+        "false positive": "info",
+    }.get(threat, "unknown")
+
+
+def cves_from_gvm(cve_text) -> list[str]:
+    """
+    Split GVM's CVE field into individual identifiers.
+
+    GVM returns a comma-separated list ("CVE-2021-44228, CVE-2021-45046"), and
+    treating that as one identifier made every CVE enrichment lookup miss, so
+    the finding silently fell through to the non-CVE path.
+    """
+    text = str(cve_text or "").strip()
+    if not text or text.upper() == "NOCVE":
+        return []
+    return [
+        part.strip().upper()
+        for part in re.split(r"[,\s]+", text)
+        if part.strip() and part.strip().upper() != "NOCVE"
+    ]
 
 
 def _element_int(parent, path: str, default=None):
@@ -519,10 +577,9 @@ class OpenVASScanner:
                 continue
 
             nvt = result.find("nvt")
-            try:
-                cve = nvt.find("cve").text  # May be "NOCVE"
-            except Exception:
-                cve = "NOCVE"
+            # GVM returns a comma-separated list here, not a single identifier.
+            cve_list = cves_from_gvm(_element_text(nvt, "cve"))
+            cve = cve_list[0] if cve_list else "NOCVE"
 
             # Default values
             epss = 0.0
@@ -531,7 +588,8 @@ class OpenVASScanner:
             # read them defensively: one malformed <result> must not discard
             # every finding in the report.
             threat = _element_text(result, "threat")
-            severity = _element_text(result, "severity")  # Doubles as CVSS info
+            raw_severity = _element_text(result, "severity")  # GVM's CVSS score
+            severity = severity_from_gvm(raw_severity, threat)
             poc2 = _element_text(result, "description")
             endsolution = ""
 
@@ -585,7 +643,7 @@ class OpenVASScanner:
                         impact=threat,
                         solution=endsolution,
                         poc=poc2,
-                        cvss=severity,
+                        cvss=raw_severity,
                         epss=epss,
                     )
             except Exception as exc:

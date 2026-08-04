@@ -512,10 +512,13 @@ class BBotScanner:
         ]
         logger.debug(f"Command: {' '.join(command)}")
 
+        # 1200s was below the measured natural completion time of a comparable
+        # lean profile (858s on one mid-sized domain, leaving only 1.4x headroom
+        # before results get silently truncated). Aligned with passive/normal.
         return_code = self._run_bbot_command(
             command,
             "attack_surface",
-            timeout_seconds=_env_int("BBOT_ASM_TIMEOUT_SECONDS", 1200),
+            timeout_seconds=_env_int("BBOT_ASM_TIMEOUT_SECONDS", 1800),
         )
         logger.info("Attack Surface bbot scan completed with exit code %s", return_code)
         self._process_scan_result("attack_surface", return_code, allow_timeout_partial=True)

@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS scan_schedules (
     last_run_at DATETIME DEFAULT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
+    preferred_node_id VARCHAR(64) DEFAULT NULL,
     INDEX idx_schedule_due (enabled, next_run_at)
 );
 
@@ -205,8 +206,250 @@ CREATE TABLE IF NOT EXISTS scanner_jobs (
     schedule_id INT DEFAULT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
+    preferred_node_id VARCHAR(64) DEFAULT NULL,
     UNIQUE KEY uniq_scanner_job_scan (org_db_name, scan_id),
     INDEX idx_scanner_jobs_status (status, priority, created_at),
     INDEX idx_scanner_jobs_node (locked_by_node_id, status),
     INDEX idx_scanner_jobs_lease (lease_until)
 );
+
+-- Control-plane and endpoint-module tables.
+-- These are also created at runtime by db_helper._apply_org_schema() and
+-- _ensure_organizations_registry(); they are mirrored here so a database
+-- seeded from this file alone is complete. A fresh install seeded only from
+-- the earlier part of this file had no authentication at all.
+-- Kept in sync by darkstar/tests/test_schema_parity.py.
+
+CREATE TABLE IF NOT EXISTS endpoint_enrollment_tokens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    token_prefix VARCHAR(32) NOT NULL,
+    token_hash VARCHAR(128) NOT NULL UNIQUE,
+    expires_at DATETIME DEFAULT NULL,
+    revoked_at DATETIME DEFAULT NULL,
+    last_used_at DATETIME DEFAULT NULL,
+    created_at DATETIME NOT NULL,
+    INDEX idx_endpoint_enrollment_active (revoked_at, expires_at)
+    );
+
+CREATE TABLE IF NOT EXISTS endpoint_agents (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    agent_id VARCHAR(64) NOT NULL UNIQUE,
+    hostname VARCHAR(255) NOT NULL,
+    display_name VARCHAR(255) DEFAULT NULL,
+    os_platform VARCHAR(64) DEFAULT NULL,
+    os_name VARCHAR(255) DEFAULT NULL,
+    os_version VARCHAR(255) DEFAULT NULL,
+    os_arch VARCHAR(64) DEFAULT NULL,
+    os_build VARCHAR(128) DEFAULT NULL,
+    ip_addresses TEXT DEFAULT NULL,
+    mac_addresses TEXT DEFAULT NULL,
+    agent_version VARCHAR(64) DEFAULT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'online',
+    token_prefix VARCHAR(32) NOT NULL,
+    token_hash VARCHAR(128) NOT NULL UNIQUE,
+    enrollment_token_id INT DEFAULT NULL,
+    metadata_json LONGTEXT DEFAULT NULL,
+    revoked_at DATETIME DEFAULT NULL,
+    first_seen_at DATETIME NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    last_inventory_at DATETIME DEFAULT NULL,
+    INDEX idx_endpoint_agents_seen (last_seen_at),
+    INDEX idx_endpoint_agents_status (status)
+    );
+
+CREATE TABLE IF NOT EXISTS endpoint_software (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    agent_id VARCHAR(64) NOT NULL,
+    software_key VARCHAR(128) NOT NULL,
+    name VARCHAR(512) NOT NULL,
+    version VARCHAR(255) DEFAULT NULL,
+    vendor VARCHAR(255) DEFAULT NULL,
+    ecosystem VARCHAR(64) NOT NULL,
+    purl VARCHAR(1024) DEFAULT NULL,
+    cpe VARCHAR(1024) DEFAULT NULL,
+    architecture VARCHAR(64) DEFAULT NULL,
+    install_location TEXT DEFAULT NULL,
+    source VARCHAR(128) DEFAULT NULL,
+    package_type VARCHAR(64) DEFAULT NULL,
+    raw_json LONGTEXT DEFAULT NULL,
+    present BOOLEAN NOT NULL DEFAULT TRUE,
+    first_seen_at DATETIME NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    UNIQUE KEY uniq_endpoint_software (agent_id, software_key),
+    INDEX idx_endpoint_software_agent (agent_id),
+    INDEX idx_endpoint_software_purl (purl(255)),
+    INDEX idx_endpoint_software_ecosystem (ecosystem)
+    );
+
+CREATE TABLE IF NOT EXISTS endpoint_vulnerabilities (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    agent_id VARCHAR(64) NOT NULL,
+    software_key VARCHAR(128) NOT NULL,
+    cve VARCHAR(64) NOT NULL,
+    source VARCHAR(64) NOT NULL DEFAULT 'OSV',
+    severity VARCHAR(32) DEFAULT NULL,
+    cvss DECIMAL(4,2) DEFAULT NULL,
+    summary TEXT DEFAULT NULL,
+    fixed_version VARCHAR(255) DEFAULT NULL,
+    affected_version VARCHAR(255) DEFAULT NULL,
+    purl VARCHAR(1024) DEFAULT NULL,
+    confidence INT NOT NULL DEFAULT 95,
+    evidence_json LONGTEXT DEFAULT NULL,
+    present BOOLEAN NOT NULL DEFAULT TRUE,
+    first_seen_at DATETIME NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    UNIQUE KEY uniq_endpoint_vuln (agent_id, software_key, cve, source),
+    INDEX idx_endpoint_vuln_agent (agent_id),
+    INDEX idx_endpoint_vuln_cve (cve),
+    INDEX idx_endpoint_vuln_present (present)
+    );
+
+CREATE TABLE IF NOT EXISTS endpoint_vuln_cache (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    package_identity VARCHAR(1024) NOT NULL,
+    package_hash VARCHAR(64) NOT NULL,
+    version VARCHAR(255) NOT NULL,
+    source VARCHAR(64) NOT NULL DEFAULT 'OSV',
+    findings_json LONGTEXT NOT NULL,
+    last_checked_at DATETIME NOT NULL,
+    expires_at DATETIME NOT NULL,
+    UNIQUE KEY uniq_endpoint_vuln_cache (package_hash, version, source),
+    INDEX idx_endpoint_vuln_cache_expiry (expires_at),
+    INDEX idx_endpoint_vuln_cache_package (package_hash)
+    );
+
+CREATE TABLE IF NOT EXISTS endpoint_network_segments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    agent_id VARCHAR(64) NOT NULL,
+    segment_key VARCHAR(128) NOT NULL,
+    cidr VARCHAR(128) DEFAULT NULL,
+    interface_name VARCHAR(255) DEFAULT NULL,
+    ip_address VARCHAR(64) DEFAULT NULL,
+    mac_address VARCHAR(64) DEFAULT NULL,
+    gateway VARCHAR(64) DEFAULT NULL,
+    public_ip VARCHAR(64) DEFAULT NULL,
+    raw_json LONGTEXT DEFAULT NULL,
+    present BOOLEAN NOT NULL DEFAULT TRUE,
+    first_seen_at DATETIME NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    UNIQUE KEY uniq_endpoint_network_segment (agent_id, segment_key),
+    INDEX idx_endpoint_network_segment_agent (agent_id),
+    INDEX idx_endpoint_network_segment_cidr (cidr),
+    INDEX idx_endpoint_network_segment_public_ip (public_ip),
+    INDEX idx_endpoint_network_segment_present (present)
+    );
+
+CREATE TABLE IF NOT EXISTS endpoint_network_observations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    agent_id VARCHAR(64) NOT NULL,
+    observation_key VARCHAR(128) NOT NULL,
+    ip_address VARCHAR(64) DEFAULT NULL,
+    hostname VARCHAR(255) DEFAULT NULL,
+    mac_address VARCHAR(64) DEFAULT NULL,
+    vendor_hint VARCHAR(255) DEFAULT NULL,
+    device_type VARCHAR(64) DEFAULT NULL,
+    os_family VARCHAR(64) DEFAULT NULL,
+    confidence INT DEFAULT NULL,
+    reachability VARCHAR(64) DEFAULT NULL,
+    open_ports TEXT DEFAULT NULL,
+    protocols TEXT DEFAULT NULL,
+    source VARCHAR(64) DEFAULT NULL,
+    network_cidr VARCHAR(128) DEFAULT NULL,
+    interface_name VARCHAR(255) DEFAULT NULL,
+    public_ip VARCHAR(64) DEFAULT NULL,
+    raw_json LONGTEXT DEFAULT NULL,
+    present BOOLEAN NOT NULL DEFAULT TRUE,
+    first_seen_at DATETIME NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    UNIQUE KEY uniq_endpoint_network_observation (agent_id, observation_key),
+    INDEX idx_endpoint_network_observation_agent (agent_id),
+    INDEX idx_endpoint_network_observation_ip (ip_address),
+    INDEX idx_endpoint_network_observation_cidr (network_cidr),
+    INDEX idx_endpoint_network_observation_type (device_type),
+    INDEX idx_endpoint_network_observation_present (present)
+    );
+
+CREATE TABLE IF NOT EXISTS endpoint_network_peer_checks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    source_agent_id VARCHAR(64) NOT NULL,
+    target_agent_id VARCHAR(64) NOT NULL,
+    target_ip VARCHAR(64) NOT NULL,
+    reachable BOOLEAN NOT NULL DEFAULT FALSE,
+    method VARCHAR(64) DEFAULT NULL,
+    latency_ms INT DEFAULT NULL,
+    open_ports TEXT DEFAULT NULL,
+    raw_json LONGTEXT DEFAULT NULL,
+    present BOOLEAN NOT NULL DEFAULT TRUE,
+    first_seen_at DATETIME NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    UNIQUE KEY uniq_endpoint_network_peer_check (source_agent_id, target_agent_id, target_ip),
+    INDEX idx_endpoint_network_peer_source (source_agent_id),
+    INDEX idx_endpoint_network_peer_target (target_agent_id),
+    INDEX idx_endpoint_network_peer_present (present)
+    );
+
+CREATE TABLE IF NOT EXISTS organizations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    org_name VARCHAR(255) NOT NULL UNIQUE,
+    org_db_name VARCHAR(64) NOT NULL UNIQUE,
+    password_salt VARCHAR(64) NOT NULL,
+    password_hash VARCHAR(128) NOT NULL,
+    role VARCHAR(32) NOT NULL DEFAULT 'tenant_admin',
+    mfa_required BOOLEAN NOT NULL DEFAULT FALSE,
+    sso_required BOOLEAN NOT NULL DEFAULT FALSE,
+    mfa_secret VARCHAR(64) DEFAULT NULL,
+    mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    sso_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    sso_issuer VARCHAR(512) DEFAULT NULL,
+    sso_client_id VARCHAR(255) DEFAULT NULL,
+    sso_client_secret TEXT DEFAULT NULL,
+    sso_allowed_domain VARCHAR(255) DEFAULT NULL,
+    last_login_at DATETIME DEFAULT NULL,
+    created_at DATETIME NOT NULL
+    );
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    org_db_name VARCHAR(64) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    key_prefix VARCHAR(24) NOT NULL,
+    key_hash VARCHAR(128) NOT NULL UNIQUE,
+    role VARCHAR(32) NOT NULL DEFAULT 'tenant_admin',
+    last_used_at DATETIME DEFAULT NULL,
+    revoked_at DATETIME DEFAULT NULL,
+    created_at DATETIME NOT NULL,
+    INDEX idx_api_key_org (org_db_name),
+    INDEX idx_api_key_prefix (key_prefix)
+    );
+
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    display_name VARCHAR(255) DEFAULT NULL,
+    password_salt VARCHAR(64) NOT NULL,
+    password_hash VARCHAR(128) NOT NULL,
+    mfa_secret VARCHAR(64) DEFAULT NULL,
+    mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    last_login_at DATETIME DEFAULT NULL,
+    created_at DATETIME NOT NULL,
+    INDEX idx_users_email (email)
+    );
+
+CREATE TABLE IF NOT EXISTS organization_memberships (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    org_db_name VARCHAR(64) NOT NULL,
+    role VARCHAR(32) NOT NULL DEFAULT 'viewer',
+    created_at DATETIME NOT NULL,
+    UNIQUE KEY uniq_user_org (user_id, org_db_name),
+    INDEX idx_membership_org (org_db_name),
+    INDEX idx_membership_role (role),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+CREATE TABLE IF NOT EXISTS platform_auth_settings (
+    id INT PRIMARY KEY DEFAULT 1,
+    mfa_required BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at DATETIME NOT NULL
+    );

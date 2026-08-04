@@ -48,6 +48,7 @@ from .core.db_helper import (
     claim_next_scanner_job,
     complete_scanner_job,
     authenticate_user,
+    record_audit_event,
     create_api_key,
     create_endpoint_enrollment_token,
     create_scanner_node,
@@ -857,6 +858,14 @@ def _finish_user_login(request: Request, user: dict, membership: dict, auth_meth
     request.session["auth_method"] = auth_method
     mark_user_login(user["id"])
     mark_organization_login(membership["org_db_name"])
+    record_audit_event(
+        membership["org_db_name"],
+        "auth.login",
+        actor=user["email"],
+        entity_type="user",
+        entity_id=user["id"],
+        metadata={"auth_method": auth_method, "role": membership["role"]},
+    )
     return {
         "ok": True,
         "organization": membership["org_name"],
@@ -1485,6 +1494,7 @@ def login(body: LoginRequest, request: Request):
                 allow_bootstrap=_bootstrap_login_allowed(body.setup_token),
             )
         except ValueError as exc:
+            logger.warning("Failed login attempt for %s", body.email)
             raise HTTPException(status_code=401, detail=str(exc))
 
         user = auth["user"]
@@ -1518,6 +1528,14 @@ def login(body: LoginRequest, request: Request):
         return {"ok": True, "mfa_required": True, "organization": body.organization}
 
     mark_organization_login(org_db)
+    record_audit_event(
+        org_db,
+        "auth.login",
+        actor=body.organization,
+        entity_type="organization",
+        entity_id=org_db,
+        metadata={"auth_method": "password", "legacy": True},
+    )
     request.session["organization"] = body.organization
     request.session["org_db"] = org_db
     request.session["role"] = get_organization_role(org_db)

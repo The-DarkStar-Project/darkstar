@@ -48,9 +48,32 @@ def test_run_script_bootstraps_a_fresh_checkout(tmp_path):
     )
 
     assert completed.returncode == 0, completed.stderr
-    assert (tmp_path / ".env").read_text(encoding="utf-8") == (
-        tmp_path / ".env.example"
-    ).read_text(encoding="utf-8")
+
+    # .env is a copy of .env.example, except that the session secret must be
+    # generated: left on the shipped placeholder, the app signs cookies with an
+    # ephemeral key and every restart logs all users out.
+    def env_pairs(path):
+        pairs = {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                key, _, value = line.partition("=")
+                pairs[key.strip()] = value.strip().strip("'\"")
+        return pairs
+
+    written = env_pairs(tmp_path / ".env")
+    shipped = env_pairs(tmp_path / ".env.example")
+
+    session_secret = written.pop("WEB_SESSION_SECRET")
+    shipped.pop("WEB_SESSION_SECRET")
+    assert written == shipped, "run.sh must not rewrite anything but the secret"
+    assert len(session_secret) >= 32
+    assert session_secret not in {
+        "",
+        "darkstar-dev-secret-change-me",
+        "change-me-in-production",
+        "changeme",
+        "change-me",
+    }
     assert "Darkstar web app is ready" in completed.stdout
     assert "OpenVAS API is ready" in completed.stdout
     assert "Darkstar installation is ready" in completed.stdout

@@ -70,6 +70,60 @@ for key in MYSQL_ROOT_PASSWORD DB_HOST DB_NAME DB_USER DB_PASSWORD OPENVAS_USER 
   require_env_key "$key"
 done
 
+# Session cookies are signed with this value. Left empty, the app falls back to
+# a per-process random key, so every restart silently logs everyone out.
+ensure_generated_secret() {
+  local key="$1"
+  local current
+  current="$(sed -n "s/^[[:space:]]*${key}=//p" .env | tail -n 1 | tr -d "'\"" | tr -d '[:space:]')"
+
+  # Mirrors INSECURE_SESSION_SECRETS in darkstar/webapp.py: the app rejects
+  # these and falls back to an ephemeral key, which is what we are avoiding.
+  local placeholder
+  for placeholder in darkstar-dev-secret-change-me change-me-in-production changeme change-me; do
+    if [[ "$current" == "$placeholder" ]]; then
+      current=""
+      break
+    fi
+  done
+
+  if [[ -n "$current" && ${#current} -ge 32 ]]; then
+    return 0
+  fi
+
+  local generated
+  if command -v openssl >/dev/null 2>&1; then
+    generated="$(openssl rand -hex 32)"
+  else
+    generated="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  fi
+  if [[ ${#generated} -lt 32 ]]; then
+    printf '[!] Unable to generate a random %s. Set it in .env by hand.\n' "$key" >&2
+    exit 1
+  fi
+
+  if grep -Eq "^[[:space:]]*${key}=" .env; then
+    # Rewrite in place without a shell-quoting round trip through sed's RHS.
+    GEN="$generated" KEY="$key" python3 - <<'PY'
+import os, re
+key, value = os.environ["KEY"], os.environ["GEN"]
+with open(".env", encoding="utf-8") as handle:
+    lines = handle.readlines()
+with open(".env", "w", encoding="utf-8") as handle:
+    for line in lines:
+        if re.match(rf"^\s*{re.escape(key)}=", line):
+            handle.write(f"{key}='{value}'\n")
+        else:
+            handle.write(line)
+PY
+  else
+    printf "%s='%s'\n" "$key" "$generated" >> .env
+  fi
+  log "Generated a random ${key} in .env"
+}
+
+ensure_generated_secret WEB_SESSION_SECRET
+
 if ! docker compose --profile "$profile" config --quiet; then
   printf '[!] Docker Compose configuration is invalid. Check .env and docker-compose.yaml.\n' >&2
   exit 1

@@ -16,7 +16,11 @@ from openvas.openvas_connector import (
     get_task_status,
     get_report,
 )
-from openvas.openvas_scanner import OpenVASScanner
+from openvas.openvas_scanner import (
+    OpenVASScanner,
+    cves_from_gvm,
+    severity_from_gvm,
+)
 
 
 class TestOpenVASAPIClient:
@@ -911,3 +915,51 @@ class TestOpenVASResultParsing:
         confidences = {vuln.title: vuln.confidence for vuln in scanner.vulnerabilities}
         assert confidences["Healthy finding"] == 80
         assert confidences["Finding with unusable qod"] == 75, "documented fallback"
+
+
+class TestGvmSemantics:
+    """GVM speaks CVSS numbers and CVE lists; Darkstar speaks severity words."""
+
+    @pytest.mark.parametrize(
+        "severity,expected",
+        [
+            ("10.0", "critical"),
+            ("9.0", "critical"),
+            ("8.9", "high"),
+            ("7.0", "high"),
+            ("6.9", "medium"),
+            ("4.0", "medium"),
+            ("3.9", "low"),
+            ("0.1", "low"),
+            ("0.0", "info"),
+        ],
+    )
+    def test_numeric_severity_maps_to_the_shared_vocabulary(self, severity, expected):
+        assert severity_from_gvm(severity) == expected
+
+    @pytest.mark.parametrize(
+        "threat,expected",
+        [("Log", "info"), ("High", "high"), ("False Positive", "info"), ("", "unknown")],
+    )
+    def test_falls_back_to_the_threat_word_without_a_number(self, threat, expected):
+        assert severity_from_gvm(None, threat) == expected
+
+    def test_mapped_severity_is_visible_to_notification_thresholds(self):
+        """A raw "10.0" was invisible to every severity filter in the app."""
+        order = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0, "unknown": 0}
+        assert severity_from_gvm("10.0") in order
+        assert order[severity_from_gvm("10.0")] == 4
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("CVE-2021-44228, CVE-2021-45046", ["CVE-2021-44228", "CVE-2021-45046"]),
+            ("CVE-2021-44228", ["CVE-2021-44228"]),
+            ("NOCVE", []),
+            ("", []),
+            (None, []),
+            ("cve-2021-44228 cve-2021-45046", ["CVE-2021-44228", "CVE-2021-45046"]),
+        ],
+    )
+    def test_cve_list_is_split(self, raw, expected):
+        assert cves_from_gvm(raw) == expected
