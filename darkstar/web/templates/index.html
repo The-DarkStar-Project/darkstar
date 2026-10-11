@@ -1092,7 +1092,25 @@
                     <div class="metric-card"><div class="metric-label">Exploitable</div><div class="metric-value high" id="tenantExploitable">0</div></div>
                 </div>
                 <div class="card">
-                    <div class="card-header">Tenant Summary</div>
+                    <div class="card-header">
+                        Tenant Summary
+                        <button type="button" id="newOrganizationBtn" class="btn-primary admin-only hidden"
+                            aria-controls="createOrganizationForm" aria-expanded="false">New organization</button>
+                    </div>
+                    <div class="admin-only hidden">
+                        <form id="createOrganizationForm" class="hidden" aria-label="New organization" novalidate>
+                            <div class="filter-grid">
+                                <div class="form-group">
+                                    <label for="organizationNameInput">Organization name</label>
+                                    <input id="organizationNameInput" name="name" type="text" maxlength="100"
+                                        required aria-describedby="organizationMessage" autocomplete="off" />
+                                </div>
+                                <button type="submit" id="createOrganizationBtn" class="btn-primary">Create organization</button>
+                                <button type="button" id="cancelOrganizationBtn" class="btn-secondary">Cancel</button>
+                            </div>
+                        </form>
+                        <p id="organizationMessage" class="form-message" role="status" aria-live="polite"></p>
+                    </div>
                     <div class="table-container">
                         <table class="data-table">
                             <thead>

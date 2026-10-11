@@ -8,6 +8,8 @@ const state = {
     orgDb: document.body.dataset.orgDb || "",
     role: document.body.dataset.role || "",
     organizations: [],
+    organizationCreationPending: false,
+    organizationDeletionPending: false,
     currentTab: "dashboard",
     vulnFilters: {
         severity: "",
@@ -99,7 +101,7 @@ const state = {
 function escapeHtml(value) {
     const div = document.createElement("div");
     div.textContent = value == null ? "" : String(value);
-    return div.innerHTML;
+    return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 function severityClass(value) {
@@ -2361,7 +2363,7 @@ async function loadM365View() {
 // OVERSIGHT TAB
 // ============================================================================
 
-async function loadOversightView() {
+async function loadOversightView({ propagateError = false } = {}) {
     try {
         const result = await requestJson("/api/admin/overview");
         const totals = result.totals || {};
@@ -2378,13 +2380,131 @@ async function loadOversightView() {
                 <td>${escapeHtml(tenant.critical || 0)}</td>
                 <td>${escapeHtml(tenant.average_priority || 0)}</td>
                 <td>${escapeHtml(tenant.max_priority || 0)}</td>
-                <td><button type="button" class="btn-secondary btn-sm switch-tenant-btn" data-org-db="${escapeHtml(tenant.org_db || "")}">Open</button></td>
+                <td>
+                    <button type="button" class="btn-secondary btn-sm switch-tenant-btn" data-org-db="${escapeHtml(tenant.org_db || "")}">Open</button>
+                    ${tenant.id && tenant.role !== "platform_admin" ? `
+                        <button type="button" class="btn-danger btn-sm delete-organization-btn"
+                            data-org-id="${escapeHtml(tenant.id)}" data-org-db="${escapeHtml(tenant.org_db)}"
+                            data-org-name="${escapeHtml(tenant.organization)}" aria-label="Delete ${escapeHtml(tenant.organization)}"
+                            ${tenant.org_db === state.orgDb ? 'disabled title="Switch to another organization before deleting this one."' : ""}>Delete</button>
+                    ` : ""}
+                </td>
             </tr>
         `).join("") || '<tr><td colspan="8">No tenant data available.</td></tr>';
     } catch (error) {
         console.error("Failed to load oversight:", error);
+        if (propagateError) throw error;
     }
 }
+
+async function deleteOrganization(button) {
+    if (state.role !== "platform_admin" || state.organizationDeletionPending || button.disabled) return;
+    const name = button.dataset.orgName;
+    if (!window.confirm(`Permanently delete organization “${name}”? Its findings, scans, settings and memberships will be removed. User accounts will be kept. This cannot be undone.`)) return;
+    const message = document.getElementById("organizationMessage");
+    state.organizationDeletionPending = true;
+    button.disabled = true;
+    button.textContent = "Deleting…";
+    message.className = "form-message";
+    message.textContent = `Deleting organization “${name}”…`;
+    let deleted = false;
+    try {
+        await requestJson(`/api/admin/organizations/${encodeURIComponent(button.dataset.orgId)}`, { method: "DELETE" });
+        deleted = true;
+        renderTenantSwitch({ organizations: state.organizations.filter(org =>
+            (org.org_db_name || org.org_db) !== button.dataset.orgDb) });
+        button.closest("tr").remove();
+        await Promise.all([
+            requestJson("/api/me").then(renderTenantSwitch),
+            loadOversightView({ propagateError: true }),
+        ]);
+        message.className = "form-message success";
+        message.textContent = `Organization “${name}” deleted.`;
+        document.getElementById("newOrganizationBtn").focus();
+    } catch (error) {
+        message.className = "form-message error";
+        message.textContent = deleted
+            ? "Organization deleted, but the list could not be refreshed. Reload the page to refresh it."
+            : error.message;
+    } finally {
+        state.organizationDeletionPending = false;
+        button.disabled = false;
+        button.textContent = "Delete";
+    }
+}
+
+function toggleOrganizationForm(open) {
+    document.getElementById("createOrganizationForm").classList.toggle("hidden", !open);
+    document.getElementById("newOrganizationBtn").setAttribute("aria-expanded", String(open));
+    if (open) document.getElementById("organizationNameInput").focus();
+    else document.getElementById("newOrganizationBtn").focus();
+}
+
+document.getElementById("newOrganizationBtn").addEventListener("click", () => {
+    if (state.role !== "platform_admin" || state.organizationCreationPending) return;
+    document.getElementById("createOrganizationForm").reset();
+    document.getElementById("organizationMessage").textContent = "";
+    toggleOrganizationForm(true);
+});
+
+document.getElementById("cancelOrganizationBtn").addEventListener("click", () => {
+    if (!state.organizationCreationPending) toggleOrganizationForm(false);
+});
+
+document.getElementById("createOrganizationForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (state.role !== "platform_admin" || state.organizationCreationPending) return;
+    const form = event.currentTarget;
+    const input = document.getElementById("organizationNameInput");
+    const message = document.getElementById("organizationMessage");
+    const button = document.getElementById("createOrganizationBtn");
+    const name = input.value.trim();
+    message.className = "form-message error";
+    if (!name) {
+        message.textContent = "Organization name is required.";
+        input.focus();
+        return;
+    }
+    state.organizationCreationPending = true;
+    form.setAttribute("aria-busy", "true");
+    form.querySelectorAll("input, button").forEach(el => { el.disabled = true; });
+    document.getElementById("newOrganizationBtn").disabled = true;
+    button.textContent = "Creating…";
+    message.className = "form-message";
+    message.textContent = "Creating organization…";
+    let created = false;
+    try {
+        const result = await requestJson("/api/admin/organizations", {
+            method: "POST",
+            body: JSON.stringify({ name }),
+        });
+        created = true;
+        // Make the selector usable even if a subsequent refresh is interrupted.
+        const organizations = state.organizations.filter(org =>
+            (org.org_db_name || org.org_db) !== result.organization.org_db_name);
+        renderTenantSwitch({ organizations: [...organizations, result.organization] });
+        form.reset();
+        toggleOrganizationForm(false);
+        await Promise.all([
+            requestJson("/api/me").then(renderTenantSwitch),
+            loadOversightView({ propagateError: true }),
+        ]);
+        message.className = "form-message success";
+        message.textContent = `Organization “${result.organization.org_name}” created. Assign users in Settings.`;
+    } catch (error) {
+        message.className = "form-message error";
+        message.textContent = created
+            ? "Organization created, but the list could not be refreshed. Reload the page to refresh it."
+            : error.message;
+    } finally {
+        state.organizationCreationPending = false;
+        form.setAttribute("aria-busy", "false");
+        form.querySelectorAll("input, button").forEach(el => { el.disabled = false; });
+        document.getElementById("newOrganizationBtn").disabled = false;
+        button.textContent = "Create organization";
+        if (created) document.getElementById("newOrganizationBtn").focus();
+    }
+});
 
 // ============================================================================
 // DEBUG PANEL
@@ -2924,6 +3044,12 @@ document.addEventListener("click", async (event) => {
     const switchTenantBtn = event.target.closest(".switch-tenant-btn");
     if (switchTenantBtn) {
         await switchTenant(switchTenantBtn.dataset.orgDb);
+        return;
+    }
+
+    const deleteOrganizationBtn = event.target.closest(".delete-organization-btn");
+    if (deleteOrganizationBtn) {
+        await deleteOrganization(deleteOrganizationBtn);
         return;
     }
 

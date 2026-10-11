@@ -638,12 +638,12 @@ def _ensure_organizations_registry(cursor):
     )
 
 
-def ensure_organization(org_name: str, password: str, create_missing: bool = False) -> tuple[str, bool]:
+def ensure_organization(org_name: str, password: str, create_missing: bool = False) -> tuple[str, bool, int]:
     """
     Ensure organization record and per-org database exist.
 
     Returns:
-        tuple[str, bool]: (normalized_org_db_name, created_now)
+        tuple[str, bool, int]: (org_db_name, created_now, organization_id)
     """
     org_db = normalize_org_name(org_name)
     created_now = False
@@ -655,15 +655,21 @@ def ensure_organization(org_name: str, password: str, create_missing: bool = Fal
         _ensure_organizations_registry(cursor)
 
         cursor.execute(
-            "SELECT org_db_name, password_salt, password_hash, role FROM organizations WHERE org_name = %s",
+            "SELECT id, org_db_name, password_salt, password_hash, role FROM organizations WHERE org_name = %s",
             (org_name,),
         )
         row = cursor.fetchone()
+        if row:
+            org_db = row["org_db_name"]
+        organization = _lock_organization(cursor, org_db)
+        if row and (not organization or organization["id"] != row["id"]):
+            raise OrganizationConflictError("Organization changed. Please try again.")
 
         if row:
             if not _verify_password(password, row["password_salt"], row["password_hash"]):
                 raise ValueError("Invalid organization credentials")
             org_db = row["org_db_name"]
+            organization_id = row["id"]
             cursor.execute(
                 "UPDATE organizations SET last_login_at = %s WHERE org_name = %s",
                 (created_at, org_name),
@@ -671,6 +677,8 @@ def ensure_organization(org_name: str, password: str, create_missing: bool = Fal
         else:
             if not create_missing:
                 raise ValueError("Organization does not exist")
+            if organization:
+                raise OrganizationConflictError("Organization changed. Please try again.")
             default_admin_org = os.environ.get("PLATFORM_ADMIN_ORG", "platform_admin")
             if org_name.strip().lower() == default_admin_org.lower():
                 raise ValueError("Platform admin organization cannot be created through legacy login")
@@ -681,6 +689,7 @@ def ensure_organization(org_name: str, password: str, create_missing: bool = Fal
                 (org_name, org_db, salt, digest, role, created_at, created_at),
             )
             created_now = True
+            organization_id = cursor.lastrowid
 
         cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{org_db}`")
         cursor.execute(f"USE `{org_db}`")
@@ -689,7 +698,7 @@ def ensure_organization(org_name: str, password: str, create_missing: bool = Fal
         connection.commit()
         cursor.close()
 
-    return org_db, created_now
+    return org_db, created_now, organization_id
 
 
 def register_cli_organization(org_name: str) -> tuple[str, str | None]:
@@ -716,13 +725,18 @@ def register_cli_organization(org_name: str) -> tuple[str, str | None]:
         _ensure_organizations_registry(cursor)
 
         cursor.execute(
-            "SELECT org_db_name FROM organizations WHERE org_name = %s OR org_db_name = %s",
+            "SELECT id, org_db_name FROM organizations WHERE org_name = %s OR org_db_name = %s",
             (org_name, org_db),
         )
         row = cursor.fetchone()
-
         if row:
             org_db = row["org_db_name"]
+        organization = _lock_organization(cursor, org_db)
+        if row and (not organization or organization["id"] != row["id"]):
+            raise OrganizationConflictError("Organization changed. Please try again.")
+
+        if organization:
+            org_db = organization["org_db_name"]
         else:
             generated_password = secrets.token_urlsafe(18)
             salt, digest = _hash_password(generated_password)
@@ -780,28 +794,177 @@ def _public_user(row: dict | None) -> dict | None:
     }
 
 
-def _ensure_organization_record(cursor, org_name: str, password: str, role: str) -> str:
+class OrganizationAlreadyExistsError(ValueError):
+    """An organization name or its database identifier is already in use."""
+
+
+class OrganizationConflictError(ValueError):
+    """An organization cannot be changed while it is in use."""
+
+
+def _lock_organization(cursor, org_db: str) -> dict | None:
+    """Serialize tenant lifecycle changes until the connection closes."""
+    # Unlike row locks, a named lock survives the implicit commit in DROP DATABASE.
+    lock_name = hashlib.sha256(f"{os.environ.get('DB_NAME', 'darkstar')}:{org_db}".encode()).hexdigest()
+    cursor.execute("SELECT GET_LOCK(%s, 5) AS acquired", (lock_name,))
+    if (cursor.fetchone() or {}).get("acquired") != 1:
+        raise OrganizationConflictError("Organization is busy. Please try again.")
+    cursor.execute(
+        "SELECT id, org_name, org_db_name, role FROM organizations WHERE org_db_name = %s FOR UPDATE",
+        (org_db,),
+    )
+    return cursor.fetchone()
+
+
+def delete_organization(organization_id: int, *, active_org_db: str) -> dict | None:
+    """Delete an idle tenant and its registry records, preserving user accounts."""
+    with DatabaseConnectionManager() as connection:
+        cursor = connection.cursor(dictionary=True)
+        try:
+            cursor.execute("SELECT org_db_name FROM organizations WHERE id = %s", (organization_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            org_db = row["org_db_name"]
+            if not ORG_IDENTIFIER_RE.fullmatch(org_db):
+                raise ValueError("Invalid organization database identifier")
+            organization = _lock_organization(cursor, org_db)
+            # A concurrent deletion/recreation must not redirect this request to a new tenant.
+            if not organization or organization["id"] != organization_id:
+                return None
+            if (
+                organization["role"] == "platform_admin"
+                or org_db == normalize_org_name(os.environ.get("PLATFORM_ADMIN_ORG", "platform_admin"))
+                or org_db == os.environ.get("DB_NAME", "darkstar")
+            ):
+                raise OrganizationConflictError("The platform organization cannot be deleted.")
+            if org_db == active_org_db:
+                raise OrganizationConflictError("Switch to another organization before deleting this one.")
+            cursor.execute(
+                "SELECT id FROM organization_memberships WHERE org_db_name = %s AND role = 'platform_admin' LIMIT 1 FOR UPDATE",
+                (org_db,),
+            )
+            if cursor.fetchone():
+                raise OrganizationConflictError("An organization with platform administrators cannot be deleted.")
+            cursor.execute(
+                "SELECT id FROM scanner_jobs WHERE org_db_name = %s AND status IN ('queued', 'claimed', 'running', 'stopping') LIMIT 1 FOR UPDATE",
+                (org_db,),
+            )
+            if cursor.fetchone():
+                raise OrganizationConflictError("Stop scans and wait for them to finish before deleting this organization.")
+            cursor.execute("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = %s", (org_db,))
+            if cursor.fetchone():
+                cursor.execute(
+                    f"SELECT id FROM `{org_db}`.scans WHERE status IN ('queued', 'running', 'stopping') LIMIT 1 FOR UPDATE"
+                )
+                if cursor.fetchone():
+                    raise OrganizationConflictError("Stop scans and wait for them to finish before deleting this organization.")
+            # DDL cannot be rolled back. Keep the registry row until DROP succeeds,
+            # so a failed drop or subsequent registry cleanup can be retried.
+            cursor.execute(f"DROP DATABASE IF EXISTS `{org_db}`")
+            for table in ("api_keys", "organization_memberships", "scanner_jobs"):
+                cursor.execute(f"DELETE FROM {table} WHERE org_db_name = %s", (org_db,))
+            cursor.execute("DELETE FROM organizations WHERE id = %s", (organization_id,))
+            connection.commit()
+            return organization
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            cursor.close()
+
+
+def _discard_new_org_database(cursor, org_db: str):
+    """DDL cannot be rolled back; remove only a database this request created."""
+    try:
+        cursor.execute(f"DROP DATABASE `{org_db}`")
+    except mysql.connector.Error:
+        logger.exception("Unable to clean up failed organization database %s", org_db)
+
+
+def _ensure_organization_record(
+    cursor, org_name: str, password: str, role: str, *, create_only: bool = False,
+) -> str:
     """Create a legacy organization registry row and tenant DB when missing."""
     org_db = normalize_org_name(org_name)
-    cursor.execute("SELECT org_db_name FROM organizations WHERE org_db_name = %s", (org_db,))
+    cursor.execute(
+        "SELECT org_db_name FROM organizations WHERE org_name = %s OR org_db_name = %s",
+        (org_name, org_db),
+    )
     row = cursor.fetchone()
-    if not row:
-        salt, digest = _hash_password(password)
-        created_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        cursor.execute(
-            """
-            INSERT INTO organizations
-                (org_name, org_db_name, password_salt, password_hash, role, last_login_at, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """,
-            (org_name, org_db, salt, digest, role, created_at, created_at),
-        )
+    if row and create_only:
+        raise OrganizationAlreadyExistsError("An organization with this name or database identifier already exists")
+    if row:
+        org_db = row["org_db_name"]
 
-    cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{org_db}`")
-    cursor.execute(f"USE `{org_db}`")
-    _apply_org_schema(cursor)
-    cursor.execute(f"USE `{os.environ.get('DB_NAME', 'darkstar')}`")
+    # CREATE without IF NOT EXISTS also arbitrates concurrent creation requests
+    # and prevents a new organization from adopting an existing tenant database.
+    try:
+        clause = "" if create_only else "IF NOT EXISTS "
+        cursor.execute(f"CREATE DATABASE {clause}`{org_db}`")
+    except mysql.connector.Error as exc:
+        if exc.errno == 1007:
+            raise OrganizationAlreadyExistsError("An organization with this database identifier already exists") from exc
+        raise
+
+    try:
+        cursor.execute(f"USE `{org_db}`")
+        _apply_org_schema(cursor)
+        registry_db = os.environ.get("DB_NAME", "darkstar").replace("`", "``")
+        cursor.execute(f"USE `{registry_db}`")
+        # Publish the registry row only after all schema DDL has succeeded.
+        # MariaDB implicitly commits transactions before executing DDL.
+        if not row:
+            salt, digest = _hash_password(password)
+            created_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute(
+                """
+                INSERT INTO organizations
+                    (org_name, org_db_name, password_salt, password_hash, role, last_login_at, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (org_name, org_db, salt, digest, role, None if create_only else created_at, created_at),
+            )
+    except Exception as exc:
+        if create_only:
+            _discard_new_org_database(cursor, org_db)
+        if isinstance(exc, mysql.connector.Error) and exc.errno == 1062:
+            raise OrganizationAlreadyExistsError("An organization with this name already exists") from exc
+        raise
     return org_db
+
+
+def create_organization(org_name: str) -> dict:
+    """Provision a new tenant using the same schema path as admin bootstrap."""
+    org_name = org_name.strip()
+    if not org_name:
+        raise ValueError("Organization name is required")
+    if len(org_name) > 100:
+        raise ValueError("Organization name must be at most 100 characters")
+    if not re.search(r"[a-zA-Z0-9]", org_name):
+        raise ValueError("Organization name must contain at least one letter a-z or number")
+    normalize_org_name(org_name)
+
+    with DatabaseConnectionManager() as connection:
+        cursor = connection.cursor(dictionary=True)
+        org_db = None
+        try:
+            _ensure_organizations_registry(cursor)
+            _lock_organization(cursor, normalize_org_name(org_name))
+            # New tenants use individual user memberships. Keep the required
+            # legacy password hash unguessable without issuing a shared login.
+            org_db = _ensure_organization_record(
+                cursor, org_name, secrets.token_urlsafe(32), "tenant_admin", create_only=True,
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            if org_db:
+                _discard_new_org_database(cursor, org_db)
+            raise
+        finally:
+            cursor.close()
+    return {"org_name": org_name, "org_db_name": org_db, "role": "tenant_admin"}
 
 
 def _membership_rows(cursor, user_id: int) -> list[dict]:
@@ -813,6 +976,7 @@ def _membership_rows(cursor, user_id: int) -> list[dict]:
             m.user_id,
             m.org_db_name,
             m.role,
+            o.id AS org_id,
             o.org_name,
             o.mfa_required,
             o.sso_required,
@@ -917,7 +1081,7 @@ def get_user_membership(user_id: int, org_db_name: str) -> dict | None:
         connection.commit()
         cursor.execute(
             """
-            SELECT m.id, m.user_id, m.org_db_name, m.role, o.org_name, o.mfa_required, o.sso_required
+            SELECT m.id, m.user_id, m.org_db_name, m.role, o.id AS org_id, o.org_name, o.mfa_required, o.sso_required
             FROM organization_memberships m
             JOIN organizations o ON o.org_db_name = m.org_db_name
             WHERE m.user_id = %s AND m.org_db_name = %s
@@ -1062,6 +1226,9 @@ def create_or_update_user(
     display_name: str | None,
     org_db_name: str,
     role: str,
+    *,
+    restrict_to_org: bool,
+    expected_org_id: int | None = None,
 ) -> dict:
     """Create/update a user and upsert their organization membership."""
     email = _normalize_email(email)
@@ -1075,10 +1242,29 @@ def create_or_update_user(
     with DatabaseConnectionManager() as connection:
         cursor = connection.cursor(dictionary=True)
         _ensure_organizations_registry(cursor)
-        cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+        organization = _lock_organization(cursor, org_db_name)
+        if not organization:
+            raise ValueError("Organization no longer exists")
+        if expected_org_id is not None and organization["id"] != expected_org_id:
+            raise OrganizationConflictError("Organization changed. Please sign in again.")
+        cursor.execute("SELECT id FROM users WHERE email = %s FOR UPDATE", (email,))
         existing = cursor.fetchone()
         if existing:
             user_id = existing["id"]
+            if restrict_to_org:
+                cursor.execute(
+                    "SELECT org_db_name, role FROM organization_memberships WHERE user_id = %s",
+                    (user_id,),
+                )
+                memberships = cursor.fetchall()
+                # Passwords and profile fields belong to the global user. A
+                # tenant must not change an account shared with another tenant.
+                if not memberships or any(
+                    membership["org_db_name"] != org_db_name
+                    or membership["role"] == "platform_admin"
+                    for membership in memberships
+                ):
+                    raise PermissionError("This account must be managed by a platform administrator")
             if password:
                 salt, digest = _hash_password(password)
                 cursor.execute(
@@ -1106,10 +1292,6 @@ def create_or_update_user(
                 (email, display_name or email.split("@")[0], salt, digest, created_at),
             )
             user_id = cursor.lastrowid
-
-        cursor.execute("SELECT org_db_name FROM organizations WHERE org_db_name = %s", (org_db_name,))
-        if not cursor.fetchone():
-            raise ValueError("Organization does not exist")
 
         cursor.execute(
             """
@@ -1160,7 +1342,10 @@ def ensure_org_database_schema(org_name: str):
     """Apply current org schema to an existing organization database."""
     org_db = normalize_org_name(org_name)
     with DatabaseConnectionManager() as connection:
-        cursor = connection.cursor()
+        cursor = connection.cursor(dictionary=True)
+        if not _lock_organization(cursor, org_db):
+            cursor.close()
+            return
         cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{org_db}`")
         cursor.execute(f"USE `{org_db}`")
         _apply_org_schema(cursor)
@@ -1172,7 +1357,9 @@ def create_scan_record(org_name: str, scan_name: str, scan_mode: str | None, tar
     """Create a scan tracking record in the organization database."""
     created_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     with DatabaseConnectionManager() as connection:
-        cursor = connection.cursor()
+        cursor = connection.cursor(dictionary=True)
+        if not _lock_organization(cursor, normalize_org_name(org_name)):
+            raise ValueError("Organization no longer exists")
         _use_org_database(cursor, org_name)
         cursor.execute(
             """
@@ -3357,7 +3544,7 @@ def list_organizations() -> list[dict]:
         connection.commit()
         cursor.execute(
             """
-            SELECT org_name, org_db_name, role, mfa_required, sso_required, created_at, last_login_at
+            SELECT id, org_name, org_db_name, role, mfa_required, sso_required, created_at, last_login_at
             FROM organizations
             ORDER BY org_name ASC
             """
@@ -3365,6 +3552,16 @@ def list_organizations() -> list[dict]:
         rows = cursor.fetchall() or []
         cursor.close()
         return rows
+
+
+def get_organization_id(org_db_name: str) -> int | None:
+    """Identify a tenant even when a deleted organization's name is reused."""
+    with DatabaseConnectionManager() as connection:
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute("SELECT id FROM organizations WHERE org_db_name = %s", (org_db_name,))
+        row = cursor.fetchone()
+        cursor.close()
+        return row["id"] if row else None
 
 
 def get_organization_role(org_db_name: str) -> str:
@@ -3390,7 +3587,7 @@ def get_organization_auth_settings(org_db_name: str, include_secrets: bool = Fal
         connection.commit()
         cursor.execute(
             """
-            SELECT org_name, org_db_name, role, mfa_required, sso_required, mfa_secret, mfa_enabled,
+            SELECT id AS org_id, org_name, org_db_name, role, mfa_required, sso_required, mfa_secret, mfa_enabled,
                    sso_enabled, sso_issuer, sso_client_id, sso_client_secret, sso_allowed_domain
             FROM organizations
             WHERE org_db_name = %s
@@ -3415,7 +3612,7 @@ def get_sso_settings_by_org_name(org_name: str, include_secret: bool = False) ->
         connection.commit()
         cursor.execute(
             """
-            SELECT org_name, org_db_name, role, sso_enabled, sso_issuer,
+            SELECT id AS org_id, org_name, org_db_name, role, sso_enabled, sso_issuer,
                    sso_client_id, sso_client_secret, sso_allowed_domain
             FROM organizations
             WHERE org_name = %s
@@ -3516,7 +3713,9 @@ def _hash_api_key(api_key: str) -> str:
     ).hex()
 
 
-def create_api_key(org_db_name: str, name: str, role: str = "tenant_admin") -> dict:
+def create_api_key(
+    org_db_name: str, name: str, role: str = "tenant_admin", *, expected_org_id: int | None = None,
+) -> dict:
     """Create a one-time visible API key for REST API access."""
     api_key = f"dstar_{secrets.token_urlsafe(32)}"
     key_prefix = api_key[:14]
@@ -3524,6 +3723,11 @@ def create_api_key(org_db_name: str, name: str, role: str = "tenant_admin") -> d
     with DatabaseConnectionManager() as connection:
         cursor = connection.cursor(dictionary=True)
         _ensure_organizations_registry(cursor)
+        organization = _lock_organization(cursor, org_db_name)
+        if not organization:
+            raise ValueError("Organization no longer exists")
+        if expected_org_id is not None and organization["id"] != expected_org_id:
+            raise OrganizationConflictError("Organization changed. Please sign in again.")
         cursor.execute(
             """
             INSERT INTO api_keys (org_db_name, name, key_prefix, key_hash, role, created_at)
@@ -3598,7 +3802,7 @@ def authenticate_api_key(api_key: str) -> dict | None:
         connection.commit()
         cursor.execute(
             """
-            SELECT k.id, k.org_db_name, k.role, k.key_hash, o.org_name
+            SELECT k.id, k.org_db_name, k.role, k.key_hash, o.id AS org_id, o.org_name
             FROM api_keys k
             JOIN organizations o ON o.org_db_name = k.org_db_name
             WHERE (k.key_hash = %s OR k.key_hash = SHA2(%s, 256))
@@ -5257,8 +5461,10 @@ def enqueue_scanner_job(
     """Insert a scan into the central worker queue."""
     now = _utcnow()
     with DatabaseConnectionManager() as connection:
-        cursor = connection.cursor()
+        cursor = connection.cursor(dictionary=True)
         _ensure_organizations_registry(cursor)
+        if not _lock_organization(cursor, org_db_name):
+            raise ValueError("Organization no longer exists")
         cursor.execute(
             """
             INSERT INTO scanner_jobs
@@ -5302,7 +5508,7 @@ def enqueue_scanner_job(
                 (org_db_name, scan_id),
             )
             row = cursor.fetchone()
-            job_id = row[0] if row else 0
+            job_id = row["id"] if row else 0
         connection.commit()
         cursor.close()
     return int(job_id)
@@ -5633,6 +5839,7 @@ def get_oversight_summary() -> dict:
         running = int(stats.get("running_scans") or 0)
         tenant_summaries.append(
             {
+                "id": organization["id"],
                 "organization": organization["org_name"],
                 "org_db": org_db,
                 "role": organization.get("role"),

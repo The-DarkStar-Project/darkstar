@@ -41,6 +41,8 @@ from dotenv import load_dotenv
 _event_loop = None
 
 from .core.db_helper import (
+    OrganizationAlreadyExistsError,
+    OrganizationConflictError,
     authenticate_api_key,
     authenticate_endpoint_agent,
     authenticate_scanner_node,
@@ -53,9 +55,11 @@ from .core.db_helper import (
     create_endpoint_enrollment_token,
     create_scanner_node,
     create_or_update_user,
+    create_organization,
     create_scan_record,
     create_scan_schedule,
     delete_user,
+    delete_organization,
     delete_endpoint_agent,
     delete_scan_schedule,
     delete_revoked_scanner_node,
@@ -75,6 +79,7 @@ from .core.db_helper import (
     get_m365_secure_score,
     get_notification_settings,
     get_organization_auth_settings,
+    get_organization_id,
     get_organization_role,
     get_attack_surface_overview,
     get_oversight_summary,
@@ -424,6 +429,10 @@ class AdminUserRequest(BaseModel):
     role: str = Field(default="viewer", max_length=32)
 
 
+class CreateOrganizationRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
 class OrgUserRequest(BaseModel):
     email: str = Field(max_length=255)
     password: str | None = Field(default=None, max_length=128)
@@ -575,15 +584,27 @@ def _extract_bearer_token(request: Request) -> str | None:
     return authorization.split(" ", 1)[1].strip()
 
 
+def _require_current_organization(request: Request, org_db: str, organization_id: int | None) -> None:
+    """Reject a tenant that changed after authentication began."""
+    if not organization_id or get_organization_id(org_db) != organization_id:
+        request.session.clear()
+        raise HTTPException(status_code=401, detail="Organization is no longer available. Please sign in again.")
+
+
 def _get_org_db(request: Request) -> str:
     org_db = request.session.get("org_db")
     if org_db:
+        if getattr(request.state, "validated_org_db", None) != org_db:
+            _require_current_organization(request, org_db, request.session.get("org_id"))
+            request.state.validated_org_db = org_db
+            request.state.authenticated_org_id = request.session["org_id"]
         return org_db
 
     token = _extract_bearer_token(request)
     api_context = authenticate_api_key(token) if token else None
     if api_context:
         request.state.api_org_db = api_context["org_db_name"]
+        request.state.authenticated_org_id = api_context["org_id"]
         request.state.api_role = api_context.get("role") or "tenant_admin"
         request.state.api_organization = api_context.get("org_name")
         return api_context["org_db_name"]
@@ -849,11 +870,13 @@ def _require_platform_admin(request: Request):
 
 def _finish_user_login(request: Request, user: dict, membership: dict, auth_method: str, created: bool = False) -> dict:
     """Finalize a user session for one selected organization."""
+    _require_current_organization(request, membership["org_db_name"], membership["org_id"])
     request.session.clear()
     request.session["user_id"] = user["id"]
     request.session["user_email"] = user["email"]
     request.session["organization"] = membership["org_name"]
     request.session["org_db"] = membership["org_db_name"]
+    request.session["org_id"] = membership["org_id"]
     request.session["role"] = membership["role"]
     request.session["auth_method"] = auth_method
     mark_user_login(user["id"])
@@ -904,6 +927,7 @@ def _mfa_setup_response(request: Request, user: dict, membership: dict) -> dict:
     request.session["pending_mfa_setup"] = {
         "user_id": user["id"],
         "org_db": membership["org_db_name"],
+        "org_id": membership["org_id"],
         "organization": membership["org_name"],
         "role": membership["role"],
     }
@@ -928,6 +952,7 @@ def _start_user_login(request: Request, user: dict, membership: dict) -> dict:
         request.session["pending_mfa"] = {
             "user_id": full_user["id"],
             "org_db": membership["org_db_name"],
+            "org_id": membership["org_id"],
             "organization": membership["org_name"],
             "role": membership["role"],
         }
@@ -1074,25 +1099,28 @@ def _queue_scan(org_db: str, body: ScanStartRequest, schedule_id: int | None = N
     targets = _normalize_scan_targets(body.targets)
     body.targets = targets
     scan_name = body.scan_name or f"Scan {body.mode or body.scanner}"
-    scan_id = create_scan_record(
-        org_db,
-        scan_name=scan_name,
-        scan_mode=str(body.mode or body.scanner),
-        targets=targets,
-    )
-    payload = body.dict()
-    scanner = body.scanner if body.scanner else None
-    enqueue_scanner_job(
-        org_db,
-        scan_id,
-        scan_name=scan_name,
-        scan_mode=str(body.mode or body.scanner),
-        scanner=scanner,
-        targets=targets,
-        payload=payload,
-        schedule_id=schedule_id,
-        preferred_node_id=body.preferred_node_id,
-    )
+    try:
+        scan_id = create_scan_record(
+            org_db,
+            scan_name=scan_name,
+            scan_mode=str(body.mode or body.scanner),
+            targets=targets,
+        )
+        payload = body.dict()
+        scanner = body.scanner if body.scanner else None
+        enqueue_scanner_job(
+            org_db,
+            scan_id,
+            scan_name=scan_name,
+            scan_mode=str(body.mode or body.scanner),
+            scanner=scanner,
+            targets=targets,
+            payload=payload,
+            schedule_id=schedule_id,
+            preferred_node_id=body.preferred_node_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if body.preferred_node_id:
         insert_scan_log(org_db, scan_id, f"Queued for selected scanner appliance {body.preferred_node_id}", "info")
     else:
@@ -1442,6 +1470,13 @@ def nlnet_logo():
 @app.get("/api/me")
 def me(request: Request):
     org_db = request.session.get("org_db")
+    if org_db:
+        try:
+            _get_org_db(request)
+        except HTTPException as exc:
+            if exc.status_code != 401:
+                raise
+            return {"authenticated": False}
     if not org_db:
         token = _extract_bearer_token(request)
         api_context = authenticate_api_key(token) if token else None
@@ -1511,7 +1546,7 @@ def login(body: LoginRequest, request: Request):
     if not body.organization:
         raise HTTPException(status_code=400, detail="Email is required")
     try:
-        org_db, created_now = ensure_organization(body.organization, body.password)
+        org_db, created_now, organization_id = ensure_organization(body.organization, body.password)
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
 
@@ -1523,10 +1558,12 @@ def login(body: LoginRequest, request: Request):
         request.session["pending_mfa"] = {
             "organization": body.organization,
             "org_db": org_db,
+            "org_id": organization_id,
             "created": created_now,
         }
         return {"ok": True, "mfa_required": True, "organization": body.organization}
 
+    _require_current_organization(request, org_db, organization_id)
     mark_organization_login(org_db)
     record_audit_event(
         org_db,
@@ -1538,6 +1575,7 @@ def login(body: LoginRequest, request: Request):
     )
     request.session["organization"] = body.organization
     request.session["org_db"] = org_db
+    request.session["org_id"] = organization_id
     request.session["role"] = get_organization_role(org_db)
     request.session["auth_method"] = "password"
     return {
@@ -1565,6 +1603,7 @@ def select_organization(body: SelectOrganizationRequest, request: Request):
         membership = {
             "org_name": org["org_name"],
             "org_db_name": org["org_db_name"],
+            "org_id": org["id"],
             "role": "platform_admin",
             "mfa_required": org.get("mfa_required"),
         }
@@ -1576,13 +1615,15 @@ def verify_mfa(body: MfaVerifyRequest, request: Request):
     pending = request.session.get("pending_mfa")
     if not pending:
         raise HTTPException(status_code=400, detail="No MFA login is pending")
+    _require_current_organization(request, pending["org_db"], pending.get("org_id"))
 
     if pending.get("user_id"):
         user = get_user_by_id(int(pending["user_id"]), include_secrets=True)
         if not user or not _verify_totp(user.get("mfa_secret"), body.code):
             raise HTTPException(status_code=401, detail="Invalid MFA code")
         membership = get_user_membership(int(pending["user_id"]), pending["org_db"])
-        if not membership:
+        if not membership or membership["org_id"] != pending["org_id"]:
+            request.session.clear()
             raise HTTPException(status_code=403, detail="User is not a member of this organization")
         return _finish_user_login(request, user, membership, auth_method="password_mfa")
 
@@ -1590,9 +1631,11 @@ def verify_mfa(body: MfaVerifyRequest, request: Request):
     if not _verify_totp(settings.get("mfa_secret"), body.code):
         raise HTTPException(status_code=401, detail="Invalid MFA code")
 
+    _require_current_organization(request, pending["org_db"], pending["org_id"])
     request.session.clear()
     request.session["organization"] = pending["organization"]
     request.session["org_db"] = pending["org_db"]
+    request.session["org_id"] = pending["org_id"]
     request.session["role"] = get_organization_role(pending["org_db"])
     request.session["auth_method"] = "password_mfa"
     mark_organization_login(pending["org_db"])
@@ -1656,12 +1699,14 @@ def setup_mfa(request: Request):
 def enable_mfa(body: MfaVerifyRequest, request: Request):
     pending_setup = request.session.get("pending_mfa_setup")
     if pending_setup:
+        _require_current_organization(request, pending_setup["org_db"], pending_setup.get("org_id"))
         user = get_user_by_id(int(pending_setup["user_id"]), include_secrets=True)
         if not user or not _verify_totp(user.get("mfa_secret"), body.code):
             raise HTTPException(status_code=401, detail="Invalid MFA code")
         update_user_mfa_secret(user["id"], user.get("mfa_secret"), enabled=True)
         membership = get_user_membership(user["id"], pending_setup["org_db"])
-        if not membership:
+        if not membership or membership["org_id"] != pending_setup["org_id"]:
+            request.session.clear()
             raise HTTPException(status_code=403, detail="User is not a member of this organization")
         return _finish_user_login(request, user, membership, auth_method="password_mfa")
 
@@ -1792,6 +1837,7 @@ def start_sso(request: Request, organization: str):
     request.session["sso_state"] = state
     request.session["sso_nonce"] = nonce
     request.session["sso_org"] = organization
+    request.session["sso_org_id"] = settings["org_id"]
     redirect_uri = os.environ.get("SSO_REDIRECT_URI") or str(request.url_for("sso_callback"))
     query = urlencode({
         "response_type": "code",
@@ -1815,6 +1861,7 @@ def sso_callback(request: Request, code: str | None = None, state: str | None = 
     settings = get_sso_settings_by_org_name(organization, include_secret=True) if organization else None
     if not settings or not settings.get("sso_enabled"):
         raise HTTPException(status_code=404, detail="SSO session organization not found")
+    _require_current_organization(request, settings["org_db_name"], request.session.get("sso_org_id"))
 
     discovery = _oidc_discovery(settings["sso_issuer"])
     redirect_uri = os.environ.get("SSO_REDIRECT_URI") or str(request.url_for("sso_callback"))
@@ -1852,9 +1899,11 @@ def sso_callback(request: Request, code: str | None = None, state: str | None = 
     if allowed_domain and not email.lower().endswith(f"@{allowed_domain}"):
         raise HTTPException(status_code=403, detail="SSO user is outside the allowed domain")
 
+    _require_current_organization(request, settings["org_db_name"], settings["org_id"])
     request.session.clear()
     request.session["organization"] = settings["org_name"]
     request.session["org_db"] = settings["org_db_name"]
+    request.session["org_id"] = settings["org_id"]
     request.session["role"] = settings.get("role") or get_organization_role(settings["org_db_name"])
     request.session["auth_method"] = "sso"
     request.session["sso_subject"] = claims.get("sub")
@@ -1876,7 +1925,10 @@ def create_rest_api_key(request: Request, body: ApiKeyRequest):
     role = body.role if body.role in ROLE_RANK else "security_analyst"
     if _role_rank(role) > _role_rank(_get_role(request)):
         raise HTTPException(status_code=403, detail="Cannot create an API key with a higher role than your own")
-    return create_api_key(org_db, body.name, role=role)
+    try:
+        return create_api_key(org_db, body.name, role=role, expected_org_id=request.state.authenticated_org_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.delete("/api/api-keys/{key_id}")
@@ -2579,7 +2631,13 @@ def org_create_or_update_user(request: Request, body: OrgUserRequest):
             display_name=body.display_name,
             org_db_name=org_db,
             role=role,
+            restrict_to_org=_get_role(request) != "platform_admin",
+            expected_org_id=request.state.authenticated_org_id,
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except OrganizationConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True, "user": user}
@@ -3312,6 +3370,57 @@ def admin_organizations(request: Request):
     return {"items": list_organizations()}
 
 
+@app.post("/api/admin/organizations", status_code=201)
+def admin_create_organization(request: Request, body: CreateOrganizationRequest):
+    _require_platform_admin(request)
+    try:
+        organization = create_organization(body.name)
+    except (OrganizationAlreadyExistsError, OrganizationConflictError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Organization provisioning failed")
+        raise HTTPException(
+            status_code=503,
+            detail="Organization provisioning failed. Please try again or contact your platform administrator.",
+        ) from exc
+    record_audit_event(
+        organization["org_db_name"],
+        "organization.created",
+        actor=request.session.get("user_email") or request.session.get("organization") or "api_key",
+        entity_type="organization",
+        entity_id=organization["org_db_name"],
+    )
+    return {"ok": True, "organization": organization}
+
+
+@app.delete("/api/admin/organizations/{organization_id}")
+def admin_delete_organization(request: Request, organization_id: int):
+    _require_platform_admin(request)
+    org_db = _get_org_db(request)
+    try:
+        organization = delete_organization(organization_id, active_org_db=org_db)
+    except OrganizationConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Organization deletion failed")
+        raise HTTPException(status_code=503, detail="Organization deletion failed. Please retry or contact your platform administrator.") from exc
+    if not organization:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    record_audit_event(
+        org_db,
+        "organization.deleted",
+        actor=request.session.get("user_email") or request.session.get("organization") or "api_key",
+        entity_type="organization",
+        entity_id=organization["org_db_name"],
+        metadata={"org_name": organization["org_name"]},
+    )
+    return {"ok": True}
+
+
 @app.get("/api/admin/auth/policy")
 def admin_auth_policy(request: Request):
     _require_platform_admin(request)
@@ -3343,6 +3452,7 @@ def admin_create_or_update_user(request: Request, body: AdminUserRequest):
             display_name=body.display_name,
             org_db_name=body.org_db,
             role=body.role,
+            restrict_to_org=False,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -3378,8 +3488,12 @@ def admin_overview(request: Request):
 @app.websocket("/ws/scan/{scan_id}")
 async def websocket_endpoint(websocket: WebSocket, scan_id: int):
     """WebSocket endpoint for real-time scan debug output."""
-    org_db = getattr(websocket, "session", {}).get("org_db")
-    if not org_db or not get_scan_record(org_db, scan_id):
+    try:
+        org_db = _get_org_db(websocket)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
+    if not get_scan_record(org_db, scan_id):
         await websocket.close(code=1008)
         return
     await manager.connect(websocket, scan_id)

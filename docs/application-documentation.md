@@ -67,6 +67,49 @@ Vulnerability Disclosure process.
 | `tenant_admin` | Manage tenant settings, users, API keys, endpoint tokens and scanner nodes. |
 | `platform_admin` | Platform-wide tenant overview and administration. |
 
+Platform administrators can create an organization from **Oversight → New
+organization**. Enter a name and select **Create organization**. The organization
+appears in the overview and tenant selector immediately, without another login.
+Use **Settings → Users & Roles** to create or assign its tenant administrators and
+other users. Creating an organization does not issue a shared organization login.
+
+The API equivalent is `POST /api/admin/organizations` with JSON
+`{"name": "Example Organization"}`. It requires `platform_admin` and returns
+HTTP 201 with `{"ok": true, "organization": {...}}` only after initializing the
+tenant database and schema. Blank or invalid names are rejected. Duplicate names
+and names mapping to an existing database identifier return HTTP 409. Concurrent
+lifecycle changes also return 409 and can be retried. Provisioning failures
+return HTTP 503. Display names are limited to 100 characters and must
+map to the existing 3–64 character database identifier format. If creation fails
+after a new database was allocated, Darkstar attempts to remove that partial
+database and does not publish the organization in the registry. A process crash
+or loss of database connectivity can prevent cleanup; check the server logs and
+remove the unregistered partial database before retrying that name.
+
+Tenant administrators can create users and manage accounts belonging exclusively
+to their tenant. Accounts shared across tenants and platform administrator
+accounts must be managed by a platform administrator, because passwords and
+profile fields belong to the same user across all memberships.
+
+Platform administrators can permanently delete a tenant using **Oversight →
+Delete** and confirming the organization name shown in the dialog. Switch to a
+different organization first. Organizations containing platform administrators
+cannot be deleted. Queued or running scans tracked by Darkstar must be stopped
+and finish before deletion is allowed. Stop standalone CLI scans manually before
+deleting their organization; they are not tracked by the central scan queue.
+Deletion removes the tenant database, findings, schedules, endpoint records,
+API keys, scan jobs and memberships. User accounts and other organizations remain.
+The overview and organization selector refresh after deletion.
+
+The API equivalent is `DELETE /api/admin/organizations/{organization_id}`, using
+the numeric `id` from `GET /api/admin/organizations`. It returns HTTP 200 with
+`{"ok": true}`, 404 for a missing organization, or 409 when deletion is blocked.
+Database failures return 503; deletion may already have removed the tenant
+database, so retry to complete registry cleanup. Deletion is recorded in the
+administrator's current organization's audit log. Existing sessions for a
+deleted tenant expire, including when its name is reused. Sessions created
+before this feature was installed require a new login.
+
 ## Testing and Quality Control
 
 Darkstar has a layered test setup for developers and CI/CD:
