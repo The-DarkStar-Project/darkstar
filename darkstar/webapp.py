@@ -2579,7 +2579,10 @@ def org_create_or_update_user(request: Request, body: OrgUserRequest):
             display_name=body.display_name,
             org_db_name=org_db,
             role=role,
+            restrict_to_org=_get_role(request) != "platform_admin",
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True, "user": user}
@@ -3343,6 +3346,7 @@ def admin_create_or_update_user(request: Request, body: AdminUserRequest):
             display_name=body.display_name,
             org_db_name=body.org_db,
             role=body.role,
+            restrict_to_org=False,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

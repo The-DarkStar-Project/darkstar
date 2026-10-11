@@ -1062,6 +1062,8 @@ def create_or_update_user(
     display_name: str | None,
     org_db_name: str,
     role: str,
+    *,
+    restrict_to_org: bool,
 ) -> dict:
     """Create/update a user and upsert their organization membership."""
     email = _normalize_email(email)
@@ -1075,10 +1077,24 @@ def create_or_update_user(
     with DatabaseConnectionManager() as connection:
         cursor = connection.cursor(dictionary=True)
         _ensure_organizations_registry(cursor)
-        cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+        cursor.execute("SELECT id FROM users WHERE email = %s FOR UPDATE", (email,))
         existing = cursor.fetchone()
         if existing:
             user_id = existing["id"]
+            if restrict_to_org:
+                cursor.execute(
+                    "SELECT org_db_name, role FROM organization_memberships WHERE user_id = %s",
+                    (user_id,),
+                )
+                memberships = cursor.fetchall()
+                # Passwords and profile fields belong to the global user. A
+                # tenant must not change an account shared with another tenant.
+                if not memberships or any(
+                    membership["org_db_name"] != org_db_name
+                    or membership["role"] == "platform_admin"
+                    for membership in memberships
+                ):
+                    raise PermissionError("This account must be managed by a platform administrator")
             if password:
                 salt, digest = _hash_password(password)
                 cursor.execute(

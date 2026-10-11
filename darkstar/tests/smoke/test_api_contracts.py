@@ -31,6 +31,46 @@ def api_client(monkeypatch):
 AUTH_HEADERS = {"Authorization": "Bearer test-token"}
 
 
+def test_tenant_user_management_enforces_account_scope(api_client, monkeypatch):
+    calls = []
+
+    def restricted_update(**kwargs):
+        calls.append(kwargs)
+        raise PermissionError("This account must be managed by a platform administrator")
+
+    monkeypatch.setattr(webapp, "create_or_update_user", restricted_update)
+    response = api_client.post(
+        "/api/users",
+        headers=AUTH_HEADERS,
+        json={"email": "other@example.test", "password": "ChangedPassword1!", "role": "viewer"},
+    )
+
+    assert response.status_code == 403
+    assert calls[0]["restrict_to_org"] is True
+    assert calls[0]["org_db_name"] == "tenant_db"
+
+
+@pytest.mark.parametrize("path", ["/api/users", "/api/admin/users"])
+def test_platform_user_management_explicitly_allows_shared_accounts(api_client, monkeypatch, mocker, path):
+    monkeypatch.setattr(
+        webapp,
+        "authenticate_api_key",
+        lambda token: {"org_db_name": "tenant_db", "org_name": "Acme", "role": "platform_admin"},
+    )
+    update = mocker.patch.object(webapp, "create_or_update_user", return_value={"id": 7})
+    response = api_client.post(
+        path,
+        headers=AUTH_HEADERS,
+        json={"email": "shared@example.test", "org_db": "tenant_db", "role": "viewer"},
+    )
+
+    assert response.status_code == 200
+    update.assert_called_once_with(
+        email="shared@example.test", password=None, display_name=None,
+        org_db_name="tenant_db", role="viewer", restrict_to_org=False,
+    )
+
+
 def test_vulnerability_routes_filter_group_and_detail(api_client, monkeypatch):
     filtered_call = {}
 

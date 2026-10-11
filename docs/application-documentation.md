@@ -67,6 +67,11 @@ Vulnerability Disclosure process.
 | `tenant_admin` | Manage tenant settings, users, API keys, endpoint tokens and scanner nodes. |
 | `platform_admin` | Platform-wide tenant overview and administration. |
 
+Tenant administrators can create users and manage accounts belonging exclusively
+to their tenant. Accounts shared across tenants and platform administrator
+accounts must be managed by a platform administrator, because passwords and
+profile fields belong to the same user across all memberships.
+
 ## Testing and Quality Control
 
 Darkstar has a layered test setup for developers and CI/CD:
